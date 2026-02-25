@@ -144,13 +144,10 @@ export async function GET(req: NextRequest) {
         page,
       });
 
-      const data = fileRows.map((row) =>
-        mapStoredRecord(
-          (typeof row === 'object' && row !== null
-            ? (row as Record<string, unknown>)
-            : {})
-        )
-      );
+      const data = fileRows.map((row) => {
+        const safe = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+        return mapStoredRecord(safe);
+      });
 
       return NextResponse.json({
         success: true,
