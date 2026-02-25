@@ -1,0 +1,136 @@
+'use client';
+
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+function applyThemeToDom(theme: 'dark' | 'light') {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  root.classList.toggle('dark', theme === 'dark');
+  root.dataset.theme = theme;
+  root.style.colorScheme = theme;
+}
+
+function readSystemTheme(): 'dark' | 'light' {
+  if (typeof window === 'undefined') return 'dark';
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function resolveTheme(theme: unknown): 'dark' | 'light' {
+  if (theme === 'dark' || theme === 'light') return theme;
+  if (typeof document !== 'undefined') {
+    const domTheme = document.documentElement.dataset.theme;
+    if (domTheme === 'dark' || domTheme === 'light') return domTheme;
+  }
+  return readSystemTheme();
+}
+
+interface AppState {
+  // Theme
+  theme: 'dark' | 'light';
+  toggleTheme: () => void;
+  setTheme: (theme: 'dark' | 'light') => void;
+  
+  // Language
+  language: 'hi' | 'en';
+  toggleLanguage: () => void;
+  setLanguage: (lang: 'hi' | 'en') => void;
+  
+  // UI State
+  isMobileMenuOpen: boolean;
+  setMobileMenuOpen: (open: boolean) => void;
+  toggleMobileMenu: () => void;
+    // Device
+  isMobile: boolean;
+  isTablet: boolean;
+  setIsMobile: (value: boolean) => void;
+  setIsTablet: (value: boolean) => void;
+
+  
+  // Search
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
+  
+  // Player
+  currentPlaying: string | null;
+  setCurrentPlaying: (id: string | null) => void;
+  
+  // Breaking News
+  isBreakingNewsPaused: boolean;
+  setBreakingNewsPaused: (paused: boolean) => void;
+
+  // Immersive video mode (mobile/tablet shorts)
+  isImmersiveVideoMode: boolean;
+  setImmersiveVideoMode: (value: boolean) => void;
+}
+
+export const useAppStore = create<AppState>()(
+  persist(
+    (set) => ({
+      // Theme
+      theme: 'dark',
+      toggleTheme: () =>
+        set((state) => {
+          const nextTheme = state.theme === 'dark' ? 'light' : 'dark';
+          applyThemeToDom(nextTheme);
+          return { theme: nextTheme };
+        }),
+      setTheme: (theme) =>
+        set(() => {
+          applyThemeToDom(theme);
+          return { theme };
+        }),
+            // Device
+      isMobile: false,
+      isTablet: false,
+      setIsMobile: (isMobile) => set({ isMobile }),
+      setIsTablet: (isTablet) => set({ isTablet }),
+
+      
+      // Language
+      language: 'hi',
+      toggleLanguage: () => set((state) => ({ 
+        language: state.language === 'hi' ? 'en' : 'hi' 
+      })),
+      setLanguage: (language) => set({ language }),
+      
+      // UI State
+      isMobileMenuOpen: false,
+      setMobileMenuOpen: (isMobileMenuOpen) => set({ isMobileMenuOpen }),
+      toggleMobileMenu: () => set((state) => ({ 
+        isMobileMenuOpen: !state.isMobileMenuOpen 
+      })),
+      
+      // Search
+      searchQuery: '',
+      setSearchQuery: (searchQuery) => set({ searchQuery }),
+      
+      // Player
+      currentPlaying: null,
+      setCurrentPlaying: (currentPlaying) => set({ currentPlaying }),
+      
+      // Breaking News
+      isBreakingNewsPaused: false,
+      setBreakingNewsPaused: (isBreakingNewsPaused) => set({ isBreakingNewsPaused }),
+
+      // Immersive video mode
+      isImmersiveVideoMode: false,
+      setImmersiveVideoMode: (isImmersiveVideoMode) =>
+        set((state) =>
+          state.isImmersiveVideoMode === isImmersiveVideoMode
+            ? state
+            : { isImmersiveVideoMode }
+        ),
+    }),
+    {
+      name: 'lokswami-storage',
+      partialize: (state) => ({ 
+        theme: state.theme, 
+        language: state.language
+      }),
+      onRehydrateStorage: () => (state) => {
+        applyThemeToDom(resolveTheme(state?.theme));
+      },
+    }
+  )
+);

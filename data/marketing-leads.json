@@ -1,0 +1,17 @@
+[
+  {
+    "_id": "a4cc60f4-4e33-498a-9fdc-09c7d783ab47",
+    "email": "zaidshery.ind@gmail.com",
+    "name": "zaid",
+    "interests": [
+      "business",
+      "tech"
+    ],
+    "source": "engagement-popup",
+    "campaign": "daily-alerts",
+    "wantsDailyAlerts": true,
+    "consent": true,
+    "createdAt": "2026-02-25T21:18:22.822Z",
+    "updatedAt": "2026-02-25T21:18:22.822Z"
+  }
+]

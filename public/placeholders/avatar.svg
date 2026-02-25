@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-labelledby="title desc">
+  <title id="title">Avatar Placeholder</title>
+  <desc id="desc">Decorative avatar placeholder.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#1f2937" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+    <linearGradient id="ring" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%" stop-color="#dc2626" />
+      <stop offset="100%" stop-color="#f97316" />
+    </linearGradient>
+  </defs>
+  <rect width="320" height="320" rx="160" fill="url(#bg)" />
+  <circle cx="160" cy="160" r="150" fill="none" stroke="url(#ring)" stroke-width="8" />
+  <circle cx="160" cy="128" r="52" fill="#334155" />
+  <path d="M74 264c14-48 52-76 86-76s72 28 86 76" fill="#334155" />
+</svg>
+

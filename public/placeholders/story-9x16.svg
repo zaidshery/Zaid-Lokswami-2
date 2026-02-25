@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1600" role="img" aria-labelledby="title desc">
+  <title id="title">Story Placeholder</title>
+  <desc id="desc">Decorative placeholder image for visual stories.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#0b1220" />
+      <stop offset="100%" stop-color="#1f2937" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%" stop-color="#dc2626" />
+      <stop offset="100%" stop-color="#f97316" />
+    </linearGradient>
+  </defs>
+  <rect width="900" height="1600" fill="url(#bg)" />
+  <rect x="0" y="0" width="900" height="18" fill="url(#accent)" />
+  <rect x="54" y="74" width="792" height="1452" rx="44" fill="#101a2b" stroke="#23324a" stroke-width="4" />
+  <rect x="114" y="160" width="672" height="520" rx="24" fill="#15243a" />
+  <circle cx="450" cy="420" r="82" fill="#dc2626" />
+  <polygon points="430,380 505,420 430,460" fill="#ffffff" />
+  <rect x="114" y="760" width="510" height="30" rx="8" fill="#24364f" />
+  <rect x="114" y="812" width="620" height="22" rx="7" fill="#1f3148" />
+  <rect x="114" y="850" width="590" height="22" rx="7" fill="#1f3148" />
+  <rect x="114" y="888" width="560" height="22" rx="7" fill="#1f3148" />
+  <text x="114" y="1460" fill="#cbd5e1" font-size="44" font-family="Segoe UI, Arial, sans-serif" font-weight="700">Lokswami Story</text>
+</svg>
+

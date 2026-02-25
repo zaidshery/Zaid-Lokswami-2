@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1200" role="img" aria-labelledby="title desc">
+  <title id="title">E-paper Placeholder</title>
+  <desc id="desc">Decorative placeholder image for e-paper pages.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f8fafc" />
+      <stop offset="100%" stop-color="#e2e8f0" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%" stop-color="#dc2626" />
+      <stop offset="100%" stop-color="#f97316" />
+    </linearGradient>
+  </defs>
+  <rect width="900" height="1200" fill="url(#bg)" />
+  <rect x="56" y="56" width="788" height="1088" rx="18" fill="#ffffff" stroke="#cbd5e1" stroke-width="3" />
+  <rect x="56" y="56" width="788" height="16" fill="url(#accent)" />
+  <rect x="106" y="120" width="340" height="34" rx="8" fill="#e2e8f0" />
+  <rect x="106" y="186" width="680" height="20" rx="6" fill="#e2e8f0" />
+  <rect x="106" y="220" width="640" height="20" rx="6" fill="#e2e8f0" />
+  <rect x="106" y="300" width="430" height="300" rx="14" fill="#f1f5f9" />
+  <rect x="560" y="300" width="226" height="300" rx="14" fill="#f1f5f9" />
+  <rect x="106" y="650" width="680" height="18" rx="5" fill="#e2e8f0" />
+  <rect x="106" y="682" width="640" height="18" rx="5" fill="#e2e8f0" />
+  <rect x="106" y="714" width="610" height="18" rx="5" fill="#e2e8f0" />
+  <rect x="106" y="792" width="680" height="18" rx="5" fill="#e2e8f0" />
+  <rect x="106" y="824" width="640" height="18" rx="5" fill="#e2e8f0" />
+  <text x="106" y="1088" fill="#64748b" font-size="34" font-family="Segoe UI, Arial, sans-serif" font-weight="700">Lokswami E-paper</text>
+</svg>
+

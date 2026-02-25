@@ -1,0 +1,56 @@
+[
+  {
+    "_id": "default-business-1771587168183-e1c22e",
+    "name": "Business",
+    "slug": "business",
+    "description": "Business news and updates",
+    "icon": "💼"
+  },
+  {
+    "_id": "default-entertainment-1771587168183-dd058d",
+    "name": "Entertainment",
+    "slug": "entertainment",
+    "description": "Entertainment news and updates",
+    "icon": "🎬"
+  },
+  {
+    "_id": "default-international-1771587168183-63e4ac",
+    "name": "International",
+    "slug": "international",
+    "description": "International news and updates",
+    "icon": "🌍"
+  },
+  {
+    "_id": "default-national-1771587168183-0c2665",
+    "name": "National",
+    "slug": "national",
+    "description": "National news and updates",
+    "icon": "🇮🇳"
+  },
+  {
+    "_id": "default-sports-1771587168183-2837aa",
+    "name": "Sports",
+    "slug": "sports",
+    "description": "Sports news and updates",
+    "icon": "🏏"
+  },
+  {
+    "_id": "default-technology-1771587168183-5fc295",
+    "name": "Tech",
+    "slug": "technology",
+    "description": "Tech news and updates",
+    "icon": "💻"
+  },
+  {
+    "_id": "1771635251483",
+    "name": "Indore",
+    "description": "Local ",
+    "slug": "indore"
+  },
+  {
+    "_id": "1771635286259",
+    "name": "Madhya Pradesh",
+    "description": "MP News",
+    "slug": "madhya-pradesh"
+  }
+]
