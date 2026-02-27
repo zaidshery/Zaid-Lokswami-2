@@ -37,6 +37,51 @@ function isExternalHref(value: string) {
   return normalized.startsWith('http://') || normalized.startsWith('https://');
 }
 
+function getYouTubeEmbedUrl(value: string) {
+  const raw = value.trim();
+  if (!raw) return '';
+
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return '';
+  }
+
+  const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+  let id = '';
+
+  if (host === 'youtu.be') {
+    id = parsed.pathname.slice(1);
+  } else if (host === 'youtube.com' || host === 'm.youtube.com') {
+    if (parsed.pathname === '/watch') {
+      id = parsed.searchParams.get('v') || '';
+    } else if (parsed.pathname.startsWith('/shorts/')) {
+      id = parsed.pathname.split('/')[2] || '';
+    } else if (parsed.pathname.startsWith('/embed/')) {
+      id = parsed.pathname.split('/')[2] || '';
+    }
+  }
+
+  const safeId = id.replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!safeId) return '';
+
+  const params = new URLSearchParams({
+    autoplay: '1',
+    mute: '1',
+    controls: '0',
+    rel: '0',
+    modestbranding: '1',
+    playsinline: '1',
+    iv_load_policy: '3',
+    fs: '0',
+    loop: '1',
+    playlist: safeId,
+  });
+
+  return `https://www.youtube.com/embed/${safeId}?${params.toString()}`;
+}
+
 export default function StoryViewer({
   stories,
   initialIndex,
@@ -64,14 +109,29 @@ export default function StoryViewer({
   const storyHref = (activeStory?.href || activeStory?.linkUrl || '').trim();
   const hasStoryHref = Boolean(storyHref);
   const ctaLabel = (activeStory?.linkLabel || '').trim() || 'Read Full Story';
+  const youtubeEmbedUrl = useMemo(
+    () => getYouTubeEmbedUrl(activeStory?.mediaUrl || ''),
+    [activeStory?.mediaUrl]
+  );
+  const isYouTubeStory = Boolean(youtubeEmbedUrl);
+  const canUseNativeVideo =
+    activeStory?.mediaType === 'video' &&
+    Boolean(activeStory.mediaUrl) &&
+    !mediaErrors[activeStory.id] &&
+    !isYouTubeStory;
 
   const durationMs = useMemo(() => {
     const fallback = normalizeDurationSeconds(activeStory?.durationSeconds) * 1000;
-    if (activeStory?.mediaType === 'video' && videoDurationMs && videoDurationMs > 1000) {
+    if (
+      activeStory?.mediaType === 'video' &&
+      !isYouTubeStory &&
+      videoDurationMs &&
+      videoDurationMs > 1000
+    ) {
       return Math.min(videoDurationMs, 30000);
     }
     return fallback;
-  }, [activeStory?.durationSeconds, activeStory?.mediaType, videoDurationMs]);
+  }, [activeStory?.durationSeconds, activeStory?.mediaType, isYouTubeStory, videoDurationMs]);
 
   const goToIndex = useCallback(
     (index: number) => {
@@ -195,7 +255,7 @@ export default function StoryViewer({
   }, [activeStory, activeStory?.id, durationMs, goNext, isOpen, isPaused]);
 
   useEffect(() => {
-    if (!isOpen || activeStory?.mediaType !== 'video') return;
+    if (!isOpen || activeStory?.mediaType !== 'video' || isYouTubeStory) return;
     const video = videoRef.current;
     if (!video) return;
 
@@ -206,7 +266,7 @@ export default function StoryViewer({
         setMediaErrors((prev) => ({ ...prev, [activeStory.id]: true }));
       });
     }
-  }, [activeStory?.id, activeStory?.mediaType, isOpen, isPaused]);
+  }, [activeStory?.id, activeStory?.mediaType, isOpen, isPaused, isYouTubeStory]);
 
   const onTouchStart = (event: TouchEvent<HTMLDivElement>) => {
     const touch = event.touches[0];
@@ -277,8 +337,16 @@ export default function StoryViewer({
           >
             <div className="absolute inset-0">
               {activeStory.mediaType === 'video' &&
-              activeStory.mediaUrl &&
-              !mediaErrors[activeStory.id] ? (
+              isYouTubeStory ? (
+                <iframe
+                  key={`${activeStory.id}-youtube`}
+                  src={youtubeEmbedUrl}
+                  className="h-full w-full"
+                  title={activeStory.title}
+                  allow="autoplay; encrypted-media; picture-in-picture"
+                  allowFullScreen={false}
+                />
+              ) : canUseNativeVideo ? (
                 <video
                   ref={videoRef}
                   src={activeStory.mediaUrl}
@@ -372,7 +440,7 @@ export default function StoryViewer({
                   <div className="flex items-center gap-2">
                     {variant !== 'reel' ? (
                       <>
-                        {activeStory.mediaType === 'video' ? (
+                        {activeStory.mediaType === 'video' && !isYouTubeStory ? (
                           <button
                             type="button"
                             onClick={() => setIsMuted((prev) => !prev)}
@@ -487,7 +555,7 @@ export default function StoryViewer({
             {variant === 'reel' ? (
               <>
                 <div className="absolute bottom-[max(5rem,env(safe-area-inset-bottom)+3.6rem)] right-3 z-20 flex flex-col items-center gap-2.5">
-                  {activeStory.mediaType === 'video' ? (
+                  {activeStory.mediaType === 'video' && !isYouTubeStory ? (
                     <button
                       type="button"
                       onClick={() => setIsMuted((prev) => !prev)}

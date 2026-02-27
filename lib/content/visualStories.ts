@@ -72,7 +72,7 @@ type ApiStory = {
   title?: string;
   caption?: string;
   thumbnail?: string;
-  mediaType?: 'image' | 'video';
+  mediaType?: 'image' | 'video' | string;
   mediaUrl?: string;
   linkUrl?: string;
   linkLabel?: string;
@@ -84,6 +84,55 @@ type ApiStory = {
   publishedAt?: string;
   isPublished?: boolean;
 };
+
+function parseVideoHostFromUrl(value: string) {
+  try {
+    const parsed = new URL(value.trim());
+    const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+    return host;
+  } catch {
+    return '';
+  }
+}
+
+function isLikelyVideoUrl(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return false;
+
+  if (
+    normalized.includes('youtube.com/watch') ||
+    normalized.includes('youtube.com/shorts/') ||
+    normalized.includes('youtu.be/') ||
+    normalized.includes('youtube.com/embed/') ||
+    normalized.includes('vimeo.com/')
+  ) {
+    return true;
+  }
+
+  return /\.(mp4|webm|mov|m4v|m3u8)(\?|#|$)/i.test(normalized);
+}
+
+function normalizeMediaType(
+  rawMediaType: ApiStory['mediaType'],
+  mediaUrl: string,
+  linkUrl: string
+): 'image' | 'video' {
+  const normalizedMediaType = String(rawMediaType || '')
+    .trim()
+    .toLowerCase();
+
+  if (normalizedMediaType === 'video') return 'video';
+
+  if (isLikelyVideoUrl(mediaUrl)) return 'video';
+
+  // Some stories keep external video URL in linkUrl; infer video for playback.
+  const linkHost = parseVideoHostFromUrl(linkUrl);
+  if (isLikelyVideoUrl(linkUrl) || linkHost === 'youtube.com' || linkHost === 'youtu.be') {
+    return 'video';
+  }
+
+  return 'image';
+}
 
 function normalizeHref(rawValue: string, title: string) {
   const value = rawValue.trim();
@@ -115,9 +164,10 @@ export function mapLiveStoriesToVisualStories(
       const id = row._id || row.id || `live-story-${index}`;
       const title = (row.title || '').trim();
       const thumbnail = normalizeStoryMedia(row.thumbnail || '');
-      const mediaType: 'image' | 'video' =
-        row.mediaType === 'video' ? 'video' : 'image';
-      const mediaUrl = normalizeStoryMedia(row.mediaUrl || '') || thumbnail;
+      const linkUrl = (row.linkUrl || '').trim();
+      const rawMediaUrl = (row.mediaUrl || '').trim();
+      const mediaUrl = normalizeStoryMedia(rawMediaUrl || '') || thumbnail;
+      const mediaType = normalizeMediaType(row.mediaType, rawMediaUrl, linkUrl);
       const isPublished = row.isPublished === false ? false : true;
 
       if (!id || !title || !thumbnail || !isPublished) return null;
@@ -129,7 +179,7 @@ export function mapLiveStoriesToVisualStories(
         thumbnail,
         mediaType,
         mediaUrl,
-        linkUrl: (row.linkUrl || '').trim(),
+        linkUrl,
         linkLabel: (row.linkLabel || '').trim(),
         category: (row.category || 'General').trim(),
         author: (row.author || 'Desk').trim(),
