@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Loader2,
   Newspaper,
+  Share2,
   X,
 } from 'lucide-react';
 import {
@@ -42,12 +43,15 @@ const COPY = {
     noThumbnail: 'No thumbnail',
     noPaper: 'No published e-paper for this city yet.',
     openPdf: 'Open PDF',
+    shareWhatsApp: 'Share',
     pageMissingPrefix: 'Page image missing: rendering fallback from PDF for page',
     noPreview: 'No preview available for this page.',
     noArticle: 'No article content available.',
     story: 'Story',
     previous: 'Previous page',
     next: 'Next page',
+    zoomOut: 'Zoom out',
+    zoomIn: 'Zoom in',
     close: 'Close viewer',
     storiesOnPage: 'Stories on this page',
     noStories: 'No mapped stories on this page.',
@@ -66,6 +70,7 @@ const COPY = {
     noPaper:
       '\u0907\u0938 \u0936\u0939\u0930 \u0915\u0947 \u0932\u093f\u090f \u0905\u092d\u0940 \u0915\u094b\u0908 \u092a\u094d\u0930\u0915\u093e\u0936\u093f\u0924 \u0908-\u092a\u0947\u092a\u0930 \u0928\u0939\u0940\u0902 \u0939\u0948\u0964',
     openPdf: 'PDF \u0916\u094b\u0932\u0947\u0902',
+    shareWhatsApp: '\u0936\u0947\u092f\u0930',
     pageMissingPrefix:
       '\u092a\u0947\u091c \u0907\u092e\u0947\u091c \u092e\u093f\u0938\u093f\u0902\u0917 \u0939\u0948: \u092a\u0947\u091c \u0915\u0947 \u0932\u093f\u090f PDF \u092b\u0949\u0932\u092c\u0948\u0915 \u0930\u0947\u0902\u0921\u0930 \u0939\u094b \u0930\u0939\u093e \u0939\u0948',
     noPreview:
@@ -75,12 +80,19 @@ const COPY = {
     story: '\u0938\u094d\u091f\u094b\u0930\u0940',
     previous: 'Previous page',
     next: 'Next page',
+    zoomOut: 'Zoom out',
+    zoomIn: 'Zoom in',
     close: 'Close viewer',
     storiesOnPage: 'Stories on this page',
     noStories: 'No mapped stories on this page.',
     showingDate: 'Showing date',
   },
 } as const;
+
+const EPAPER_LAST_PAGE_STORAGE_KEY = 'lokswami_epaper_last_page_v1';
+const MIN_PREVIEW_ZOOM = 1;
+const MAX_PREVIEW_ZOOM = 2.2;
+const PREVIEW_ZOOM_STEP = 0.2;
 
 function formatDateLabel(value: string) {
   const date = new Date(value);
@@ -109,6 +121,58 @@ function isAbortError(error: unknown) {
   return false;
 }
 
+function resolvePublicUrl(value: string, origin: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  try {
+    return new URL(trimmed, origin).toString();
+  } catch {
+    return '';
+  }
+}
+
+function readSavedPagesFromStorage() {
+  if (typeof window === 'undefined') return {} as Record<string, number>;
+  try {
+    const raw = window.localStorage.getItem(EPAPER_LAST_PAGE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+    const cleaned: Record<string, number> = {};
+    for (const [paperId, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!paperId.trim()) continue;
+      const page = Number.parseInt(String(value), 10);
+      if (Number.isFinite(page) && page > 0) {
+        cleaned[paperId] = Math.floor(page);
+      }
+    }
+    return cleaned;
+  } catch {
+    return {};
+  }
+}
+
+function getSavedPageForPaper(paperId: string) {
+  if (!paperId.trim()) return 0;
+  const pages = readSavedPagesFromStorage();
+  const saved = pages[paperId];
+  return Number.isFinite(saved) && saved > 0 ? Math.floor(saved) : 0;
+}
+
+function saveLastPageForPaper(paperId: string, pageNumber: number) {
+  if (typeof window === 'undefined') return;
+  if (!paperId.trim()) return;
+  const safePage = Number.isFinite(pageNumber) && pageNumber > 0 ? Math.floor(pageNumber) : 1;
+  try {
+    const all = readSavedPagesFromStorage();
+    all[paperId] = safePage;
+    window.localStorage.setItem(EPAPER_LAST_PAGE_STORAGE_KEY, JSON.stringify(all));
+  } catch {
+    // Ignore localStorage write errors.
+  }
+}
+
 export default function EPaperViewerPage() {
   const language = useAppStore((state) => state.language);
   const t = COPY[language];
@@ -125,6 +189,7 @@ export default function EPaperViewerPage() {
   const [pdfFallbackPreview, setPdfFallbackPreview] = useState('');
   const [loadingFallback, setLoadingFallback] = useState(false);
   const [fallbackError, setFallbackError] = useState('');
+  const [previewZoom, setPreviewZoom] = useState(1);
 
   const [pendingPaperId, setPendingPaperId] = useState('');
 
@@ -190,7 +255,7 @@ export default function EPaperViewerPage() {
     };
   }, [selectedCity, selectedPublishDate]);
 
-  const openPaper = async (paperId: string, initialPage = 1) => {
+  const openPaper = async (paperId: string, initialPage?: number) => {
     setError('');
     try {
       const response = await fetch(`/api/epapers/${paperId}`);
@@ -199,11 +264,17 @@ export default function EPaperViewerPage() {
         throw new Error(payload.error || 'Failed to open e-paper');
       }
 
+      const explicitInitialPage =
+        Number.isFinite(initialPage) && Number(initialPage) > 0 ? Math.floor(Number(initialPage)) : 0;
+      const savedPage = explicitInitialPage ? 0 : getSavedPageForPaper(paperId);
+      const pageToOpen = explicitInitialPage || savedPage || 1;
+
       setActivePaper(payload.data);
       setActivePage(
-        clampPage(initialPage, 1, Math.max(1, Number(payload.data.pageCount || 1)))
+        clampPage(pageToOpen, 1, Math.max(1, Number(payload.data.pageCount || 1)))
       );
       setActiveArticle(null);
+      setPreviewZoom(1);
       setPdfFallbackPreview('');
       setFallbackError('');
     } catch (err: unknown) {
@@ -225,6 +296,12 @@ export default function EPaperViewerPage() {
     setPendingPaperId('');
   }, [pendingPaperId, epapers, loadingList, activePage]);
 
+  useEffect(() => {
+    if (!activePaper) return;
+    const maxPages = Math.max(1, Number(activePaper.pageCount || 1));
+    saveLastPageForPaper(activePaper._id, clampPage(activePage, 1, maxPages));
+  }, [activePaper, activePage]);
+
   const activePageImage = useMemo(() => {
     if (!activePaper) return '';
     const page = activePaper.pages.find((item) => item.pageNumber === activePage);
@@ -244,6 +321,11 @@ export default function EPaperViewerPage() {
   const previewIsDataUrl = previewSrc.startsWith('data:');
   const previewWidth = activePageMeta?.width || 1200;
   const previewHeight = activePageMeta?.height || 1600;
+  const resolvedPdfUrl = useMemo(() => {
+    if (!activePaper) return '';
+    if (typeof window === 'undefined') return activePaper.pdfPath || '';
+    return resolvePublicUrl(String(activePaper.pdfPath || ''), window.location.origin);
+  }, [activePaper]);
 
   useEffect(() => {
     let cancelled = false;
@@ -308,6 +390,49 @@ export default function EPaperViewerPage() {
       window.removeEventListener('keydown', handleKeydown);
     };
   }, [activePaper]);
+
+  const openPdfInNewTab = () => {
+    if (!resolvedPdfUrl) return;
+    const opened = window.open(resolvedPdfUrl, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      window.location.href = resolvedPdfUrl;
+    }
+  };
+
+  const shareActivePaperOnWhatsApp = async () => {
+    if (!activePaper) return;
+
+    const params = new URLSearchParams({
+      paper: activePaper._id,
+      city: activePaper.citySlug,
+      page: String(activePage),
+    });
+    if (activePaper.publishDate) {
+      params.set('date', activePaper.publishDate);
+    }
+
+    const shareUrl = `${window.location.origin}/main/epaper?${params.toString()}`;
+    const shareText = `${activePaper.title}\n${shareUrl}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: activePaper.title,
+          text: shareText,
+          url: shareUrl,
+        });
+        return;
+      } catch (error: unknown) {
+        if (isAbortError(error)) return;
+      }
+    }
+
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
+    const opened = window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      window.location.href = whatsappUrl;
+    }
+  };
 
   return (
     <div className="relative pb-2 md:pb-4">
@@ -429,7 +554,7 @@ export default function EPaperViewerPage() {
               <button
                 key={paper._id}
                 type="button"
-                onClick={() => void openPaper(paper._id, 1)}
+                onClick={() => void openPaper(paper._id)}
                 className="cnp-card cnp-card-hover min-w-0 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/70 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900"
               >
                 <div className="aspect-[3/4] overflow-hidden bg-gray-100 dark:bg-zinc-800 sm:aspect-[4/5]">
@@ -507,16 +632,60 @@ export default function EPaperViewerPage() {
                     <ChevronRight className="h-4 w-4" />
                   </button>
 
-                  <a
-                    href={activePaper.pdfPath}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex h-8 items-center gap-1 rounded-md border border-primary-200 bg-primary-50 px-2.5 text-xs font-semibold text-primary-700 transition hover:bg-primary-100 dark:border-primary-800 dark:bg-primary-950/40 dark:text-primary-300 dark:hover:bg-primary-900/40"
+                  <div className="hidden items-center gap-1 rounded-md border border-gray-300 px-1 py-0.5 md:flex dark:border-zinc-700">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPreviewZoom((current) =>
+                          Math.max(MIN_PREVIEW_ZOOM, Number((current - PREVIEW_ZOOM_STEP).toFixed(2)))
+                        )
+                      }
+                      aria-label={t.zoomOut}
+                      disabled={previewZoom <= MIN_PREVIEW_ZOOM}
+                      className="inline-flex h-6 w-6 items-center justify-center rounded text-sm font-bold text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    >
+                      -
+                    </button>
+                    <span className="min-w-[48px] text-center text-[11px] font-semibold text-gray-700 dark:text-zinc-300">
+                      {Math.round(previewZoom * 100)}%
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPreviewZoom((current) =>
+                          Math.min(MAX_PREVIEW_ZOOM, Number((current + PREVIEW_ZOOM_STEP).toFixed(2)))
+                        )
+                      }
+                      aria-label={t.zoomIn}
+                      disabled={previewZoom >= MAX_PREVIEW_ZOOM}
+                      className="inline-flex h-6 w-6 items-center justify-center rounded text-sm font-bold text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={openPdfInNewTab}
+                    disabled={!resolvedPdfUrl}
+                    className="inline-flex h-8 items-center gap-1 rounded-md border border-primary-200 bg-primary-50 px-2.5 text-xs font-semibold text-primary-700 transition hover:bg-primary-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-primary-800 dark:bg-primary-950/40 dark:text-primary-300 dark:hover:bg-primary-900/40"
                   >
                     <span className="hidden sm:inline">{t.openPdf}</span>
                     <span className="sm:hidden">PDF</span>
                     <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void shareActivePaperOnWhatsApp();
+                    }}
+                    aria-label={t.shareWhatsApp}
+                    className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/40"
+                  >
+                    <Share2 className="h-3.5 w-3.5" />
+                    <span>{t.shareWhatsApp}</span>
+                  </button>
 
                   <button
                     type="button"
@@ -539,8 +708,8 @@ export default function EPaperViewerPage() {
               </div>
             ) : null}
 
-            <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_18rem]">
-              <div className="relative overflow-auto bg-gradient-to-b from-zinc-100 via-white to-zinc-100 p-2 sm:p-3 md:p-4 dark:from-zinc-950 dark:via-zinc-950 dark:to-zinc-900">
+            <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div className="relative overflow-auto overscroll-contain bg-gradient-to-b from-zinc-100 via-white to-zinc-100 p-2 [-webkit-overflow-scrolling:touch] sm:p-3 md:p-4 dark:from-zinc-950 dark:via-zinc-950 dark:to-zinc-900">
                 {loadingFallback ? (
                   <div className="flex h-full min-h-48 items-center justify-center">
                     <Loader2 className="h-7 w-7 animate-spin text-primary-600" />
@@ -551,14 +720,17 @@ export default function EPaperViewerPage() {
                   </div>
                 ) : activePageImage || pdfFallbackPreview ? (
                   <div className="mx-auto flex min-h-full w-full max-w-[980px] items-start justify-center">
-                    <div className="w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                      <div className="relative mx-auto w-fit max-w-full">
+                    <div className="w-fit rounded-xl border border-gray-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+                      <div className="relative mx-auto w-fit">
                         {previewIsDataUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
                             src={previewSrc}
                             alt={`Page ${activePage}`}
-                            className="block h-auto max-h-[calc(100dvh-230px)] w-auto max-w-full object-contain sm:max-h-[calc(100dvh-250px)] xl:max-h-[calc(100dvh-210px)]"
+                            style={{
+                              maxHeight: `calc((100dvh - 210px) * ${previewZoom})`,
+                            }}
+                            className="block h-auto w-auto object-contain"
                           />
                         ) : (
                           <Image
@@ -567,7 +739,10 @@ export default function EPaperViewerPage() {
                             width={previewWidth}
                             height={previewHeight}
                             unoptimized
-                            className="block h-auto max-h-[calc(100dvh-230px)] w-auto max-w-full object-contain sm:max-h-[calc(100dvh-250px)] xl:max-h-[calc(100dvh-210px)]"
+                            style={{
+                              maxHeight: `calc((100dvh - 210px) * ${previewZoom})`,
+                            }}
+                            className="block h-auto w-auto object-contain"
                           />
                         )}
 
@@ -596,9 +771,44 @@ export default function EPaperViewerPage() {
                     {t.noPreview}
                   </div>
                 )}
+
+                <div className="mt-3 rounded-lg border border-gray-200 bg-white/90 p-3 dark:border-zinc-800 dark:bg-zinc-900/75 lg:hidden">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      {t.storiesOnPage}
+                    </p>
+                    <p className="text-xs font-medium text-gray-700 dark:text-zinc-300">
+                      {activePage} / {activePaper.pageCount}
+                    </p>
+                  </div>
+
+                  {pageArticles.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-600 dark:border-zinc-700 dark:text-zinc-400">
+                      {t.noStories}
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {pageArticles.map((article, index) => (
+                        <button
+                          key={`${article._id}-mobile`}
+                          type="button"
+                          onClick={() => setActiveArticle(article)}
+                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-left transition hover:border-primary-300 hover:bg-primary-50/70 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-primary-700 dark:hover:bg-primary-950/25"
+                        >
+                          <span className="block text-[11px] font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">
+                            {t.story} {index + 1}
+                          </span>
+                          <span className="mt-1 block text-sm font-medium text-gray-900 dark:text-zinc-100">
+                            {article.title || `${t.story} ${index + 1}`}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <aside className="hidden min-h-0 border-l border-gray-200 bg-gray-50/80 dark:border-zinc-800 dark:bg-zinc-900/70 xl:flex xl:flex-col">
+              <aside className="hidden min-h-0 border-l border-gray-200 bg-gray-50/80 dark:border-zinc-800 dark:bg-zinc-900/70 lg:flex lg:flex-col">
                 <div className="border-b border-gray-200 px-3 py-3 dark:border-zinc-800">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                     {t.storiesOnPage}
@@ -682,3 +892,4 @@ export default function EPaperViewerPage() {
     </div>
   );
 }
+
