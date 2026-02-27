@@ -29,7 +29,7 @@ const StorySchema = new mongoose.Schema<IStory>({
   linkLabel: { type: String, default: '' },
   category: { type: String, default: 'General' },
   author: { type: String, default: 'Desk' },
-  durationSeconds: { type: Number, default: 6, min: 2, max: 30 },
+  durationSeconds: { type: Number, default: 6, min: 2, max: 180 },
   priority: { type: Number, default: 0 },
   views: { type: Number, default: 0 },
   isPublished: { type: Boolean, default: true },

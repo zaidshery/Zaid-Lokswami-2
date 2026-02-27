@@ -147,8 +147,8 @@ export default function CreateStoryPage() {
       const durationSeconds = Number.parseInt(formData.durationSeconds, 10);
       const priority = Number.parseInt(formData.priority, 10);
 
-      if (!Number.isFinite(durationSeconds) || durationSeconds < 2 || durationSeconds > 30) {
-        setError('Duration must be between 2 and 30 seconds');
+      if (!Number.isFinite(durationSeconds) || durationSeconds < 2 || durationSeconds > 180) {
+        setError('Duration must be between 2 and 180 seconds');
         setIsLoading(false);
         return;
       }
@@ -420,7 +420,7 @@ export default function CreateStoryPage() {
                   value={formData.durationSeconds}
                   onChange={handleInputChange}
                   min="2"
-                  max="30"
+                  max="180"
                   className="w-full rounded-lg border border-gray-300 px-4 py-2 transition-colors focus:border-primary-600 focus:outline-none"
                 />
               </div>

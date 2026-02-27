@@ -152,7 +152,7 @@ function normalizeHref(rawValue: string, title: string) {
 function normalizeDuration(value: number | undefined, mediaType: 'image' | 'video') {
   const fallback = mediaType === 'video' ? 8 : 6;
   if (!Number.isFinite(value)) return fallback;
-  return Math.max(2, Math.min(30, Number(value)));
+  return Math.max(2, Math.min(180, Number(value)));
 }
 
 export function mapLiveStoriesToVisualStories(

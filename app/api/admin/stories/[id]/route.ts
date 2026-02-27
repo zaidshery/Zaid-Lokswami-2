@@ -13,7 +13,7 @@ import {
 function toBoundedDuration(value: unknown) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   if (!Number.isFinite(parsed)) return null;
-  return Math.max(2, Math.min(30, parsed));
+  return Math.max(2, Math.min(180, parsed));
 }
 
 function normalizeStoryUpdate(body: unknown) {

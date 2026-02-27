@@ -26,7 +26,7 @@ function escapeRegex(value: string) {
 function toBoundedDuration(value: unknown, fallback = 6) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(2, Math.min(30, parsed));
+  return Math.max(2, Math.min(180, parsed));
 }
 
 function getErrorMessage(error: unknown) {

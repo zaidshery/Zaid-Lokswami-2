@@ -54,7 +54,7 @@ export default function MainLayout({
       <main
         className={
           isImmersiveVideoMode
-            ? 'pb-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+0.5rem)] pt-0 xl:pb-4'
+            ? 'pb-0 pt-0'
             : 'pb-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+0.5rem)] pt-[8.4rem] md:pt-[9.1rem] xl:pb-4'
         }
       >
@@ -81,7 +81,9 @@ export default function MainLayout({
       {!isImmersiveVideoMode ? <LokswamiAIBot /> : null}
 
       {/* Bottom Navigation - Mobile + Tablet (below 1280px) */}
-      <BottomNav onMenuClick={toggleMobileMenu} isMenuOpen={isMobileMenuOpen} />
+      {!isImmersiveVideoMode ? (
+        <BottomNav onMenuClick={toggleMobileMenu} isMenuOpen={isMobileMenuOpen} />
+      ) : null}
     </div>
   );
 }

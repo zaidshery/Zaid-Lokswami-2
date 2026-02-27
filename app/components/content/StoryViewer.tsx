@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
   type TouchEvent,
 } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -38,7 +37,15 @@ interface StoryViewerProps {
 
 function normalizeDurationSeconds(value: number | undefined) {
   if (!Number.isFinite(value)) return 6;
-  return Math.max(2, Math.min(30, Number(value)));
+  return Math.max(2, Math.min(180, Number(value)));
+}
+
+function formatTimeLabel(ms: number) {
+  const safeMs = Number.isFinite(ms) ? Math.max(0, ms) : 0;
+  const totalSeconds = Math.floor(safeMs / 1000);
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 function isExternalHref(value: string) {
@@ -141,6 +148,7 @@ export default function StoryViewer({
     }
     return fallback;
   }, [activeStory?.durationSeconds, activeStory?.mediaType, isYouTubeStory, videoDurationMs]);
+  const elapsedMs = Math.round(progress * durationMs);
 
   const goToIndex = useCallback(
     (index: number) => {
@@ -245,7 +253,7 @@ export default function StoryViewer({
   }, [goNext, goPrev, isOpen, variant]);
 
   useEffect(() => {
-    if (!isOpen || !activeStory || isPaused || canUseNativeVideo || isYouTubeStory) return;
+    if (!isOpen || !activeStory || isPaused || canUseNativeVideo) return;
     const step = 60 / durationMs;
     let hasAdvanced = false;
 
@@ -269,7 +277,6 @@ export default function StoryViewer({
     goNext,
     isOpen,
     isPaused,
-    isYouTubeStory,
   ]);
 
   useEffect(() => {
@@ -306,26 +313,10 @@ export default function StoryViewer({
 
     if (variant === 'reel') {
       if (absDy > 56 && absDy > absDx) {
+        event.preventDefault();
         if (dy < 0) goNext();
         if (dy > 0) goPrev();
         return;
-      }
-
-      // Tap zones for reels: left = previous, center = pause/play, right = next.
-      if (absDx < 16 && absDy < 16) {
-        const viewportWidth = window.innerWidth || 1;
-        const rightControlsZoneStart = viewportWidth - 92;
-        const x = touchEnd.clientX;
-        const y = touchEnd.clientY;
-        const nearBottomTimeline = y > (window.innerHeight || 1) - 96;
-
-        // Ignore taps on bottom timeline area and right control rail.
-        if (x < rightControlsZoneStart && !nearBottomTimeline) {
-          const third = viewportWidth / 3;
-          if (x < third) goPrev();
-          else if (x > third * 2) goNext();
-          else setIsPaused((prev) => !prev);
-        }
       }
       return;
     }
@@ -362,23 +353,6 @@ export default function StoryViewer({
       const current = Number.isFinite(video.currentTime) ? video.currentTime * 1000 : 0;
       setProgress(Math.min(1, current / duration));
     }
-  };
-
-  const onSeekProgress = (value: number) => {
-    const ratio = Math.max(0, Math.min(1, value));
-    const video = videoRef.current;
-    if (canUseNativeVideo && video && Number.isFinite(video.duration) && video.duration > 0) {
-      video.currentTime = video.duration * ratio;
-      return;
-    }
-    setProgress(ratio);
-  };
-
-  const onTimelineClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (!rect.width) return;
-    const ratio = (event.clientX - rect.left) / rect.width;
-    onSeekProgress(ratio);
   };
 
   const onShare = useCallback(async () => {
@@ -434,7 +408,7 @@ export default function StoryViewer({
           }`}
         >
           <div
-            className="relative h-full w-full touch-pan-y overflow-hidden"
+            className="relative h-[100dvh] min-h-[100dvh] w-full touch-pan-y overflow-hidden"
             onTouchStart={onTouchStart}
             onTouchEnd={onTouchEnd}
           >
@@ -658,38 +632,28 @@ export default function StoryViewer({
 
             {variant === 'reel' ? (
               <>
-                <div className="absolute bottom-[max(0.9rem,env(safe-area-inset-bottom))] left-3 right-20 z-30 sm:left-4 sm:right-24">
-                  <button
-                    type="button"
-                    onClick={onTimelineClick}
-                    className="relative block h-1.5 w-full rounded-full bg-white/30"
-                    aria-label="Story timeline"
-                  >
-                    <span
-                      className="absolute inset-y-0 left-0 rounded-full bg-white"
-                      style={{ width: `${Math.max(0, Math.min(100, progress * 100))}%` }}
-                    />
-                  </button>
-                </div>
-
-                <div className="absolute right-3 bottom-[max(0.7rem,env(safe-area-inset-bottom))] z-30 flex flex-col gap-2 sm:right-4">
+                <div className="absolute right-3 bottom-[max(4.5rem,calc(env(safe-area-inset-bottom)+2.5rem))] z-30 flex flex-col gap-3 sm:right-4 md:bottom-16">
                   <button
                     type="button"
                     onClick={onShare}
-                    className="rounded-full border border-red-300/70 bg-red-600/75 p-2 text-white backdrop-blur transition hover:bg-red-600/90"
+                    className="rounded-2xl border border-white/20 bg-black/35 p-2.5 text-white shadow-[0_10px_28px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/50 sm:p-3 md:p-3.5"
                     aria-label="Share story"
                   >
-                    <Share2 className="h-4 w-4" />
+                    <Share2 className="h-4 w-4 sm:h-5 sm:w-5" />
                   </button>
                   <button
                     type="button"
                     onClick={toggleMuted}
                     disabled={!canMuteStory}
-                    className="rounded-full border border-red-300/70 bg-red-600/75 p-2 text-white backdrop-blur transition hover:bg-red-600/90 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-2xl border border-white/20 bg-black/35 p-2.5 text-white shadow-[0_10px_28px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/50 disabled:cursor-not-allowed disabled:opacity-50 sm:p-3 md:p-3.5"
                     aria-label={isMuted ? 'Unmute video' : 'Mute video'}
                   >
-                    {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                    {isMuted ? <VolumeX className="h-4 w-4 sm:h-5 sm:w-5" /> : <Volume2 className="h-4 w-4 sm:h-5 sm:w-5" />}
                   </button>
+                </div>
+
+                <div className="pointer-events-none absolute bottom-[max(1.25rem,calc(env(safe-area-inset-bottom)+0.35rem))] left-1/2 z-30 -translate-x-1/2 rounded-full border border-white/25 bg-black/45 px-3 py-1 text-[11px] font-semibold text-white backdrop-blur md:text-xs">
+                  {formatTimeLabel(elapsedMs)} / {formatTimeLabel(durationMs)}
                 </div>
 
                 <button
@@ -704,7 +668,7 @@ export default function StoryViewer({
                 <button
                   type="button"
                   onClick={goNext}
-                  className="absolute right-3 bottom-24 z-20 hidden rounded-full border border-white/40 bg-black/35 p-2 text-white backdrop-blur transition hover:bg-black/55 md:block"
+                  className="absolute right-3 bottom-28 z-20 hidden rounded-full border border-white/40 bg-black/35 p-2 text-white backdrop-blur transition hover:bg-black/55 md:block"
                   aria-label="Next story"
                 >
                   <ChevronDown className="h-5 w-5" />

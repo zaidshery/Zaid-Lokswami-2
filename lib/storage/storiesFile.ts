@@ -116,7 +116,7 @@ export async function getStoredStoryById(id: string) {
 
 function toBoundedDuration(value: number | undefined) {
   if (!Number.isFinite(value)) return 6;
-  return Math.max(2, Math.min(30, Number(value)));
+  return Math.max(2, Math.min(180, Number(value)));
 }
 
 export async function createStoredStory(input: CreateStoryInput) {
