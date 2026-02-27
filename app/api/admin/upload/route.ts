@@ -14,7 +14,7 @@ type UploadRule = {
   errorType: string;
   errorSize: string;
   folder: string;
-  resourceType: 'image' | 'raw';
+  resourceType: 'image' | 'raw' | 'auto';
   isAllowed: (file: File) => boolean;
 };
 
@@ -51,6 +51,10 @@ function isImage(file: File) {
   );
 }
 
+function isImageOrPdf(file: File) {
+  return isImage(file) || isPdf(file);
+}
+
 function getUploadRule(purpose: UploadPurpose): UploadRule {
   if (purpose === 'epaper-paper') {
     return {
@@ -77,11 +81,11 @@ function getUploadRule(purpose: UploadPurpose): UploadRule {
   if (purpose === 'video-thumbnail') {
     return {
       maxSizeBytes: bytesFromMb(10),
-      errorType: 'Video thumbnail must be JPG, JPEG, PNG, or WEBP',
+      errorType: 'Video thumbnail must be JPG, JPEG, PNG, WEBP, or PDF',
       errorSize: 'Video thumbnail size must be less than 10MB',
       folder: 'lokswami/videos/thumbnails',
-      resourceType: 'image',
-      isAllowed: isImage,
+      resourceType: 'auto',
+      isAllowed: isImageOrPdf,
     };
   }
 
