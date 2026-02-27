@@ -64,16 +64,14 @@ export function buildArticleWhatsAppShareText({
     title.trim(),
   ];
 
-  // Keep article/image URL first so WhatsApp preview prefers article context.
-  const cleanImage = imageUrl ? cleanUrl(imageUrl) : '';
-  if (cleanImage) lines.push(cleanImage);
-
+  // Keep only article URL in share body so WhatsApp renders article link preview card
+  // (including thumbnail from OG tags) instead of showing raw image URLs in text.
   const cleanArticleUrl = cleanUrl(articleUrl);
   lines.push(cleanArticleUrl);
   lines.push('');
   lines.push('Follow Lokswami:');
   const localShareContext =
-    isLocalOrigin(cleanArticleUrl) || (cleanImage ? isLocalOrigin(cleanImage) : false);
+    isLocalOrigin(cleanArticleUrl) || (imageUrl ? isLocalOrigin(cleanUrl(imageUrl)) : false);
 
   if (localShareContext) {
     // Keep handles + full URL visible in local share context.
