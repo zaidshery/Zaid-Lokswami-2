@@ -14,6 +14,11 @@ type UploadResponse = {
   data?: { _id: string };
 };
 
+type BasicResponse = {
+  success?: boolean;
+  error?: string;
+};
+
 export default function NewEPaperPage() {
   const router = useRouter();
 
@@ -62,7 +67,6 @@ export default function NewEPaperPage() {
       if (pageCount.trim()) body.append('pageCount', pageCount.trim());
       body.append('pdf', pdfFile);
       body.append('thumbnail', thumbnailFile);
-      pageImages.forEach((file) => body.append('pageImages', file));
 
       const response = await fetch('/api/admin/epapers/upload', {
         method: 'POST',
@@ -72,19 +76,64 @@ export default function NewEPaperPage() {
         body,
       });
 
-      const payload = (await response.json()) as UploadResponse;
+      const payload = (await response.json().catch(() => ({}))) as UploadResponse;
+      if (response.status === 413) {
+        throw new Error(
+          'Upload request is too large for server limit. Upload only PDF + thumbnail here, then add page images from the e-paper detail page.'
+        );
+      }
       if (!response.ok || !payload.success || !payload.data?._id) {
         throw new Error(payload.error || 'Failed to upload e-paper');
       }
 
+      const warnings: string[] = [];
       if (payload.warning) {
-        setWarning(payload.warning);
-        window.setTimeout(() => {
-          router.push(`/admin/epapers/${payload.data!._id}`);
-        }, 900);
-        return;
+        warnings.push(payload.warning);
       }
 
+      if (pageImages.length > 0) {
+        let failedUploads = 0;
+        for (let index = 0; index < pageImages.length; index += 1) {
+          const file = pageImages[index];
+          setWarning(`E-paper created. Uploading page images ${index + 1}/${pageImages.length}...`);
+
+          const pageBody = new FormData();
+          pageBody.append('pageNumber', String(index + 1));
+          pageBody.append('image', file);
+
+          try {
+            const pageResponse = await fetch(`/api/admin/epapers/${payload.data._id}/pages`, {
+              method: 'PUT',
+              headers: {
+                ...getAuthHeader(),
+              },
+              body: pageBody,
+            });
+            const pagePayload = (await pageResponse.json().catch(() => ({}))) as BasicResponse;
+
+            if (pageResponse.status === 413) {
+              failedUploads += 1;
+              continue;
+            }
+
+            if (!pageResponse.ok || pagePayload.success === false) {
+              failedUploads += 1;
+            }
+          } catch {
+            failedUploads += 1;
+          }
+        }
+
+        if (failedUploads > 0) {
+          warnings.push(
+            `${failedUploads} page image(s) failed due upload limits. Open this e-paper and upload those pages one by one with smaller files.`
+          );
+        }
+      }
+
+      if (warnings.length > 0) {
+        setWarning(warnings.join(' '));
+      }
       router.push(`/admin/epapers/${payload.data._id}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to upload e-paper');
@@ -237,7 +286,7 @@ export default function NewEPaperPage() {
             />
             <p className="mt-1 text-xs text-gray-600">
               {pageImages.length > 0
-                ? `${pageImages.length} page image(s) selected`
+                ? `${pageImages.length} page image(s) selected (will be uploaded one-by-one after e-paper is created)`
                 : 'If omitted, hotspots can be added later after page images are uploaded.'}
             </p>
           </label>
