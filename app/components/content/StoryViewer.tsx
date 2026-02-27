@@ -12,6 +12,8 @@ import {
   ExternalLink,
   Pause,
   Play,
+  RotateCcw,
+  RotateCw,
   Volume2,
   VolumeX,
   X,
@@ -30,6 +32,14 @@ interface StoryViewerProps {
 function normalizeDurationSeconds(value: number | undefined) {
   if (!Number.isFinite(value)) return 6;
   return Math.max(2, Math.min(30, Number(value)));
+}
+
+function formatTimeLabel(ms: number) {
+  const safeMs = Number.isFinite(ms) ? Math.max(0, ms) : 0;
+  const totalSeconds = Math.floor(safeMs / 1000);
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 function isExternalHref(value: string) {
@@ -96,6 +106,7 @@ export default function StoryViewer({
   const [isMuted, setIsMuted] = useState(true);
   const [mediaErrors, setMediaErrors] = useState<Record<string, boolean>>({});
   const [videoDurationMs, setVideoDurationMs] = useState<number | null>(null);
+  const [videoCurrentMs, setVideoCurrentMs] = useState(0);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wheelLockUntilRef = useRef(0);
@@ -132,6 +143,7 @@ export default function StoryViewer({
     }
     return fallback;
   }, [activeStory?.durationSeconds, activeStory?.mediaType, isYouTubeStory, videoDurationMs]);
+  const durationLabelMs = videoDurationMs && videoDurationMs > 0 ? videoDurationMs : durationMs;
 
   const goToIndex = useCallback(
     (index: number) => {
@@ -140,6 +152,7 @@ export default function StoryViewer({
       setActiveIndex(bounded);
       setProgress(0);
       setVideoDurationMs(null);
+      setVideoCurrentMs(0);
     },
     [stories.length]
   );
@@ -236,7 +249,7 @@ export default function StoryViewer({
   }, [goNext, goPrev, isOpen, variant]);
 
   useEffect(() => {
-    if (!isOpen || !activeStory || isPaused) return;
+    if (!isOpen || !activeStory || isPaused || canUseNativeVideo) return;
     const step = 60 / durationMs;
     let hasAdvanced = false;
 
@@ -252,7 +265,7 @@ export default function StoryViewer({
     }, 60);
 
     return () => window.clearInterval(timer);
-  }, [activeStory, activeStory?.id, durationMs, goNext, isOpen, isPaused]);
+  }, [activeStory, activeStory?.id, canUseNativeVideo, durationMs, goNext, isOpen, isPaused]);
 
   useEffect(() => {
     if (!isOpen || activeStory?.mediaType !== 'video' || isYouTubeStory) return;
@@ -263,7 +276,8 @@ export default function StoryViewer({
       video.pause();
     } else {
       video.play().catch(() => {
-        setMediaErrors((prev) => ({ ...prev, [activeStory.id]: true }));
+        // Autoplay can be blocked by device/browser policy; keep video, just pause.
+        setIsPaused(true);
       });
     }
   }, [activeStory?.id, activeStory?.mediaType, isOpen, isPaused, isYouTubeStory]);
@@ -317,6 +331,30 @@ export default function StoryViewer({
     }
   };
 
+  const onVideoTimeUpdate = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const current = Number.isFinite(video.currentTime) ? video.currentTime * 1000 : 0;
+    const duration = Number.isFinite(video.duration) ? video.duration * 1000 : 0;
+    setVideoCurrentMs(current);
+    if (duration > 0) {
+      setProgress(Math.min(1, current / duration));
+    }
+  };
+
+  const jumpVideoBy = (seconds: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = Math.max(0, video.currentTime + seconds);
+  };
+
+  const onSeekVideo = (value: number) => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    const ratio = Math.max(0, Math.min(1, value));
+    video.currentTime = video.duration * ratio;
+  };
+
   return (
     <AnimatePresence>
       {isOpen && activeStory ? (
@@ -351,16 +389,29 @@ export default function StoryViewer({
                   ref={videoRef}
                   src={activeStory.mediaUrl}
                   className="h-full w-full object-cover"
+                  poster={activeStory.thumbnail}
+                  preload="metadata"
                   playsInline
                   autoPlay
                   muted={isMuted}
                   onEnded={goNext}
                   onError={onMediaError}
                   onLoadedMetadata={onVideoMetadata}
+                  onTimeUpdate={onVideoTimeUpdate}
                 />
               ) : mediaErrors[activeStory.id] ? (
-                <div className="flex h-full w-full items-center justify-center bg-zinc-900 px-8 text-center">
-                  <p className="text-lg font-semibold text-zinc-100">{activeStory.title}</p>
+                <div className="relative h-full w-full">
+                  <Image
+                    src={activeStory.thumbnail}
+                    alt={activeStory.title}
+                    fill
+                    className="object-cover"
+                    sizes="100vw"
+                    priority
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/55 px-8 text-center">
+                    <p className="text-lg font-semibold text-zinc-100">{activeStory.title}</p>
+                  </div>
                 </div>
               ) : (
                 <Image
@@ -548,14 +599,61 @@ export default function StoryViewer({
                       )}
                     </div>
                   ) : null}
+
+                  {variant === 'reel' && canUseNativeVideo ? (
+                    <div className="mt-3 flex items-center gap-2 text-[11px] font-semibold text-white/90">
+                      <span className="w-10 text-left">{formatTimeLabel(videoCurrentMs)}</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1000}
+                        value={Math.round(progress * 1000)}
+                        onChange={(event) => onSeekVideo(Number(event.target.value) / 1000)}
+                        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/30 accent-white"
+                        aria-label="Seek story video"
+                      />
+                      <span className="w-10 text-right">{formatTimeLabel(durationLabelMs)}</span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
 
             {variant === 'reel' ? (
               <>
+                {canUseNativeVideo ? (
+                  <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+                    <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-white/25 bg-black/35 px-3 py-2 backdrop-blur">
+                      <button
+                        type="button"
+                        onClick={() => jumpVideoBy(-5)}
+                        className="rounded-full bg-white/15 p-2 text-white hover:bg-white/25"
+                        aria-label="Rewind 5 seconds"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsPaused((prev) => !prev)}
+                        className="rounded-full bg-white/20 p-3 text-white hover:bg-white/30"
+                        aria-label={isPaused ? 'Play video' : 'Pause video'}
+                      >
+                        {isPaused ? <Play className="h-5 w-5" /> : <Pause className="h-5 w-5" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => jumpVideoBy(5)}
+                        className="rounded-full bg-white/15 p-2 text-white hover:bg-white/25"
+                        aria-label="Forward 5 seconds"
+                      >
+                        <RotateCw className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="absolute bottom-[max(5rem,env(safe-area-inset-bottom)+3.6rem)] right-3 z-20 flex flex-col items-center gap-2.5">
-                  {activeStory.mediaType === 'video' && !isYouTubeStory ? (
+                  {canUseNativeVideo ? (
                     <button
                       type="button"
                       onClick={() => setIsMuted((prev) => !prev)}

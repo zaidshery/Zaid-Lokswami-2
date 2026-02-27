@@ -166,8 +166,10 @@ export function mapLiveStoriesToVisualStories(
       const thumbnail = normalizeStoryMedia(row.thumbnail || '');
       const linkUrl = (row.linkUrl || '').trim();
       const rawMediaUrl = (row.mediaUrl || '').trim();
-      const mediaUrl = normalizeStoryMedia(rawMediaUrl || '') || thumbnail;
       const mediaType = normalizeMediaType(row.mediaType, rawMediaUrl, linkUrl);
+      const mediaSource =
+        mediaType === 'video' ? rawMediaUrl || linkUrl : rawMediaUrl;
+      const mediaUrl = normalizeStoryMedia(mediaSource || '') || thumbnail;
       const isPublished = row.isPublished === false ? false : true;
 
       if (!id || !title || !thumbnail || !isPublished) return null;
