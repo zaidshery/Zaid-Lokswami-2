@@ -473,44 +473,8 @@ export default function StoryViewer({
                 </div>
                 </div>
 
-                <div className="mt-3 flex items-center justify-between gap-3 text-white">
-                  <div className="min-w-0">
-                    <p className={`truncate font-semibold ${variant === 'reel' ? 'text-base' : 'text-sm'}`}>
-                      {activeStory.category || 'Visual Story'}
-                    </p>
-                    <p className="truncate text-xs text-white/80">
-                      {activeStory.author || 'Desk'} / {activeIndex + 1}/{stories.length}
-                    </p>
-                    {variant === 'reel' ? (
-                      <p className="truncate text-[11px] text-white/65">
-                        Swipe up/down or tap top/bottom
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {variant !== 'reel' ? (
-                      <>
-                        {activeStory.mediaType === 'video' && !isYouTubeStory ? (
-                          <button
-                            type="button"
-                            onClick={() => setIsMuted((prev) => !prev)}
-                            className="rounded-full border border-white/40 bg-black/35 p-2 text-white transition hover:bg-black/55"
-                            aria-label={isMuted ? 'Unmute' : 'Mute'}
-                          >
-                            {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => setIsPaused((prev) => !prev)}
-                          className="rounded-full border border-white/40 bg-black/35 p-2 text-white transition hover:bg-black/55"
-                          aria-label={isPaused ? 'Resume story' : 'Pause story'}
-                        >
-                          {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                        </button>
-                      </>
-                    ) : null}
+                {variant === 'reel' ? (
+                  <div className="mt-3 flex justify-end text-white">
                     <button
                       type="button"
                       onClick={onClose}
@@ -520,7 +484,47 @@ export default function StoryViewer({
                       <X className="h-4 w-4" />
                     </button>
                   </div>
-                </div>
+                ) : (
+                  <div className="mt-3 flex items-center justify-between gap-3 text-white">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">
+                        {activeStory.category || 'Visual Story'}
+                      </p>
+                      <p className="truncate text-xs text-white/80">
+                        {activeStory.author || 'Desk'} / {activeIndex + 1}/{stories.length}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {activeStory.mediaType === 'video' && !isYouTubeStory ? (
+                        <button
+                          type="button"
+                          onClick={() => setIsMuted((prev) => !prev)}
+                          className="rounded-full border border-white/40 bg-black/35 p-2 text-white transition hover:bg-black/55"
+                          aria-label={isMuted ? 'Unmute' : 'Mute'}
+                        >
+                          {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setIsPaused((prev) => !prev)}
+                        className="rounded-full border border-white/40 bg-black/35 p-2 text-white transition hover:bg-black/55"
+                        aria-label={isPaused ? 'Resume story' : 'Pause story'}
+                      >
+                        {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onClose}
+                        className="rounded-full border border-white/40 bg-black/35 p-2 text-white transition hover:bg-black/55"
+                        aria-label="Close story viewer"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div
@@ -570,17 +574,15 @@ export default function StoryViewer({
                     </p>
                   ) : null}
 
-                  {hasStoryHref ? (
-                    <div className={`mt-3 flex flex-wrap items-center gap-3 ${variant === 'reel' ? '' : 'mt-4'}`}>
+                  {variant !== 'reel' && hasStoryHref ? (
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
                       {isExternalHref(storyHref) ? (
                         <a
                           href={storyHref}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={onClose}
-                          className={`inline-flex items-center gap-2 rounded-full border border-white/40 bg-white/15 font-semibold text-white backdrop-blur transition hover:bg-white/25 ${
-                            variant === 'reel' ? 'px-4 py-2 text-xs' : 'px-5 py-2.5 text-sm'
-                          }`}
+                          className="inline-flex items-center gap-2 rounded-full border border-white/40 bg-white/15 px-5 py-2.5 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/25"
                         >
                           {ctaLabel}
                           <ExternalLink className="h-4 w-4" />
@@ -589,9 +591,7 @@ export default function StoryViewer({
                         <Link
                           href={storyHref}
                           onClick={onClose}
-                          className={`inline-flex items-center gap-2 rounded-full border border-white/40 bg-white/15 font-semibold text-white backdrop-blur transition hover:bg-white/25 ${
-                            variant === 'reel' ? 'px-4 py-2 text-xs' : 'px-5 py-2.5 text-sm'
-                          }`}
+                          className="inline-flex items-center gap-2 rounded-full border border-white/40 bg-white/15 px-5 py-2.5 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/25"
                         >
                           {ctaLabel}
                           <ExternalLink className="h-4 w-4" />
@@ -651,50 +651,6 @@ export default function StoryViewer({
                     </div>
                   </div>
                 ) : null}
-
-                <div className="absolute bottom-[max(5rem,env(safe-area-inset-bottom)+3.6rem)] right-3 z-20 flex flex-col items-center gap-2.5">
-                  {canUseNativeVideo ? (
-                    <button
-                      type="button"
-                      onClick={() => setIsMuted((prev) => !prev)}
-                      className="rounded-full border border-white/40 bg-black/35 p-2.5 text-white backdrop-blur transition hover:bg-black/55"
-                      aria-label={isMuted ? 'Unmute' : 'Mute'}
-                    >
-                      {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => setIsPaused((prev) => !prev)}
-                    className="rounded-full border border-white/40 bg-black/35 p-2.5 text-white backdrop-blur transition hover:bg-black/55"
-                    aria-label={isPaused ? 'Resume story' : 'Pause story'}
-                  >
-                    {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                  </button>
-                  {hasStoryHref ? (
-                    isExternalHref(storyHref) ? (
-                      <a
-                        href={storyHref}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={onClose}
-                        className="inline-flex items-center gap-1 rounded-full border border-white/35 bg-white/15 px-2.5 py-1.5 text-[11px] font-semibold text-white backdrop-blur hover:bg-white/25"
-                      >
-                        Open
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </a>
-                    ) : (
-                      <Link
-                        href={storyHref}
-                        onClick={onClose}
-                        className="inline-flex items-center gap-1 rounded-full border border-white/35 bg-white/15 px-2.5 py-1.5 text-[11px] font-semibold text-white backdrop-blur hover:bg-white/25"
-                      >
-                        Open
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </Link>
-                    )
-                  ) : null}
-                </div>
 
                 <button
                   type="button"
