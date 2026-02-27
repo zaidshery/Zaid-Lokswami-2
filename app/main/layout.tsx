@@ -78,7 +78,7 @@ export default function MainLayout({
 
       {!isImmersiveVideoMode ? <DailyEpaperAlert /> : null}
       {!isImmersiveVideoMode ? <SmartEngagementPopup /> : null}
-      <LokswamiAIBot />
+      {!isImmersiveVideoMode ? <LokswamiAIBot /> : null}
 
       {/* Bottom Navigation - Mobile + Tablet (below 1280px) */}
       <BottomNav onMenuClick={toggleMobileMenu} isMenuOpen={isMobileMenuOpen} />

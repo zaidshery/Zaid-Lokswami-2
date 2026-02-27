@@ -1,6 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type TouchEvent,
+} from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -300,6 +308,24 @@ export default function StoryViewer({
       if (absDy > 56 && absDy > absDx) {
         if (dy < 0) goNext();
         if (dy > 0) goPrev();
+        return;
+      }
+
+      // Tap zones for reels: left = previous, center = pause/play, right = next.
+      if (absDx < 16 && absDy < 16) {
+        const viewportWidth = window.innerWidth || 1;
+        const rightControlsZoneStart = viewportWidth - 92;
+        const x = touchEnd.clientX;
+        const y = touchEnd.clientY;
+        const nearBottomTimeline = y > (window.innerHeight || 1) - 96;
+
+        // Ignore taps on bottom timeline area and right control rail.
+        if (x < rightControlsZoneStart && !nearBottomTimeline) {
+          const third = viewportWidth / 3;
+          if (x < third) goPrev();
+          else if (x > third * 2) goNext();
+          else setIsPaused((prev) => !prev);
+        }
       }
       return;
     }
@@ -346,6 +372,13 @@ export default function StoryViewer({
       return;
     }
     setProgress(ratio);
+  };
+
+  const onTimelineClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!rect.width) return;
+    const ratio = (event.clientX - rect.left) / rect.width;
+    onSeekProgress(ratio);
   };
 
   const onShare = useCallback(async () => {
@@ -626,22 +659,24 @@ export default function StoryViewer({
             {variant === 'reel' ? (
               <>
                 <div className="absolute bottom-[max(0.9rem,env(safe-area-inset-bottom))] left-3 right-20 z-30 sm:left-4 sm:right-24">
-                  <input
-                    type="range"
-                    min={0}
-                    max={1000}
-                    value={Math.round(progress * 1000)}
-                    onChange={(event) => onSeekProgress(Number(event.target.value) / 1000)}
-                    className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/35 accent-white"
+                  <button
+                    type="button"
+                    onClick={onTimelineClick}
+                    className="relative block h-1.5 w-full rounded-full bg-white/30"
                     aria-label="Story timeline"
-                  />
+                  >
+                    <span
+                      className="absolute inset-y-0 left-0 rounded-full bg-white"
+                      style={{ width: `${Math.max(0, Math.min(100, progress * 100))}%` }}
+                    />
+                  </button>
                 </div>
 
                 <div className="absolute right-3 bottom-[max(0.7rem,env(safe-area-inset-bottom))] z-30 flex flex-col gap-2 sm:right-4">
                   <button
                     type="button"
                     onClick={onShare}
-                    className="rounded-full border border-white/40 bg-black/35 p-2 text-white backdrop-blur transition hover:bg-black/55"
+                    className="rounded-full border border-red-300/70 bg-red-600/75 p-2 text-white backdrop-blur transition hover:bg-red-600/90"
                     aria-label="Share story"
                   >
                     <Share2 className="h-4 w-4" />
@@ -650,7 +685,7 @@ export default function StoryViewer({
                     type="button"
                     onClick={toggleMuted}
                     disabled={!canMuteStory}
-                    className="rounded-full border border-white/40 bg-black/35 p-2 text-white backdrop-blur transition hover:bg-black/55 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-full border border-red-300/70 bg-red-600/75 p-2 text-white backdrop-blur transition hover:bg-red-600/90 disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label={isMuted ? 'Unmute video' : 'Mute video'}
                   >
                     {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
