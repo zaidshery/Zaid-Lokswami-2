@@ -5,6 +5,7 @@ const defaultImageHosts = [
   'via.placeholder.com',
   'img.youtube.com',
   'api.dicebear.com',
+  'res.cloudinary.com',
 ];
 const extraImageHosts = (process.env.NEXT_IMAGE_ALLOWED_HOSTS || '')
   .split(',')
