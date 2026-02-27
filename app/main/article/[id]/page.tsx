@@ -13,6 +13,10 @@ import {
   buildArticleWhatsAppShareUrl,
   toAbsoluteShareUrl,
 } from '@/lib/utils/articleShare';
+import {
+  buildArticleImageVariantUrl,
+  resolveArticleOgImageUrl,
+} from '@/lib/utils/articleMedia';
 import { renderArticleRichContent } from '@/lib/utils/articleRichContent';
 import { BHASHINI_LANGUAGE_OPTIONS } from '@/lib/constants/lokswamiAi';
 
@@ -384,14 +388,14 @@ export default function ArticleDetailPage() {
       `/main/article/${encodeURIComponent(article.id)}`,
       siteOrigin
     );
-    const imageUrl = toAbsoluteShareUrl(article.image, siteOrigin);
+    const structuredImage = buildArticleImageVariantUrl(article.image, 'detail');
 
     return {
       '@context': 'https://schema.org',
       '@type': 'NewsArticle',
       headline: article.title,
       description: article.summary,
-      image: [imageUrl],
+      image: [toAbsoluteShareUrl(structuredImage, siteOrigin)],
       datePublished: article.publishedAt,
       dateModified: article.publishedAt,
       author: [
@@ -770,7 +774,7 @@ export default function ArticleDetailPage() {
     const articlePath = `/main/article/${encodeURIComponent(article.id)}`;
     const articleUrl = toAbsoluteShareUrl(articlePath, window.location.origin);
     const imageUrl = article.image
-      ? toAbsoluteShareUrl(article.image, window.location.origin)
+      ? toAbsoluteShareUrl(resolveArticleOgImageUrl({ image: article.image }), window.location.origin)
       : '';
 
     const shareUrl = buildArticleWhatsAppShareUrl({
@@ -843,7 +847,7 @@ export default function ArticleDetailPage() {
       <article className="cnp-surface overflow-hidden p-0">
         <div className="relative aspect-[16/9] w-full overflow-hidden">
           <Image
-            src={article.image}
+            src={buildArticleImageVariantUrl(article.image, 'detail')}
             alt={article.title}
             fill
             className="object-cover"

@@ -47,11 +47,25 @@ export function buildArticleWhatsAppShareText({
   title,
   articleUrl,
 }: BuildArticleWhatsAppShareInput) {
-  const lines: string[] = [title.trim()];
-
-  // Keep article URL first so WhatsApp can build the preview card reliably.
+  const lines: string[] = [];
+  const cleanTitle = title.trim();
   const cleanArticleUrl = cleanUrl(articleUrl);
-  lines.push(cleanArticleUrl);
+
+  // URL on the first line gives WhatsApp the best chance to create a preview card.
+  if (cleanArticleUrl) {
+    lines.push(cleanArticleUrl);
+    lines.push('');
+  }
+
+  if (cleanTitle) {
+    lines.push(cleanTitle);
+  }
+
+  // Keep the readable URL in the message body as well.
+  if (cleanArticleUrl) {
+    lines.push(cleanArticleUrl);
+  }
+
   lines.push('');
   lines.push('Follow Lokswami:');
   lines.push(`Facebook: ${COMPANY_INFO.social.facebook}`);
@@ -60,7 +74,7 @@ export function buildArticleWhatsAppShareText({
   lines.push(`X: ${COMPANY_INFO.social.twitter}`);
   lines.push(`WhatsApp Channel: ${COMPANY_INFO.social.whatsapp}`);
 
-  return lines.join('\n');
+  return lines.join('\n').trim();
 }
 
 export function buildArticleWhatsAppShareUrl(input: BuildArticleWhatsAppShareInput) {

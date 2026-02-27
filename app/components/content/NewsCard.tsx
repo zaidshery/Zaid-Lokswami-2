@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { Share2, Bookmark, TrendingUp } from 'lucide-react';
 import { useAppStore } from '@/lib/store/appStore';
 import type { Article } from '@/lib/mock/data';
+import { buildArticleImageVariantUrl } from '@/lib/utils/articleMedia';
 import ArticleMetaRow from './ArticleMetaRow';
 
 interface NewsCardProps {
@@ -21,6 +22,9 @@ export default function NewsCard({ article, variant = 'default', size = 'default
   const [isHydrated, setIsHydrated] = useState(false);
   const isSmall = size === 'sm';
   const articleHref = `/main/article/${encodeURIComponent(article.id)}`;
+  const horizontalImage = buildArticleImageVariantUrl(article.image, 'thumb');
+  const featuredImage = buildArticleImageVariantUrl(article.image, 'featured');
+  const defaultCardImage = buildArticleImageVariantUrl(article.image, 'card');
 
   useEffect(() => {
     setIsHydrated(true);
@@ -63,7 +67,7 @@ export default function NewsCard({ article, variant = 'default', size = 'default
         <Link href={articleHref} className="flex gap-2.5 rounded-xl p-3 transition-all duration-300 hover:bg-gray-100 dark:hover:bg-gray-800 sm:gap-4 sm:p-4">
           <div className="relative h-[72px] w-[88px] flex-shrink-0 overflow-hidden rounded-lg sm:h-24 sm:w-28 md:h-28 md:w-36">
             <Image
-              src={article.image}
+              src={horizontalImage}
               alt={article.title}
               fill
               className="object-cover image-hover-zoom"
@@ -139,7 +143,7 @@ export default function NewsCard({ article, variant = 'default', size = 'default
         <Link href={articleHref} className="block">
           <div className="relative aspect-[4/3] overflow-hidden rounded-lg md:rounded-xl">
             <Image
-              src={article.image}
+              src={featuredImage}
               alt={article.title}
               fill
               className="object-cover image-hover-zoom"
@@ -179,7 +183,7 @@ export default function NewsCard({ article, variant = 'default', size = 'default
       <Link href={articleHref} className="flex h-full flex-col">
         <div className={`relative overflow-hidden ${isSmall ? 'aspect-[16/9]' : 'aspect-[16/10]'}`}>
           <Image
-            src={article.image}
+            src={defaultCardImage}
             alt={article.title}
             fill
             className="object-cover image-hover-zoom"

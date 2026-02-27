@@ -15,6 +15,7 @@ import {
   getArticleImageHints,
   prepareArticleImageFile,
 } from '@/lib/utils/articleImageUpload';
+import { resolveArticleOgImageUrl } from '@/lib/utils/articleMedia';
 
 const DEFAULT_CATEGORIES = NEWS_CATEGORIES.map((category) => category.nameEn);
 const DRAFT_STORAGE_KEY = 'lokswami:article-draft:new';
@@ -333,6 +334,8 @@ export default function UploadArticle() {
       if (imageFile) {
         imageUrl = await uploadImage();
       }
+      const resolvedOgImage =
+        formData.ogImage.trim() || resolveArticleOgImageUrl({ image: imageUrl });
 
       const response = await fetch('/api/admin/articles', {
         method: 'POST',
@@ -352,7 +355,7 @@ export default function UploadArticle() {
           seo: {
             metaTitle: formData.seoTitle,
             metaDescription: formData.seoDescription,
-            ogImage: formData.ogImage,
+            ogImage: resolvedOgImage,
             canonicalUrl: formData.canonicalUrl,
           },
         }),
@@ -537,6 +540,9 @@ export default function UploadArticle() {
                   placeholder="https://example.com/image.jpg or /uploads/image.jpg"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
                 />
+                <p className="mt-1 text-xs text-gray-500">
+                  Leave empty to auto-use featured image as 1200x630 OG preview.
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-900 mb-2">

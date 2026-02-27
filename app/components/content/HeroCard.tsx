@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { Share2, Bookmark, ArrowUpRight } from 'lucide-react';
 import { useAppStore } from '@/lib/store/appStore';
 import type { Article } from '@/lib/mock/data';
+import { buildArticleImageVariantUrl } from '@/lib/utils/articleMedia';
 import ArticleMetaRow from './ArticleMetaRow';
 
 interface HeroCardProps {
@@ -19,6 +20,7 @@ export default function HeroCard({ article, parallax = { x: 0, y: 0 }, variant =
   const { language } = useAppStore();
   const [isHydrated, setIsHydrated] = useState(false);
   const articleHref = `/main/article/${encodeURIComponent(article.id)}`;
+  const heroImage = buildArticleImageVariantUrl(article.image, 'hero');
 
   useEffect(() => {
     setIsHydrated(true);
@@ -63,7 +65,7 @@ export default function HeroCard({ article, parallax = { x: 0, y: 0 }, variant =
             style={{ transform: `translate3d(${parallax.x}px, ${parallax.y}px, 0) scale(1)` }}
           >
             <Image
-              src={article.image}
+              src={heroImage}
               alt={article.title}
               fill
               className="object-cover image-hover-zoom"

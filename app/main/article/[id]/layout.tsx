@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { COMPANY_INFO } from '@/lib/constants/company';
 import { getArticleForMetadata } from '@/lib/content/serverArticles';
+import { resolveArticleOgImageUrl } from '@/lib/utils/articleMedia';
 
 const fallbackSiteUrl = 'http://localhost:3000';
 
@@ -38,7 +39,10 @@ export async function generateMetadata(context: LayoutContext): Promise<Metadata
   const description = article.seo.metaDescription || article.summary;
   const canonical =
     article.seo.canonicalUrl || `${siteUrl}/main/article/${encodeURIComponent(decodedId)}`;
-  const ogImageRaw = article.seo.ogImage || article.image;
+  const ogImageRaw = resolveArticleOgImageUrl({
+    ogImage: article.seo.ogImage,
+    image: article.image,
+  });
   const ogImage = ogImageRaw ? toAbsoluteUrl(ogImageRaw, siteUrl) : '';
 
   return {

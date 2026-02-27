@@ -6,6 +6,7 @@ import { ArrowDown, ArrowUp } from 'lucide-react';
 import { useAppStore } from '@/lib/store/appStore';
 import { articles as mockArticles, type Article } from '@/lib/mock/data';
 import { fetchMergedLiveArticles } from '@/lib/content/liveArticles';
+import { buildArticleImageVariantUrl } from '@/lib/utils/articleMedia';
 import ArticleMetaRow from '@/app/components/content/ArticleMetaRow';
 
 const VIEWPORT_HEIGHT_CLASS = 'h-[calc(100svh-12.8rem)] md:h-[calc(100svh-13rem)]';
@@ -162,7 +163,7 @@ export default function FtaftafPage() {
               >
                 <div className="relative h-[48%] w-full">
                   <Image
-                    src={article.image}
+                    src={buildArticleImageVariantUrl(article.image, 'story')}
                     alt={article.title}
                     fill
                     className="object-cover"

@@ -1,5 +1,5 @@
 export const ARTICLE_IMAGE_UPLOAD_GUIDE =
-  'Recommended: 16:9 landscape, at least 1920x1080 for crisp desktop, tablet, and mobile cards.';
+  'Recommended: 16:9 landscape, at least 1920x1080 for crisp desktop, tablet, and mobile cards. If OG URL is empty, a 1200x630 social preview image is auto-generated.';
 
 const DEFAULT_MAX_LONG_EDGE = 2400;
 const DEFAULT_JPEG_QUALITY = 0.9;

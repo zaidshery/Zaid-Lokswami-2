@@ -30,6 +30,10 @@ import {
   buildArticleWhatsAppShareUrl,
   toAbsoluteShareUrl,
 } from '@/lib/utils/articleShare';
+import {
+  buildArticleImageVariantUrl,
+  resolveArticleOgImageUrl,
+} from '@/lib/utils/articleMedia';
 
 function hexToRgba(hex: string, alpha: number) {
   const cleaned = hex.replace('#', '').trim();
@@ -101,7 +105,7 @@ export default function HomePage() {
       : fallbackPath;
     const articleUrl = toAbsoluteShareUrl(articlePath, origin);
     const imageUrl = article?.image
-      ? toAbsoluteShareUrl(article.image, origin)
+      ? toAbsoluteShareUrl(resolveArticleOgImageUrl({ image: article.image }), origin)
       : '';
     const title = article?.title?.trim() || (language === 'hi' ? 'लोकस्वामी खबर' : 'Lokswami story');
     const shareUrl = buildArticleWhatsAppShareUrl({
@@ -202,7 +206,7 @@ export default function HomePage() {
                   <div className="flex h-full items-center gap-2.5">
                     <div className="relative h-[74px] w-[112px] flex-none overflow-hidden rounded-xl">
                       <Image
-                        src={article.image}
+                        src={buildArticleImageVariantUrl(article.image, 'thumb')}
                         alt={article.title}
                         fill
                         className="object-cover transition-transform duration-500 group-hover:scale-105"
@@ -239,7 +243,7 @@ export default function HomePage() {
                   <div className="flex h-full items-center gap-3">
                     <div className="relative h-[72px] w-[108px] flex-none overflow-hidden rounded-lg">
                       <Image
-                        src={article.image}
+                        src={buildArticleImageVariantUrl(article.image, 'thumb')}
                         alt={article.title}
                         fill
                         className="object-cover transition-transform duration-500 group-hover:scale-105"
@@ -408,7 +412,7 @@ export default function HomePage() {
                   <Link href={`/main/article/${encodeURIComponent(panel.lead.id)}`} className="block">
                     <div className="relative aspect-[16/10] overflow-hidden border-b border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800">
                       <Image
-                        src={panel.lead.image}
+                        src={buildArticleImageVariantUrl(panel.lead.image, 'card')}
                         alt={panel.lead.title}
                         fill
                         className="object-cover transition-transform duration-500 group-hover:scale-[1.04]"

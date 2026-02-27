@@ -15,6 +15,7 @@ import {
   getArticleImageHints,
   prepareArticleImageFile,
 } from '@/lib/utils/articleImageUpload';
+import { resolveArticleOgImageUrl } from '@/lib/utils/articleMedia';
 
 const DEFAULT_CATEGORIES = NEWS_CATEGORIES.map((category) => category.nameEn);
 const AUTOSAVE_INTERVAL_MS = 15000;
@@ -455,6 +456,8 @@ export default function EditArticle() {
 
       let imageUrl = imagePreview;
       if (imageFile) imageUrl = await uploadImage();
+      const resolvedOgImage =
+        formData.ogImage.trim() || resolveArticleOgImageUrl({ image: imageUrl });
 
       const response = await fetch(`/api/admin/articles/${encodeURIComponent(articleId)}`, {
         method: 'PUT',
@@ -474,7 +477,7 @@ export default function EditArticle() {
           seo: {
             metaTitle: formData.seoTitle,
             metaDescription: formData.seoDescription,
-            ogImage: formData.ogImage,
+            ogImage: resolvedOgImage,
             canonicalUrl: formData.canonicalUrl,
           },
         }),
@@ -553,6 +556,9 @@ export default function EditArticle() {
               <input type="text" name="seoTitle" value={formData.seoTitle} onChange={handleInputChange} placeholder="Meta title (max 160)" maxLength={160} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors" />
               <textarea name="seoDescription" value={formData.seoDescription} onChange={handleInputChange} placeholder="Meta description (max 320)" rows={3} maxLength={320} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors" />
               <input type="text" name="ogImage" value={formData.ogImage} onChange={handleInputChange} placeholder="OG image URL or /local-path" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors" />
+              <p className="-mt-2 text-xs text-gray-500">
+                Leave empty to auto-use featured image as 1200x630 OG preview.
+              </p>
               <input type="url" name="canonicalUrl" value={formData.canonicalUrl} onChange={handleInputChange} placeholder="Canonical URL" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors" />
             </div>
 

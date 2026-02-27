@@ -6,6 +6,7 @@ import {
   createStoredArticle,
   listStoredArticles,
 } from '@/lib/storage/articlesFile';
+import { resolveArticleOgImageUrl } from '@/lib/utils/articleMedia';
 
 type NormalizedSeo = {
   metaTitle: string;
@@ -60,16 +61,22 @@ async function shouldUseFileStore() {
 
 function normalizeArticleInput(body: unknown) {
   const source = typeof body === 'object' && body ? (body as Record<string, unknown>) : {};
+  const image = typeof source.image === 'string' ? source.image.trim() : '';
+  const seo = normalizeSeo(source.seo);
+  if (!seo.ogImage && image) {
+    seo.ogImage = resolveArticleOgImageUrl({ image });
+  }
+
   return {
     title: typeof source.title === 'string' ? source.title.trim() : '',
     summary: typeof source.summary === 'string' ? source.summary.trim() : '',
     content: typeof source.content === 'string' ? source.content.trim() : '',
-    image: typeof source.image === 'string' ? source.image.trim() : '',
+    image,
     category: typeof source.category === 'string' ? source.category.trim() : '',
     author: typeof source.author === 'string' ? source.author.trim() : '',
     isBreaking: Boolean(source.isBreaking),
     isTrending: Boolean(source.isTrending),
-    seo: normalizeSeo(source.seo),
+    seo,
   };
 }
 

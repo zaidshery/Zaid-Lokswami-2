@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import { resolveArticleOgImageUrl } from '@/lib/utils/articleMedia';
 
 export interface ArticleSeo {
   metaTitle: string;
@@ -100,6 +101,14 @@ function normalizeSeo(input: unknown): ArticleSeo {
   };
 }
 
+function withSeoOgFallback(seo: ArticleSeo, image: string) {
+  if (seo.ogImage || !image) return seo;
+  return {
+    ...seo,
+    ogImage: resolveArticleOgImageUrl({ image }),
+  };
+}
+
 function normalizeRevision(input: unknown): StoredArticleRevision | null {
   const source = typeof input === 'object' && input ? (input as Record<string, unknown>) : null;
   if (!source) return null;
@@ -125,7 +134,7 @@ function normalizeRevision(input: unknown): StoredArticleRevision | null {
     author,
     isBreaking: Boolean(source.isBreaking),
     isTrending: Boolean(source.isTrending),
-    seo: normalizeSeo(source.seo),
+    seo: withSeoOgFallback(normalizeSeo(source.seo), image),
     savedAt:
       typeof source.savedAt === 'string' && source.savedAt.trim()
         ? source.savedAt
@@ -177,7 +186,7 @@ function normalizeStoredArticle(input: unknown): StoredArticle | null {
       typeof source.updatedAt === 'string' && source.updatedAt.trim()
         ? source.updatedAt
         : new Date().toISOString(),
-    seo: normalizeSeo(source.seo),
+    seo: withSeoOgFallback(normalizeSeo(source.seo), image),
     revisions,
   };
 }
@@ -273,7 +282,7 @@ export async function createStoredArticle(input: CreateArticleInput) {
     views: 0,
     publishedAt: now,
     updatedAt: now,
-    seo: normalizeSeo(input.seo),
+    seo: withSeoOgFallback(normalizeSeo(input.seo), normalizeMediaUrl(input.image)),
     revisions: [],
   };
 
@@ -308,7 +317,7 @@ export async function updateStoredArticle(
     ...current,
     ...updates,
     image: nextImage,
-    seo: nextSeo,
+    seo: withSeoOgFallback(nextSeo, nextImage),
     isBreaking:
       updates.isBreaking !== undefined ? updates.isBreaking : current.isBreaking,
     isTrending:
