@@ -5,8 +5,10 @@ import { AnimatePresence, motion } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   ExternalLink,
   Pause,
   Play,
@@ -22,6 +24,7 @@ interface StoryViewerProps {
   isOpen: boolean;
   onClose: () => void;
   onStoryViewed?: (storyId: string) => void;
+  variant?: 'story' | 'reel';
 }
 
 function normalizeDurationSeconds(value: number | undefined) {
@@ -40,6 +43,7 @@ export default function StoryViewer({
   isOpen,
   onClose,
   onStoryViewed,
+  variant = 'story',
 }: StoryViewerProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -49,6 +53,7 @@ export default function StoryViewer({
   const [videoDurationMs, setVideoDurationMs] = useState<number | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const wheelLockUntilRef = useRef(0);
 
   const boundedInitialIndex = Math.min(
     Math.max(initialIndex, 0),
@@ -131,6 +136,14 @@ export default function StoryViewer({
         event.preventDefault();
         goPrev();
       }
+      if (event.key === 'ArrowDown' && variant === 'reel') {
+        event.preventDefault();
+        goNext();
+      }
+      if (event.key === 'ArrowUp' && variant === 'reel') {
+        event.preventDefault();
+        goPrev();
+      }
       if (event.key === ' ') {
         event.preventDefault();
         setIsPaused((prev) => !prev);
@@ -139,7 +152,28 @@ export default function StoryViewer({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [goNext, goPrev, isOpen, onClose]);
+  }, [goNext, goPrev, isOpen, onClose, variant]);
+
+  useEffect(() => {
+    if (!isOpen || variant !== 'reel') return;
+
+    const onWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) < 16) return;
+      const now = Date.now();
+      if (now < wheelLockUntilRef.current) return;
+      wheelLockUntilRef.current = now + 420;
+
+      event.preventDefault();
+      if (event.deltaY > 0) {
+        goNext();
+      } else {
+        goPrev();
+      }
+    };
+
+    window.addEventListener('wheel', onWheel, { passive: false });
+    return () => window.removeEventListener('wheel', onWheel);
+  }, [goNext, goPrev, isOpen, variant]);
 
   useEffect(() => {
     if (!isOpen || !activeStory || isPaused) return;
@@ -190,6 +224,14 @@ export default function StoryViewer({
     const dy = touchEnd.clientY - touchStart.y;
     const absDx = Math.abs(dx);
     const absDy = Math.abs(dy);
+
+    if (variant === 'reel') {
+      if (absDy > 56 && absDy > absDx) {
+        if (dy < 0) goNext();
+        if (dy > 0) goPrev();
+      }
+      return;
+    }
 
     if (absDy > 72 && dy > 0 && absDy > absDx) {
       onClose();
@@ -292,6 +334,11 @@ export default function StoryViewer({
                     <p className="truncate text-xs text-white/80">
                       {activeStory.author || 'Desk'} / {activeIndex + 1}/{stories.length}
                     </p>
+                    {variant === 'reel' ? (
+                      <p className="truncate text-[11px] text-white/65">
+                        Swipe up/down or tap top/bottom
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -325,7 +372,11 @@ export default function StoryViewer({
                 </div>
               </div>
 
-              <div className="grid flex-1 grid-cols-2">
+              <div
+                className={`grid flex-1 ${
+                  variant === 'reel' ? 'grid-cols-1 grid-rows-2' : 'grid-cols-2'
+                }`}
+              >
                 <button
                   type="button"
                   className="h-full w-full bg-transparent"
@@ -378,23 +429,47 @@ export default function StoryViewer({
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={goPrev}
-              className="absolute left-2 top-1/2 z-20 hidden -translate-y-1/2 rounded-full border border-white/40 bg-black/35 p-2 text-white backdrop-blur transition hover:bg-black/55 md:block"
-              aria-label="Previous story"
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </button>
+            {variant === 'reel' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={goPrev}
+                  className="absolute right-3 top-24 z-20 hidden rounded-full border border-white/40 bg-black/35 p-2 text-white backdrop-blur transition hover:bg-black/55 md:block"
+                  aria-label="Previous story"
+                >
+                  <ChevronUp className="h-5 w-5" />
+                </button>
 
-            <button
-              type="button"
-              onClick={goNext}
-              className="absolute right-2 top-1/2 z-20 hidden -translate-y-1/2 rounded-full border border-white/40 bg-black/35 p-2 text-white backdrop-blur transition hover:bg-black/55 md:block"
-              aria-label="Next story"
-            >
-              <ChevronRight className="h-5 w-5" />
-            </button>
+                <button
+                  type="button"
+                  onClick={goNext}
+                  className="absolute right-3 bottom-24 z-20 hidden rounded-full border border-white/40 bg-black/35 p-2 text-white backdrop-blur transition hover:bg-black/55 md:block"
+                  aria-label="Next story"
+                >
+                  <ChevronDown className="h-5 w-5" />
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={goPrev}
+                  className="absolute left-2 top-1/2 z-20 hidden -translate-y-1/2 rounded-full border border-white/40 bg-black/35 p-2 text-white backdrop-blur transition hover:bg-black/55 md:block"
+                  aria-label="Previous story"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={goNext}
+                  className="absolute right-2 top-1/2 z-20 hidden -translate-y-1/2 rounded-full border border-white/40 bg-black/35 p-2 text-white backdrop-blur transition hover:bg-black/55 md:block"
+                  aria-label="Next story"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </>
+            )}
           </div>
         </motion.div>
       ) : null}

@@ -1,12 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Play } from 'lucide-react';
 import type { VisualStory } from '@/lib/content/visualStories';
-import StoryViewer from '@/app/components/content/StoryViewer';
 import { getViewedStoryIds, markStoryAsViewed } from '@/lib/content/storyPersistence';
 
 type StoryItem = VisualStory;
@@ -17,12 +17,11 @@ interface StoriesRailProps {
 }
 
 export default function StoriesRail({ stories, showHeader = true }: StoriesRailProps) {
+  const pathname = usePathname();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
   const [brokenImages, setBrokenImages] = useState<Record<string, boolean>>({});
-  const [isViewerOpen, setIsViewerOpen] = useState(false);
-  const [activeStoryIndex, setActiveStoryIndex] = useState(0);
   const [viewedIds, setViewedIds] = useState<Set<string>>(new Set());
 
   const checkScroll = useCallback(() => {
@@ -62,17 +61,22 @@ export default function StoriesRail({ stories, showHeader = true }: StoriesRailP
     setTimeout(checkScroll, 300);
   };
 
+  const buildStoryHref = useCallback(
+    (storyId: string) => {
+      const safeFrom = pathname?.startsWith('/main') ? pathname : '/main';
+      const params = new URLSearchParams({
+        story: storyId,
+        from: safeFrom,
+      });
+      return `/main/stories?${params.toString()}`;
+    },
+    [pathname]
+  );
+
   const handleOpenStory = (index: number) => {
     if (!visualStories[index]) return;
-    setActiveStoryIndex(index);
-    setIsViewerOpen(true);
 
     const viewedSet = markStoryAsViewed(visualStories[index].id);
-    setViewedIds(viewedSet);
-  };
-
-  const handleStoryViewed = (storyId: string) => {
-    const viewedSet = markStoryAsViewed(storyId);
     setViewedIds(viewedSet);
   };
 
@@ -84,7 +88,7 @@ export default function StoriesRail({ stories, showHeader = true }: StoriesRailP
         <div className="mb-4 flex items-center justify-between px-1">
           <h2 className="flex items-center gap-2 text-xl font-bold text-gray-900 dark:text-white">
             <span className="h-6 w-1.5 rounded-full bg-orange-500" />
-            Stories
+            Mojo Stories
           </h2>
         </div>
       ) : null}
@@ -129,11 +133,11 @@ export default function StoriesRail({ stories, showHeader = true }: StoriesRailP
               transition={{ delay: index * 0.04, duration: 0.22 }}
               className="shrink-0 snap-start"
             >
-              <button
-                type="button"
+              <Link
+                href={buildStoryHref(story.id)}
                 onClick={() => handleOpenStory(index)}
-                className="group cnp-motion relative aspect-[9/16] w-24 overflow-hidden rounded-2xl text-left hover:-translate-y-0.5 md:w-28"
-                aria-label={story.title}
+                className="group cnp-motion relative block aspect-[9/16] w-24 overflow-hidden rounded-2xl text-left hover:-translate-y-0.5 md:w-28"
+                aria-label={`Open ${story.title}`}
               >
                 <div
                   className={`absolute inset-0 rounded-2xl ${getRingClass(story.viewed)} p-[3px] opacity-95 transition-opacity group-hover:opacity-100`}
@@ -177,7 +181,7 @@ export default function StoriesRail({ stories, showHeader = true }: StoriesRailP
                     ) : null}
                   </div>
                 </div>
-              </button>
+              </Link>
             </motion.div>
           ))}
 
@@ -188,7 +192,9 @@ export default function StoriesRail({ stories, showHeader = true }: StoriesRailP
             className="shrink-0 snap-start"
           >
             <Link
-              href="/main/search"
+              href={`/main/stories?${new URLSearchParams({
+                from: pathname?.startsWith('/main') ? pathname : '/main',
+              }).toString()}`}
               className="cnp-motion flex aspect-[9/16] w-24 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-zinc-300 text-zinc-600 hover:border-orange-500 hover:bg-orange-50 hover:text-orange-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900/80 md:w-28"
             >
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 transition-colors dark:bg-zinc-800">
@@ -199,14 +205,6 @@ export default function StoriesRail({ stories, showHeader = true }: StoriesRailP
           </motion.div>
         </div>
       </div>
-
-      <StoryViewer
-        stories={visualStories}
-        initialIndex={activeStoryIndex}
-        isOpen={isViewerOpen}
-        onClose={() => setIsViewerOpen(false)}
-        onStoryViewed={handleStoryViewed}
-      />
     </div>
   );
 }
