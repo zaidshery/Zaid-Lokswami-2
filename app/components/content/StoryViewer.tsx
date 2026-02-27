@@ -47,7 +47,7 @@ function isExternalHref(value: string) {
   return normalized.startsWith('http://') || normalized.startsWith('https://');
 }
 
-function getYouTubeEmbedUrl(value: string) {
+function getYouTubeEmbedUrl(value: string, muted: boolean) {
   const raw = value.trim();
   if (!raw) return '';
 
@@ -78,7 +78,7 @@ function getYouTubeEmbedUrl(value: string) {
 
   const params = new URLSearchParams({
     autoplay: '1',
-    mute: '1',
+    mute: muted ? '1' : '0',
     controls: '0',
     rel: '0',
     modestbranding: '1',
@@ -103,7 +103,7 @@ export default function StoryViewer({
   const [activeIndex, setActiveIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
   const [mediaErrors, setMediaErrors] = useState<Record<string, boolean>>({});
   const [videoDurationMs, setVideoDurationMs] = useState<number | null>(null);
   const [videoCurrentMs, setVideoCurrentMs] = useState(0);
@@ -121,8 +121,8 @@ export default function StoryViewer({
   const hasStoryHref = Boolean(storyHref);
   const ctaLabel = (activeStory?.linkLabel || '').trim() || 'Read Full Story';
   const youtubeEmbedUrl = useMemo(
-    () => getYouTubeEmbedUrl(activeStory?.mediaUrl || ''),
-    [activeStory?.mediaUrl]
+    () => getYouTubeEmbedUrl(activeStory?.mediaUrl || '', isMuted),
+    [activeStory?.mediaUrl, isMuted]
   );
   const isYouTubeStory = Boolean(youtubeEmbedUrl);
   const canUseNativeVideo =
@@ -139,7 +139,7 @@ export default function StoryViewer({
       videoDurationMs &&
       videoDurationMs > 1000
     ) {
-      return Math.min(videoDurationMs, 30000);
+      return videoDurationMs;
     }
     return fallback;
   }, [activeStory?.durationSeconds, activeStory?.mediaType, isYouTubeStory, videoDurationMs]);
@@ -249,7 +249,7 @@ export default function StoryViewer({
   }, [goNext, goPrev, isOpen, variant]);
 
   useEffect(() => {
-    if (!isOpen || !activeStory || isPaused || canUseNativeVideo) return;
+    if (!isOpen || !activeStory || isPaused || canUseNativeVideo || isYouTubeStory) return;
     const step = 60 / durationMs;
     let hasAdvanced = false;
 
@@ -265,7 +265,16 @@ export default function StoryViewer({
     }, 60);
 
     return () => window.clearInterval(timer);
-  }, [activeStory, activeStory?.id, canUseNativeVideo, durationMs, goNext, isOpen, isPaused]);
+  }, [
+    activeStory,
+    activeStory?.id,
+    canUseNativeVideo,
+    durationMs,
+    goNext,
+    isOpen,
+    isPaused,
+    isYouTubeStory,
+  ]);
 
   useEffect(() => {
     if (!isOpen || activeStory?.mediaType !== 'video' || isYouTubeStory) return;
@@ -624,6 +633,14 @@ export default function StoryViewer({
                 {canUseNativeVideo ? (
                   <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
                     <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-white/25 bg-black/35 px-3 py-2 backdrop-blur">
+                      <button
+                        type="button"
+                        onClick={() => setIsMuted((prev) => !prev)}
+                        className="rounded-full bg-white/15 p-2 text-white hover:bg-white/25"
+                        aria-label={isMuted ? 'Unmute video' : 'Mute video'}
+                      >
+                        {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                      </button>
                       <button
                         type="button"
                         onClick={() => jumpVideoBy(-5)}
