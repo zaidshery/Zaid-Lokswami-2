@@ -8,14 +8,30 @@ import {
   Eye,
   Heart,
   Play,
+  SlidersHorizontal,
   Share2,
   Volume2,
   VolumeX,
+  X,
 } from 'lucide-react';
 import formatNumber from '@/lib/utils/formatNumber';
+import { useAppStore } from '@/lib/store/appStore';
 
 const VIEWPORT_HEIGHT_CLASS = 'h-[calc(100dvh-12.9rem)] md:h-[calc(100dvh-13.4rem)]';
 const IMMERSIVE_VIEWPORT_HEIGHT_CLASS = 'h-vh-dvh h-dvh';
+const SHORTS_SETTINGS_KEY = 'lokswami.shorts.settings.v1';
+const PLAYBACK_SPEED_OPTIONS = [0.5, 1, 1.25, 1.5, 2] as const;
+
+type PlaybackSpeed = (typeof PLAYBACK_SPEED_OPTIONS)[number];
+
+type ShortsSettings = {
+  autoAdvance: boolean;
+  captions: boolean;
+  defaultVolume: number;
+  muteByDefault: boolean;
+  playbackSpeed: PlaybackSpeed;
+  dataSaver: boolean;
+};
 
 export interface ShortsVideoItem {
   id: string;
@@ -82,24 +98,68 @@ function formatPlaybackTime(totalSeconds: number) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
+function clampVolume(value: number) {
+  if (!Number.isFinite(value)) return 70;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function normalizePlaybackSpeed(value: unknown): PlaybackSpeed {
+  const numeric = Number(value);
+  if (PLAYBACK_SPEED_OPTIONS.includes(numeric as PlaybackSpeed)) {
+    return numeric as PlaybackSpeed;
+  }
+  return 1;
+}
+
+function normalizeShortsSettings(source: unknown): ShortsSettings {
+  if (!source || typeof source !== 'object') {
+    return {
+      autoAdvance: true,
+      captions: true,
+      defaultVolume: 70,
+      muteByDefault: true,
+      playbackSpeed: 1,
+      dataSaver: false,
+    };
+  }
+
+  const raw = source as Record<string, unknown>;
+
+  return {
+    autoAdvance: raw.autoAdvance !== false,
+    captions: raw.captions !== false,
+    defaultVolume: clampVolume(Number(raw.defaultVolume)),
+    muteByDefault: raw.muteByDefault !== false,
+    playbackSpeed: normalizePlaybackSpeed(raw.playbackSpeed),
+    dataSaver: raw.dataSaver === true,
+  };
+}
+
 export default function VideoShortsFeed({
   videos,
   language,
   immersiveMode = false,
 }: VideoShortsFeedProps) {
+  const toggleLanguage = useAppStore((state) => state.toggleLanguage);
   const feedRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Array<HTMLElement | null>>([]);
   const videoRefs = useRef<Array<HTMLVideoElement | null>>([]);
   const iframeRefs = useRef<Array<HTMLIFrameElement | null>>([]);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const settingsTouchStartYRef = useRef<number | null>(null);
   const didSwipeRef = useRef(false);
   const isAnimatingRef = useRef(false);
   const hasUnlockedAudioRef = useRef(false);
+  const hasHydratedSettingsRef = useRef(false);
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const [isPaused, setIsPaused] = useState(false);
   const [likedIds, setLikedIds] = useState<Record<string, boolean>>({});
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<ShortsSettings>(() =>
+    normalizeShortsSettings(null)
+  );
   const [isHydrated, setIsHydrated] = useState(false);
   const [currentTimeById, setCurrentTimeById] = useState<Record<string, number>>({});
   const [durationById, setDurationById] = useState<Record<string, number>>({});
@@ -116,6 +176,75 @@ export default function VideoShortsFeed({
   useEffect(() => {
     setIsPaused(false);
   }, [activeIndex]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const saved = window.localStorage.getItem(SHORTS_SETTINGS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as unknown;
+        const next = normalizeShortsSettings(parsed);
+        setSettings(next);
+        setIsMuted(next.muteByDefault);
+      }
+    } catch {
+      // Ignore invalid persisted settings.
+    } finally {
+      hasHydratedSettingsRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasHydratedSettingsRef.current || typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(SHORTS_SETTINGS_KEY, JSON.stringify(settings));
+    } catch {
+      // Ignore storage write errors.
+    }
+  }, [settings]);
+
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsSettingsOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isSettingsOpen]);
+
+  useEffect(() => {
+    if (!isSettingsOpen || typeof document === 'undefined') return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isSettingsOpen]);
+
+  useEffect(() => {
+    if (!settings.muteByDefault || isMuted) return;
+    setIsMuted(true);
+  }, [isMuted, settings.muteByDefault]);
+
+  const updateSettings = useCallback(
+    (updater: (previous: ShortsSettings) => ShortsSettings) => {
+      setSettings((previous) => updater(previous));
+    },
+    []
+  );
+
+  const applyNativeVideoPreferences = useCallback(
+    (video: HTMLVideoElement | null, mutedState: boolean) => {
+      if (!video) return;
+      video.playbackRate = settings.playbackSpeed;
+      video.defaultPlaybackRate = settings.playbackSpeed;
+      video.volume = settings.defaultVolume / 100;
+      video.muted = mutedState;
+    },
+    [settings.defaultVolume, settings.playbackSpeed]
+  );
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -155,9 +284,9 @@ export default function VideoShortsFeed({
   const viewportHeightClass = immersiveMode
     ? IMMERSIVE_VIEWPORT_HEIGHT_CLASS
     : VIEWPORT_HEIGHT_CLASS;
-  const actionRailPositionClass = immersiveMode
-    ? 'right-3 top-1/2 -translate-y-1/2 md:right-6'
-    : 'right-3 top-1/2 -translate-y-1/2';
+  const actionRailPositionClass = 'right-3 top-1/2 -translate-y-1/2 md:right-6';
+  const settingsButtonPositionClass =
+    'right-3 top-[calc(env(safe-area-inset-top)+0.75rem)] md:right-6 md:top-[calc(env(safe-area-inset-top)+1rem)]';
   const shellClass = immersiveMode
     ? 'h-vh-dvh w-full'
     : 'mx-auto w-full max-w-none lg:max-w-[480px]';
@@ -204,7 +333,7 @@ export default function VideoShortsFeed({
     const video = videoRefs.current[activeIndex];
     if (!video) return;
 
-    video.muted = false;
+    applyNativeVideoPreferences(video, false);
     if (isPaused) {
       void video.play().catch(() => undefined);
       setIsPaused(false);
@@ -236,7 +365,7 @@ export default function VideoShortsFeed({
     if (!video) return;
 
     if (isPaused) {
-      video.muted = isMuted;
+      applyNativeVideoPreferences(video, isMuted);
       void video.play().catch(() => undefined);
       setIsPaused(false);
       return;
@@ -330,7 +459,7 @@ export default function VideoShortsFeed({
     videoRefs.current.forEach((video, index) => {
       if (!video) return;
       if (index === activeIndex) {
-        video.muted = isMuted;
+        applyNativeVideoPreferences(video, isMuted);
         if (isPaused) {
           video.pause();
           return;
@@ -340,6 +469,7 @@ export default function VideoShortsFeed({
         return;
       }
 
+      applyNativeVideoPreferences(video, true);
       video.pause();
       video.currentTime = 0;
     });
@@ -357,7 +487,7 @@ export default function VideoShortsFeed({
       sendYouTubeCommand(iframe, 'mute');
       sendYouTubeCommand(iframe, 'pauseVideo');
     });
-  }, [activeIndex, isMuted, isPaused, videos.length]);
+  }, [activeIndex, applyNativeVideoPreferences, isMuted, isPaused, videos.length]);
 
   const handleTouchStart = (event: React.TouchEvent) => {
     const touch = event.touches[0];
@@ -434,6 +564,7 @@ export default function VideoShortsFeed({
 
   const handleVideoLoadedMetadata = (videoId: string, fallbackDuration: number, event: React.SyntheticEvent<HTMLVideoElement>) => {
     const element = event.currentTarget;
+    applyNativeVideoPreferences(element, isMuted);
     const resolvedDuration =
       Number.isFinite(element.duration) && element.duration > 0 ? element.duration : fallbackDuration;
 
@@ -445,6 +576,7 @@ export default function VideoShortsFeed({
 
   const handleVideoDurationChange = (videoId: string, fallbackDuration: number, event: React.SyntheticEvent<HTMLVideoElement>) => {
     const element = event.currentTarget;
+    applyNativeVideoPreferences(element, isMuted);
     const resolvedDuration =
       Number.isFinite(element.duration) && element.duration > 0 ? element.duration : fallbackDuration;
 
@@ -452,6 +584,15 @@ export default function VideoShortsFeed({
       if (prev[videoId] === resolvedDuration) return prev;
       return { ...prev, [videoId]: resolvedDuration };
     });
+  };
+
+  const handleVideoEnded = (index: number) => {
+    if (index !== activeIndex) return;
+    if (settings.autoAdvance) {
+      scrollToIndex(activeIndex + 1);
+      return;
+    }
+    setIsPaused(true);
   };
 
   const handleVideoTimeUpdate = (videoId: string, index: number, event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -473,6 +614,7 @@ export default function VideoShortsFeed({
   const handleVideoPlay = (videoId: string, index: number, event: React.SyntheticEvent<HTMLVideoElement>) => {
     if (index !== activeIndex) return;
     const element = event.currentTarget;
+    applyNativeVideoPreferences(element, isMuted);
     const nextCurrentTime = Number.isFinite(element.currentTime) ? element.currentTime : 0;
     const nextDuration = Number.isFinite(element.duration) && element.duration > 0 ? element.duration : 0;
 
@@ -481,6 +623,25 @@ export default function VideoShortsFeed({
       setDurationById((prev) => ({ ...prev, [videoId]: nextDuration }));
     }
     setIsPaused(false);
+  };
+
+  const handleSettingsSheetTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0];
+    settingsTouchStartYRef.current = touch ? touch.clientY : null;
+  };
+
+  const handleSettingsSheetTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (settingsTouchStartYRef.current === null) return;
+    const touch = event.changedTouches[0];
+    const deltaY = touch ? touch.clientY - settingsTouchStartYRef.current : 0;
+    settingsTouchStartYRef.current = null;
+    if (deltaY > 60) {
+      setIsSettingsOpen(false);
+    }
+  };
+
+  const handleLanguageQuickToggle = () => {
+    toggleLanguage();
   };
 
   useEffect(() => {
@@ -574,7 +735,7 @@ export default function VideoShortsFeed({
                       src={video.videoUrl}
                       poster={video.thumbnail}
                       className="absolute inset-0 h-full w-full object-cover"
-                      loop
+                      loop={!settings.autoAdvance}
                       muted={isMuted}
                       playsInline
                       preload={index <= activeIndex + 1 ? 'metadata' : 'none'}
@@ -588,6 +749,7 @@ export default function VideoShortsFeed({
                       onTimeUpdate={(event) => handleVideoTimeUpdate(video.id, index, event)}
                       onPause={() => handleVideoPause(index)}
                       onPlay={(event) => handleVideoPlay(video.id, index, event)}
+                      onEnded={() => handleVideoEnded(index)}
                     />
                   )}
                 </div>
@@ -623,7 +785,7 @@ export default function VideoShortsFeed({
                   </div>
                 ) : null}
 
-                {!immersiveMode ? (
+                {!immersiveMode && settings.captions ? (
                   <>
                 <div className="absolute left-3 top-3 hidden items-center gap-2 rounded-full bg-black/55 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur md:inline-flex">
                   <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
@@ -669,49 +831,247 @@ export default function VideoShortsFeed({
         </div>
 
         {activeVideo ? (
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            className={`absolute z-30 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/35 text-white/90 shadow-[0_10px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/90 focus-visible:ring-offset-2 focus-visible:ring-offset-black md:h-11 md:w-11 ${settingsButtonPositionClass}`}
+            aria-label="Settings"
+            data-swipe-ignore="true"
+          >
+            <SlidersHorizontal className="h-5 w-5 md:h-6 md:w-6" />
+          </button>
+        ) : null}
+
+        {activeVideo ? (
           <div className={`pointer-events-none absolute z-20 ${actionRailPositionClass}`}>
-            <div className="pointer-events-auto flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-black/35 p-2 md:p-3">
+            <div className="pointer-events-auto flex flex-col items-center gap-3 rounded-full border border-white/10 bg-black/35 p-2 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md md:p-2.5">
               <button
                 type="button"
                 onClick={handleLike}
-                className={`rounded-full p-2 text-white/90 transition-opacity hover:opacity-100 md:p-2.5 ${
+                className={`inline-flex h-10 w-10 items-center justify-center rounded-full text-white/90 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/90 focus-visible:ring-offset-2 focus-visible:ring-offset-black md:h-11 md:w-11 ${
                   likedIds[activeVideo.id] ? 'opacity-100 text-red-400' : 'opacity-80'
                 }`}
                 aria-label={language === 'hi' ? '\u0932\u093e\u0907\u0915' : 'Like'}
+                data-swipe-ignore="true"
               >
                 <Heart
-                  className={`h-5 w-5 md:h-6 md:w-6 ${likedIds[activeVideo.id] ? 'fill-current' : ''}`}
+                  className={`h-[22px] w-[22px] md:h-[25px] md:w-[25px] ${
+                    likedIds[activeVideo.id] ? 'fill-current' : ''
+                  }`}
                 />
               </button>
 
               <button
                 type="button"
                 onClick={handleMuteToggle}
-                className="rounded-full p-2 text-white/90 opacity-80 transition-opacity hover:opacity-100 md:p-2.5"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full text-white/90 opacity-80 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/90 focus-visible:ring-offset-2 focus-visible:ring-offset-black md:h-11 md:w-11"
                 aria-label={isMuted ? 'Unmute video' : 'Mute video'}
+                data-swipe-ignore="true"
               >
                 {isMuted ? (
-                  <VolumeX className="h-5 w-5 md:h-6 md:w-6" />
+                  <VolumeX className="h-[22px] w-[22px] md:h-[25px] md:w-[25px]" />
                 ) : (
-                  <Volume2 className="h-5 w-5 md:h-6 md:w-6" />
+                  <Volume2 className="h-[22px] w-[22px] md:h-[25px] md:w-[25px]" />
                 )}
               </button>
 
               <button
                 type="button"
                 onClick={handleShare}
-                className="rounded-full p-2 text-white/90 opacity-80 transition-opacity hover:opacity-100 md:p-2.5"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full text-white/90 opacity-80 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/90 focus-visible:ring-offset-2 focus-visible:ring-offset-black md:h-11 md:w-11"
                 aria-label={language === 'hi' ? '\u0936\u0947\u092f\u0930 \u0915\u0930\u0947\u0902' : 'Share'}
+                data-swipe-ignore="true"
               >
-                <Share2 className="h-5 w-5 md:h-6 md:w-6" />
+                <Share2 className="h-[22px] w-[22px] md:h-[25px] md:w-[25px]" />
               </button>
             </div>
           </div>
         ) : null}
 
-        {immersiveMode && activeVideo ? (
+        {isSettingsOpen ? (
+          <div className="fixed inset-0 z-40" data-swipe-ignore="true">
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(false)}
+              className="absolute inset-0 bg-black/65 animate-[fadeIn_180ms_ease-out]"
+              aria-label={language === 'hi' ? '\u0938\u0947\u091f\u093f\u0902\u0917\u094d\u0938 \u092c\u0902\u0926 \u0915\u0930\u0947\u0902' : 'Close settings'}
+            />
+
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label={language === 'hi' ? '\u0935\u0940\u0921\u093f\u092f\u094b \u0938\u0947\u091f\u093f\u0902\u0917\u094d\u0938' : 'Video settings'}
+              onTouchStart={handleSettingsSheetTouchStart}
+              onTouchEnd={handleSettingsSheetTouchEnd}
+              className="absolute inset-x-0 bottom-0 max-h-[78dvh] rounded-t-3xl border border-white/10 bg-zinc-950/95 shadow-[0_-24px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl animate-[fadeIn_220ms_ease-out] md:inset-auto md:right-6 md:top-[calc(env(safe-area-inset-top)+4.25rem)] md:w-[360px] md:max-h-[calc(100dvh-env(safe-area-inset-top)-5rem)] md:rounded-2xl"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 px-4 pb-3 pt-3 md:pt-4">
+                <div className="mx-auto h-1.5 w-12 rounded-full bg-white/20 md:hidden" />
+                <h3 className="text-sm font-semibold text-white md:text-base">
+                  {language === 'hi' ? '\u0938\u0947\u091f\u093f\u0902\u0917\u094d\u0938' : 'Settings'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setIsSettingsOpen(false)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/90 transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/90"
+                  aria-label={language === 'hi' ? '\u092a\u0948\u0928\u0932 \u092c\u0902\u0926 \u0915\u0930\u0947\u0902' : 'Close panel'}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="max-h-[calc(78dvh-3.75rem)] space-y-3 overflow-y-auto px-4 py-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] md:max-h-[calc(100dvh-env(safe-area-inset-top)-10rem)] md:space-y-3.5 md:px-5 md:py-4">
+                <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-3 py-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-white">
+                      {language === 'hi' ? '\u0911\u091f\u094b \u090f\u0921\u0935\u093e\u0902\u0938' : 'Auto-advance'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateSettings((prev) => ({ ...prev, autoAdvance: !prev.autoAdvance }))}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+                      settings.autoAdvance ? 'bg-red-500' : 'bg-zinc-700'
+                    }`}
+                    aria-label={language === 'hi' ? '\u0911\u091f\u094b \u090f\u0921\u0935\u093e\u0902\u0938 \u091f\u0949\u0917\u0932' : 'Toggle auto-advance'}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                        settings.autoAdvance ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-3 py-2.5">
+                  <p className="text-sm font-medium text-white">
+                    {language === 'hi' ? '\u0915\u0948\u092a\u094d\u0936\u0928' : 'Captions'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => updateSettings((prev) => ({ ...prev, captions: !prev.captions }))}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+                      settings.captions ? 'bg-red-500' : 'bg-zinc-700'
+                    }`}
+                    aria-label={language === 'hi' ? '\u0915\u0948\u092a\u094d\u0936\u0928 \u091f\u0949\u0917\u0932' : 'Toggle captions'}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                        settings.captions ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-sm font-medium text-white">
+                      {language === 'hi' ? '\u0921\u093f\u092b\u0949\u0932\u094d\u091f \u0935\u0949\u0932\u094d\u092f\u0942\u092e' : 'Default volume'}
+                    </p>
+                    <span className="text-xs font-medium text-zinc-300">{settings.defaultVolume}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={settings.defaultVolume}
+                    onChange={(event) => {
+                      const nextVolume = clampVolume(Number(event.target.value));
+                      updateSettings((prev) => ({ ...prev, defaultVolume: nextVolume }));
+                    }}
+                    className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-white/20 accent-red-500"
+                    aria-label={language === 'hi' ? '\u0921\u093f\u092b\u0949\u0932\u094d\u091f \u0935\u0949\u0932\u094d\u092f\u0942\u092e' : 'Default volume'}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-3 py-2.5">
+                  <p className="text-sm font-medium text-white">
+                    {language === 'hi' ? '\u092e\u094d\u092f\u0942\u091f \u092c\u093e\u0908 \u0921\u093f\u092b\u0949\u0932\u094d\u091f' : 'Mute by default'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => updateSettings((prev) => ({ ...prev, muteByDefault: !prev.muteByDefault }))}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+                      settings.muteByDefault ? 'bg-red-500' : 'bg-zinc-700'
+                    }`}
+                    aria-label={language === 'hi' ? '\u092e\u094d\u092f\u0942\u091f \u0921\u093f\u092b\u0949\u0932\u094d\u091f \u091f\u0949\u0917\u0932' : 'Toggle mute by default'}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                        settings.muteByDefault ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5">
+                  <label className="mb-2 block text-sm font-medium text-white" htmlFor="playback-speed-select">
+                    {language === 'hi' ? '\u092a\u094d\u0932\u0947\u092c\u0948\u0915 \u0938\u094d\u092a\u0940\u0921' : 'Playback speed'}
+                  </label>
+                  <select
+                    id="playback-speed-select"
+                    value={settings.playbackSpeed}
+                    onChange={(event) => {
+                      const nextSpeed = normalizePlaybackSpeed(Number(event.target.value));
+                      updateSettings((prev) => ({ ...prev, playbackSpeed: nextSpeed }));
+                    }}
+                    className="w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-400"
+                  >
+                    {PLAYBACK_SPEED_OPTIONS.map((speed) => (
+                      <option key={speed} value={speed} className="bg-zinc-900 text-white">
+                        {speed}x
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-3 py-2.5">
+                  <p className="text-sm font-medium text-white">
+                    {language === 'hi' ? '\u0921\u0947\u091f\u093e \u0938\u0947\u0935\u0930' : 'Data saver'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => updateSettings((prev) => ({ ...prev, dataSaver: !prev.dataSaver }))}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+                      settings.dataSaver ? 'bg-red-500' : 'bg-zinc-700'
+                    }`}
+                    aria-label={language === 'hi' ? '\u0921\u0947\u091f\u093e \u0938\u0947\u0935\u0930 \u091f\u0949\u0917\u0932' : 'Toggle data saver'}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                        settings.dataSaver ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-3 py-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-white">
+                      {language === 'hi' ? '\u092d\u093e\u0937\u093e' : 'Language'}
+                    </p>
+                    <p className="text-xs text-zinc-300">
+                      {language === 'hi' ? '\u0939\u093f\u0902\u0926\u0940' : 'English'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleLanguageQuickToggle}
+                    className="rounded-full border border-red-400/45 bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-100 transition hover:bg-red-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+                    aria-label={language === 'hi' ? '\u092d\u093e\u0937\u093e \u092c\u0926\u0932\u0947\u0902' : 'Toggle language'}
+                  >
+                    {language === 'hi' ? 'Switch to EN' : '\u0939\u093f\u0902\u0926\u0940'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {immersiveMode && activeVideo && settings.captions ? (
           <div className="pointer-events-none absolute bottom-16 left-0 right-0 z-20 px-4 pb-[env(safe-area-inset-bottom)] md:bottom-20 md:px-8">
-            <div className="overflow-hidden whitespace-nowrap pr-14 md:pr-20">
+            <div className="overflow-hidden whitespace-nowrap pr-20 md:pr-24">
               <p className="truncate whitespace-nowrap overflow-hidden text-sm font-medium text-white md:text-base lg:text-lg">
                 {activeVideo.title}
               </p>
