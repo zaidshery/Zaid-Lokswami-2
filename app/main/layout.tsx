@@ -103,7 +103,11 @@ export default function MainLayout({
 
       {/* Bottom Navigation - Mobile + Tablet (below 1280px) */}
       {showBottomNav ? (
-        <BottomNav onMenuClick={toggleMobileMenu} isMenuOpen={isMobileMenuOpen} />
+        <BottomNav
+          onMenuClick={toggleMobileMenu}
+          isMenuOpen={isMobileMenuOpen}
+          isOverlayDark={isImmersiveVideoMode && isVideosRoute}
+        />
       ) : null}
     </div>
   );

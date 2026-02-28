@@ -15,7 +15,7 @@ import {
 import formatNumber from '@/lib/utils/formatNumber';
 
 const VIEWPORT_HEIGHT_CLASS = 'h-[calc(100dvh-12.9rem)] md:h-[calc(100dvh-13.4rem)]';
-const IMMERSIVE_VIEWPORT_HEIGHT_CLASS = 'h-dvh';
+const IMMERSIVE_VIEWPORT_HEIGHT_CLASS = 'h-vh-dvh h-dvh';
 
 export interface ShortsVideoItem {
   id: string;
@@ -123,20 +123,20 @@ export default function VideoShortsFeed({
     const diff = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
 
     if (diff < 60) {
-      return language === 'hi' ? `${diff} मिनट पहले` : `${diff} min ago`;
+      return language === 'hi' ? `${diff} \u092e\u093f\u0928\u091f \u092a\u0939\u0932\u0947` : `${diff} min ago`;
     }
 
     if (diff < 1440) {
       const hours = Math.floor(diff / 60);
-      return language === 'hi' ? `${hours} घंटे पहले` : `${hours} hours ago`;
+      return language === 'hi' ? `${hours} \u0918\u0902\u091f\u0947 \u092a\u0939\u0932\u0947` : `${hours} hours ago`;
     }
 
     const days = Math.floor(diff / 1440);
-    return language === 'hi' ? `${days} दिन पहले` : `${days} days ago`;
+    return language === 'hi' ? `${days} \u0926\u093f\u0928 \u092a\u0939\u0932\u0947` : `${days} days ago`;
   };
 
   const renderTime = (dateString: string) =>
-    isHydrated ? formatTime(dateString) : language === 'hi' ? 'हाल ही में' : 'recently';
+    isHydrated ? formatTime(dateString) : language === 'hi' ? '\u0939\u093e\u0932 \u0939\u0940 \u092e\u0947\u0902' : 'recently';
 
   const activeVideo = videos[activeIndex];
 
@@ -159,7 +159,7 @@ export default function VideoShortsFeed({
     ? 'right-3 top-1/2 -translate-y-1/2 md:right-6'
     : 'right-3 top-1/2 -translate-y-1/2';
   const shellClass = immersiveMode
-    ? 'h-dvh w-full'
+    ? 'h-vh-dvh w-full'
     : 'mx-auto w-full max-w-none lg:max-w-[480px]';
   const feedClass = immersiveMode
     ? `scrollbar-hide ${viewportHeightClass} w-full snap-y snap-mandatory overflow-y-auto overscroll-y-contain rounded-none border-0 bg-black shadow-none touch-pan-y`
@@ -483,18 +483,35 @@ export default function VideoShortsFeed({
     setIsPaused(false);
   };
 
+  useEffect(() => {
+    if (!immersiveMode || typeof document === 'undefined') return;
+
+    const root = document.documentElement;
+    const body = document.body;
+    const previousRootBg = root.style.backgroundColor;
+    const previousBodyBg = body.style.backgroundColor;
+
+    root.style.backgroundColor = '#000';
+    body.style.backgroundColor = '#000';
+
+    return () => {
+      root.style.backgroundColor = previousRootBg;
+      body.style.backgroundColor = previousBodyBg;
+    };
+  }, [immersiveMode]);
+
   if (!videos.length) {
     return (
       <div className="mx-auto max-w-[470px] rounded-3xl border border-zinc-200 bg-white px-6 py-14 text-center shadow-[0_20px_55px_rgba(0,0,0,0.08)] dark:border-zinc-800 dark:bg-zinc-900">
         <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-          {language === 'hi' ? 'कोई शॉर्ट्स उपलब्ध नहीं है' : 'No shorts available right now'}
+          {language === 'hi' ? '\u0915\u094b\u0908 \u0936\u0949\u0930\u094d\u091f\u094d\u0938 \u0909\u092a\u0932\u092c\u094d\u0927 \u0928\u0939\u0940\u0902 \u0939\u0948' : 'No shorts available right now'}
         </p>
       </div>
     );
   }
 
   const sectionClass = immersiveMode
-    ? 'fixed inset-0 z-40 h-dvh w-full overflow-hidden bg-black'
+    ? 'fixed inset-0 z-40 h-vh-dvh h-dvh w-full overflow-hidden bg-black overscroll-none'
     : 'relative';
 
   return (
@@ -545,7 +562,7 @@ export default function VideoShortsFeed({
                       }}
                       title={video.title}
                       src={`https://www.youtube.com/embed/${youtubeId}?enablejsapi=1&playsinline=1&controls=0&mute=1&loop=1&playlist=${youtubeId}&autoplay=${index === activeIndex ? 1 : 0}&rel=0&modestbranding=1`}
-                      className="h-full w-full"
+                      className="absolute inset-0 h-full w-full"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                       allowFullScreen
                     />
@@ -556,7 +573,7 @@ export default function VideoShortsFeed({
                       }}
                       src={video.videoUrl}
                       poster={video.thumbnail}
-                      className="h-full w-full object-cover"
+                      className="absolute inset-0 h-full w-full object-cover"
                       loop
                       muted={isMuted}
                       playsInline
@@ -575,7 +592,9 @@ export default function VideoShortsFeed({
                   )}
                 </div>
 
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
+                {!immersiveMode ? (
+                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
+                ) : null}
 
                 {immersiveMode ? (
                   <button
@@ -637,7 +656,7 @@ export default function VideoShortsFeed({
                       href={readHref}
                       className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-red-300 transition-colors hover:text-red-200"
                     >
-                      {language === 'hi' ? 'पूरी खबर' : 'Read Story'}
+                      {language === 'hi' ? '\u092a\u0942\u0930\u0940 \u0916\u092c\u0930' : 'Read Story'}
                       <ArrowUpRight className="h-4 w-4" />
                     </Link>
                   </div>
@@ -651,7 +670,7 @@ export default function VideoShortsFeed({
 
         {activeVideo ? (
           <div className={`pointer-events-none absolute z-20 ${actionRailPositionClass}`}>
-            <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border border-white/15 bg-black/40 p-2 backdrop-blur md:p-2.5">
+            <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border border-white/15 bg-black/40 p-2 backdrop-blur md:gap-3 md:p-2.5">
               <button
                 type="button"
                 onClick={handleLike}
@@ -660,7 +679,7 @@ export default function VideoShortsFeed({
                     ? 'bg-red-500 text-white'
                     : 'bg-white/15 text-white hover:bg-white/25'
                 }`}
-                aria-label={language === 'hi' ? 'लाइक' : 'Like'}
+                aria-label={language === 'hi' ? '\u0932\u093e\u0907\u0915' : 'Like'}
               >
                 <Heart className={`h-5 w-5 ${likedIds[activeVideo.id] ? 'fill-current' : ''}`} />
               </button>
@@ -678,26 +697,18 @@ export default function VideoShortsFeed({
                 type="button"
                 onClick={handleShare}
                 className="rounded-full bg-white/15 p-2.5 text-white transition-colors hover:bg-white/25"
-                aria-label={language === 'hi' ? 'शेयर करें' : 'Share'}
+                aria-label={language === 'hi' ? '\u0936\u0947\u092f\u0930 \u0915\u0930\u0947\u0902' : 'Share'}
               >
                 <Share2 className="h-5 w-5" />
               </button>
-
-              <Link
-                href={activeReadHref}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-red-500 text-white transition-colors hover:bg-red-600"
-                aria-label={language === 'hi' ? 'पूरी खबर' : 'Read Story'}
-              >
-                <ArrowUpRight className="h-5 w-5" />
-              </Link>
             </div>
           </div>
         ) : null}
 
         {immersiveMode && activeVideo ? (
           <div className="pointer-events-none absolute bottom-16 left-0 right-0 z-20 px-4 pb-[env(safe-area-inset-bottom)] md:bottom-20 md:px-8">
-            <div className="overflow-hidden whitespace-nowrap pr-16 md:pr-24">
-              <p className="truncate text-sm font-medium text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.65)] md:text-base lg:text-lg">
+            <div className="overflow-hidden whitespace-nowrap pr-14 md:pr-20">
+              <p className="truncate whitespace-nowrap overflow-hidden text-sm font-medium text-white md:text-base lg:text-lg">
                 {activeVideo.title}
               </p>
             </div>
@@ -721,4 +732,5 @@ export default function VideoShortsFeed({
     </section>
   );
 }
+
 

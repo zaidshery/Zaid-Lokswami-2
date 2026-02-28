@@ -869,6 +869,11 @@
 }
 
 @layer utilities {
+  .h-vh-dvh {
+    height: 100vh;
+    height: 100dvh;
+  }
+
   .line-clamp-1 {
     display: -webkit-box;
     -webkit-line-clamp: 1;

@@ -131,27 +131,7 @@ function buildFallbackVideos(): VideoItem[] {
 
 function isCompactShortsViewport() {
   if (typeof window === 'undefined') return false;
-
-  const width = window.innerWidth;
-  const height = window.innerHeight;
-  const shortestSide = Math.min(width, height);
-  const ua = window.navigator.userAgent.toLowerCase();
-  const isIPad =
-    /\bipad\b/.test(ua) ||
-    (window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
-  const isAndroidTablet = ua.includes('android') && !ua.includes('mobile');
-  const hasTouchPoints = window.navigator.maxTouchPoints > 0;
-  const isCoarsePointer =
-    typeof window.matchMedia === 'function' ? window.matchMedia('(pointer: coarse)').matches : false;
-  const hasNoHover =
-    typeof window.matchMedia === 'function' ? window.matchMedia('(hover: none)').matches : false;
-
-  if (isIPad || isAndroidTablet) return true;
-
-  if (isCoarsePointer || hasNoHover || hasTouchPoints) return shortestSide <= 1024;
-
-  // Desktop fallback for emulator windows.
-  return width <= 820;
+  return window.matchMedia('(max-width: 1024px)').matches;
 }
 
 export default function VideosPage() {
