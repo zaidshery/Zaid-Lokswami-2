@@ -15,7 +15,6 @@ import SmartEngagementPopup from '../components/notifications/SmartEngagementPop
 import MobileSwipeTabs, {
   type MobileSwipeTabRoute,
 } from '../components/layout/MobileSwipeTabs';
-import { breakingNews } from '@/lib/mock/data';
 
 const MOBILE_BOTTOM_TAB_ROUTES: MobileSwipeTabRoute[] = [
   { path: '/main', name: 'Home' },
@@ -59,7 +58,7 @@ export default function MainLayout({
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950 overflow-x-hidden transition-colors duration-500">
       {/* Breaking News Bar (Top) */}
-      {!isImmersiveVideoMode ? <BreakingNews news={breakingNews} /> : null}
+      {!isImmersiveVideoMode ? <BreakingNews /> : null}
 
       {/* Header (below breaking bar) */}
       {!isImmersiveVideoMode ? <Header /> : null}
@@ -75,7 +74,7 @@ export default function MainLayout({
           className={
             isImmersiveVideoMode
               ? 'pb-0 pt-0'
-              : 'pb-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+0.5rem)] pt-[8.4rem] md:pt-[9.1rem] xl:pb-4'
+              : 'pb-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+0.5rem)] pt-[8rem] md:pt-[9.5rem] xl:pb-4'
           }
         >
           <Container

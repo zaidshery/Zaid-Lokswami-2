@@ -620,10 +620,10 @@ export default function BreakingNews({
       }
     >
       <Container>
-        <div className="flex h-12 items-center gap-2 md:h-[52px] md:gap-3">
+        <div className="flex h-10 items-center gap-2 md:h-12 md:gap-3">
           <div className="flex h-full items-center">
-            <span className="inline-flex h-8 items-center gap-2 rounded-full bg-white px-2.5 text-[11px] font-extrabold uppercase tracking-[0.08em] text-red-600 ring-1 ring-white/30 shadow-[inset_0_0_0_1px_rgba(239,68,68,0.15)] md:h-9 md:px-3 md:text-xs">
-              <span className="h-3 w-3 rounded-full bg-red-500 shadow-[0_0_0_2px_rgba(239,68,68,0.22)]" />
+            <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-white px-2 text-[11px] font-extrabold uppercase tracking-[0.08em] text-red-600 ring-1 ring-white/30 shadow-[inset_0_0_0_1px_rgba(239,68,68,0.15)] md:h-8 md:gap-2 md:px-2.5 md:text-xs">
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500 shadow-[0_0_0_2px_rgba(239,68,68,0.22)] md:h-3 md:w-3" />
               LIVE
             </span>
           </div>
@@ -636,7 +636,7 @@ export default function BreakingNews({
             aria-live="polite"
           >
             {isLoading && !resolvedItems.length ? (
-              <div className="flex h-8 items-center">
+              <div className="flex h-7 items-center md:h-8">
                 <div className="h-3.5 w-[62%] animate-pulse rounded-full bg-white/20" />
               </div>
             ) : shouldAnimate ? (

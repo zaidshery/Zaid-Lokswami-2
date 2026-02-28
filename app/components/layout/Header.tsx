@@ -19,7 +19,7 @@ export default function Header() {
   if (!mounted) return null;
 
   return (
-    <header className="fixed left-0 right-0 top-10 z-50 border-b border-zinc-200/85 bg-white/95 shadow-[var(--shadow-soft)] backdrop-blur-md transition-all duration-500 dark:border-zinc-800 dark:bg-zinc-950/95">
+    <header className="fixed left-0 right-0 top-10 z-50 border-b border-zinc-200/85 bg-white/95 shadow-[var(--shadow-soft)] backdrop-blur-md transition-all duration-500 dark:border-zinc-800 dark:bg-zinc-950/95 md:top-12">
       <div className="w-full px-2 sm:px-5 md:px-8">
         <div className="flex h-12 items-center justify-between gap-1.5 sm:h-[3.7rem] sm:gap-3">
           <div className="flex min-w-0 items-center">
@@ -127,8 +127,8 @@ export default function Header() {
       </div>
 
       <div className="border-t border-zinc-200/80 dark:border-zinc-800">
-        <div className="scrollbar-hide overflow-x-auto touch-pan-x px-2 sm:px-4 md:px-8 lg:flex lg:justify-center">
-          <DesktopNav className="min-w-max py-1 md:py-2" />
+        <div className="scrollbar-hide flex h-10 items-center overflow-x-auto touch-pan-x px-2 sm:px-4 md:h-11 md:px-8 lg:justify-center">
+          <DesktopNav className="min-w-max py-0" />
         </div>
       </div>
     </header>
