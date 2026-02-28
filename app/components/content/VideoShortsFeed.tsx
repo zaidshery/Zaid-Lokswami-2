@@ -670,36 +670,40 @@ export default function VideoShortsFeed({
 
         {activeVideo ? (
           <div className={`pointer-events-none absolute z-20 ${actionRailPositionClass}`}>
-            <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border border-white/15 bg-black/40 p-2 backdrop-blur md:gap-3 md:p-2.5">
+            <div className="pointer-events-auto flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-black/35 p-2 md:p-3">
               <button
                 type="button"
                 onClick={handleLike}
-                className={`rounded-full p-2.5 transition-colors ${
-                  likedIds[activeVideo.id]
-                    ? 'bg-red-500 text-white'
-                    : 'bg-white/15 text-white hover:bg-white/25'
+                className={`rounded-full p-2 text-white/90 transition-opacity hover:opacity-100 md:p-2.5 ${
+                  likedIds[activeVideo.id] ? 'opacity-100 text-red-400' : 'opacity-80'
                 }`}
                 aria-label={language === 'hi' ? '\u0932\u093e\u0907\u0915' : 'Like'}
               >
-                <Heart className={`h-5 w-5 ${likedIds[activeVideo.id] ? 'fill-current' : ''}`} />
+                <Heart
+                  className={`h-5 w-5 md:h-6 md:w-6 ${likedIds[activeVideo.id] ? 'fill-current' : ''}`}
+                />
               </button>
 
               <button
                 type="button"
                 onClick={handleMuteToggle}
-                className="rounded-full bg-white/15 p-2.5 text-white transition-colors hover:bg-white/25"
+                className="rounded-full p-2 text-white/90 opacity-80 transition-opacity hover:opacity-100 md:p-2.5"
                 aria-label={isMuted ? 'Unmute video' : 'Mute video'}
               >
-                {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+                {isMuted ? (
+                  <VolumeX className="h-5 w-5 md:h-6 md:w-6" />
+                ) : (
+                  <Volume2 className="h-5 w-5 md:h-6 md:w-6" />
+                )}
               </button>
 
               <button
                 type="button"
                 onClick={handleShare}
-                className="rounded-full bg-white/15 p-2.5 text-white transition-colors hover:bg-white/25"
+                className="rounded-full p-2 text-white/90 opacity-80 transition-opacity hover:opacity-100 md:p-2.5"
                 aria-label={language === 'hi' ? '\u0936\u0947\u092f\u0930 \u0915\u0930\u0947\u0902' : 'Share'}
               >
-                <Share2 className="h-5 w-5" />
+                <Share2 className="h-5 w-5 md:h-6 md:w-6" />
               </button>
             </div>
           </div>
