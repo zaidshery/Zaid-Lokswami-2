@@ -11,7 +11,19 @@ import BreakingNews from '../components/content/BreakingNews';
 import Container from '../components/common/Container';
 import DailyEpaperAlert from '../components/notifications/DailyEpaperAlert';
 import SmartEngagementPopup from '../components/notifications/SmartEngagementPopup';
+import MobileSwipeTabs, {
+  type MobileSwipeTabRoute,
+} from '../components/layout/MobileSwipeTabs';
 import { breakingNews } from '@/lib/mock/data';
+
+const MOBILE_BOTTOM_TAB_ROUTES: MobileSwipeTabRoute[] = [
+  { path: '/main', name: 'Home' },
+  { path: '/main/videos', name: 'Videos' },
+  { path: '/main/epaper', name: 'E-Paper' },
+  { path: '/main/ftaftaf', name: 'Quick' },
+  { path: '/main/menu', name: 'Menu', type: 'menu' },
+  { path: '/main/account', name: 'Account' },
+];
 
 export default function MainLayout({
   children,
@@ -51,23 +63,28 @@ export default function MainLayout({
       {/* Mobile Menu Drawer */}
       <MobileMenu isOpen={isMobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
 
-      <main
-        className={
-          isImmersiveVideoMode
-            ? 'pb-0 pt-0'
-            : 'pb-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+0.5rem)] pt-[8.4rem] md:pt-[9.1rem] xl:pb-4'
-        }
+      <MobileSwipeTabs
+        routes={MOBILE_BOTTOM_TAB_ROUTES}
+        onMenuSwipe={() => setMobileMenuOpen(true)}
       >
-        <Container
+        <main
           className={
             isImmersiveVideoMode
-              ? 'py-0 !max-w-none !px-0'
-              : 'py-4 md:py-5 !px-3 sm:!px-5 lg:!px-6'
+              ? 'pb-0 pt-0'
+              : 'pb-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+0.5rem)] pt-[8.4rem] md:pt-[9.1rem] xl:pb-4'
           }
         >
-          {children}
-        </Container>
-      </main>
+          <Container
+            className={
+              isImmersiveVideoMode
+                ? 'py-0 !max-w-none !px-0'
+                : 'py-4 md:py-5 !px-3 sm:!px-5 lg:!px-6'
+            }
+          >
+            {children}
+          </Container>
+        </main>
+      </MobileSwipeTabs>
 
       {/* Footer */}
       {!isImmersiveVideoMode ? (
