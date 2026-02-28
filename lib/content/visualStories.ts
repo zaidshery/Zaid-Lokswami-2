@@ -48,7 +48,7 @@ function toStableYouTubeThumbnail(value: string) {
   return `https://img.youtube.com/vi/${id}/hqdefault.jpg`;
 }
 
-function normalizeStoryMedia(value: string) {
+function normalizeStoryThumbnail(value: string) {
   const media = toStableYouTubeThumbnail(value);
   if (!media) return '';
   if (!USE_REMOTE_DEMO_MEDIA && UNSPLASH_IMAGE_HOST.test(media)) {
@@ -76,7 +76,7 @@ export function buildVisualStoriesFromArticles(
   const seen = new Set<string>();
 
   for (const article of sorted) {
-    const image = normalizeStoryMedia(article.image || '');
+    const image = normalizeStoryThumbnail(article.image || '');
     if (!image) continue;
 
     const dedupeKey = `${image}|${article.title.toLowerCase()}`;
@@ -207,11 +207,16 @@ export function mapLiveStoriesToVisualStories(
       const linkUrl = (row.linkUrl || '').trim();
       const rawMediaUrl = (row.mediaUrl || '').trim();
       const inferredThumb = toStableYouTubeThumbnail(rawMediaUrl || linkUrl);
-      const thumbnail = normalizeStoryMedia(row.thumbnail || '') || normalizeStoryMedia(inferredThumb);
+      const thumbnail =
+        normalizeStoryThumbnail(row.thumbnail || '') ||
+        normalizeStoryThumbnail(inferredThumb);
       const mediaType = normalizeMediaType(row.mediaType, rawMediaUrl, linkUrl);
       const mediaSource =
         mediaType === 'video' ? rawMediaUrl || linkUrl : rawMediaUrl;
-      const mediaUrl = normalizeStoryMedia(mediaSource || '') || thumbnail;
+      const mediaUrl =
+        mediaType === 'video'
+          ? (mediaSource || '').trim()
+          : normalizeStoryThumbnail(mediaSource || '') || thumbnail;
       const isPublished = row.isPublished === false ? false : true;
 
       if (!id || !title || !thumbnail || !isPublished) return null;
