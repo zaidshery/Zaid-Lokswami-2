@@ -499,7 +499,12 @@ export default function StoryViewer({
                 />
               ) : canUseNativeVideo ? (
                 <video
-                  ref={videoRef}
+                  ref={(el) => {
+                    videoRef.current = el;
+                    if (el && variant === 'reel') {
+                      el.defaultMuted = true;
+                    }
+                  }}
                   src={activeStory.mediaUrl}
                   className="h-full w-full object-cover"
                   poster={activeStory.thumbnail}
@@ -507,7 +512,6 @@ export default function StoryViewer({
                   playsInline
                   autoPlay
                   muted={effectiveMuted}
-                  defaultMuted={variant === 'reel'}
                   onEnded={goNext}
                   onError={onMediaError}
                   onLoadedMetadata={onVideoMetadata}

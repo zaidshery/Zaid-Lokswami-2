@@ -729,13 +729,15 @@ export default function VideoShortsFeed({
                     <video
                       ref={(el) => {
                         videoRefs.current[index] = el;
+                        if (el) {
+                          el.defaultMuted = true;
+                        }
                       }}
                       src={video.videoUrl}
                       poster={video.thumbnail}
                       className="absolute inset-0 h-full w-full object-cover"
                       loop={!settings.autoAdvance}
                       muted={effectiveMuted}
-                      defaultMuted
                       playsInline
                       preload={index <= activeIndex + 1 ? 'metadata' : 'none'}
                       autoPlay={index === activeIndex}
