@@ -1,4 +1,4 @@
-import { Types, type FilterQuery, type Model } from 'mongoose';
+import { Types } from 'mongoose';
 
 export type CursorPageNextCursor = {
   publishedAt: string;
@@ -30,9 +30,19 @@ type CursorCommonOptions = {
   cursorId?: string | null;
 };
 
+type CursorMongoModel = {
+  find: (filter?: unknown, projection?: unknown) => {
+    sort: (value: Record<string, 1 | -1>) => {
+      limit: (value: number) => {
+        lean: () => Promise<unknown[]>;
+      };
+    };
+  };
+};
+
 type CursorModelOptions<T> = CursorCommonOptions & {
-  model: Model<any>;
-  mongoFilter?: FilterQuery<any>;
+  model: CursorMongoModel;
+  mongoFilter?: unknown;
   mongoProjection?: string | Record<string, 0 | 1>;
   arrayItems?: never;
   mapItem?: (item: Record<string, unknown>) => T | null;

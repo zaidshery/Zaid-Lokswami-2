@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import Image from 'next/image';
 import { Clock3, Film, Play, Smartphone, TrendingUp } from 'lucide-react';
@@ -207,7 +207,7 @@ export default function VideosPageClient({
   const [videos, setVideos] = useState<VideoItem[]>(
     initialHasCmsVideos ? initialMappedVideos : buildFallbackVideos()
   );
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [usingDemoVideos, setUsingDemoVideos] = useState(!initialHasCmsVideos);
@@ -325,7 +325,7 @@ export default function VideosPageClient({
     return () => setImmersiveVideoMode(false);
   }, [isCompactShortsMode, setImmersiveVideoMode]);
 
-  const loadMoreVideos = async () => {
+  const loadMoreVideos = useCallback(async () => {
     if (loadMoreLockRef.current || isLoadingMore || !hasMore) return;
     loadMoreLockRef.current = true;
     setIsLoadingMore(true);
@@ -374,7 +374,7 @@ export default function VideosPageClient({
       setIsLoadingMore(false);
       loadMoreLockRef.current = false;
     }
-  };
+  }, [cursorLimit, hasMore, isLoadingMore, language, nextCursor]);
 
   useEffect(() => {
     const sentinel = loadMoreSentinelRef.current;

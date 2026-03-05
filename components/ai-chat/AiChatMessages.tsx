@@ -10,7 +10,7 @@ type AiChatMessagesProps = {
   messages: ChatMessage[];
   isWorking: boolean;
   errorText: string;
-  messagesEndRef: RefObject<HTMLDivElement | null>;
+  messagesEndRef: RefObject<HTMLDivElement>;
 };
 
 function TypingDots() {

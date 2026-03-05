@@ -147,7 +147,7 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
   const pathname = usePathname();
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [draft, setDraft] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);

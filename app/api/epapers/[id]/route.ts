@@ -138,6 +138,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       const hotspots = Array.isArray(stored.articleHotspots)
         ? stored.articleHotspots
         : [];
+      const storedSource = asObject(stored);
       const filteredHotspots =
         Number.isFinite(pageNumberFilter) && pageNumberFilter > 0
           ? hotspots.filter((item) => Number(item.page) === Math.floor(pageNumberFilter))
@@ -173,8 +174,8 @@ export async function GET(req: NextRequest, context: RouteContext) {
           cityName: String(stored.city || ''),
           title: String(stored.title || ''),
           publishDate: toDateLabel(stored.publishDate),
-          pdfPath: firstNonEmptyString(stored.pdfPath, stored.pdfUrl),
-          thumbnailPath: firstNonEmptyString(stored.thumbnailPath, stored.thumbnail),
+          pdfPath: firstNonEmptyString(storedSource.pdfPath, storedSource.pdfUrl),
+          thumbnailPath: firstNonEmptyString(storedSource.thumbnailPath, storedSource.thumbnail),
           pageCount,
           pages,
           status: 'published',

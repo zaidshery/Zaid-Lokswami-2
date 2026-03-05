@@ -28,7 +28,7 @@ export type UseAiChatResult = {
   isPreparingListen: boolean;
   isPlayingAudio: boolean;
   listenError: string;
-  messagesEndRef: RefObject<HTMLDivElement | null>;
+  messagesEndRef: RefObject<HTMLDivElement>;
   sendMessage: () => void;
   runDraftSearch: () => void;
   runSummaryAction: () => void;

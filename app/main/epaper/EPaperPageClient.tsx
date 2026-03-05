@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -325,12 +325,13 @@ export default function EPaperPageClient({
       cancelled = true;
     };
   }, [
+    hasInitializedListEffect,
     selectedCity,
     selectedPublishDate,
     listLimit,
   ]);
 
-  const loadMorePapers = async () => {
+  const loadMorePapers = useCallback(async () => {
     if (loadMoreLockRef.current || isLoadingMore || !hasMoreList) return;
 
     loadMoreLockRef.current = true;
@@ -377,7 +378,7 @@ export default function EPaperPageClient({
       setIsLoadingMore(false);
       loadMoreLockRef.current = false;
     }
-  };
+  }, [hasMoreList, isLoadingMore, listLimit, nextCursor, selectedCity, selectedPublishDate]);
 
   useEffect(() => {
     const sentinel = loadMoreSentinelRef.current;
