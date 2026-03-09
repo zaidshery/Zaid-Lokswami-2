@@ -11,6 +11,8 @@ const READER_PROTECTED_PREFIXES = [
   '/main/saved',
   '/main/preferences',
 ];
+const POST_AUTH_QUERY_PARAM = 'postAuth';
+const NO_ADMIN_ACCESS_ERROR = 'no_admin_access';
 
 function isReaderProtectedPath(pathname: string) {
   return READER_PROTECTED_PREFIXES.some(
@@ -31,49 +33,64 @@ async function getSessionToken(request: NextRequest) {
   });
 }
 
+function buildSigninUrl(request: NextRequest) {
+  const signinUrl = new URL('/signin', request.url);
+
+  request.nextUrl.searchParams.forEach((value, key) => {
+    signinUrl.searchParams.set(key, value);
+  });
+
+  return signinUrl;
+}
+
 /** Protects admin and signed-in reader routes with the active NextAuth session. */
 export async function middleware(request: NextRequest) {
   try {
-    const { pathname } = request.nextUrl;
+    const { pathname, searchParams } = request.nextUrl;
     const session = await getSessionToken(request);
     const email = typeof session?.email === 'string' ? session.email.trim() : '';
     const userId = typeof session?.userId === 'string' ? session.userId.trim() : '';
     const role = session?.role;
     const isActive = session?.isActive !== false;
     const isAuthenticated = Boolean(email || userId);
-    const hasAdminAccess = isAdminRole(role) && isActive;
+    const hasAdminRole = isAdminRole(role);
+    const hasAdminAccess = hasAdminRole && isActive;
     const originalTarget = `${pathname}${request.nextUrl.search}`;
+    const isSigninNoticeRoute =
+      pathname === '/signin' &&
+      (searchParams.get(POST_AUTH_QUERY_PARAM) === '1' ||
+        searchParams.get('error') === NO_ADMIN_ACCESS_ERROR ||
+        searchParams.get('error') === 'inactive');
+
+    if (pathname === '/login') {
+      return NextResponse.redirect(buildSigninUrl(request), 301);
+    }
 
     if (pathname.startsWith('/admin')) {
       if (!isAuthenticated) {
-        const loginUrl = new URL('/login', request.url);
-        loginUrl.searchParams.set(
+        const signinUrl = new URL('/signin', request.url);
+        signinUrl.searchParams.set(
           'redirect',
           normalizeRedirectPath(originalTarget, '/admin')
         );
-        return NextResponse.redirect(loginUrl);
+        return NextResponse.redirect(signinUrl);
+      }
+
+      if (hasAdminRole && !isActive) {
+        return NextResponse.redirect(new URL('/signin?error=inactive', request.url));
       }
 
       if (!hasAdminAccess) {
-        const loginUrl = new URL('/login', request.url);
-        loginUrl.searchParams.set('error', 'wrong_account');
-        loginUrl.searchParams.set('redirect', '/admin');
-        return NextResponse.redirect(loginUrl);
-      }
-
-      return NextResponse.next();
-    }
-
-    if (pathname === '/login') {
-      if (hasAdminAccess) {
-        return NextResponse.redirect(new URL('/admin', request.url));
+        return NextResponse.redirect(
+          new URL(`/signin?error=${NO_ADMIN_ACCESS_ERROR}`, request.url)
+        );
       }
 
       return NextResponse.next();
     }
 
     if (pathname === '/signin') {
-      if (isAuthenticated) {
+      if (isAuthenticated && !isSigninNoticeRoute) {
         return NextResponse.redirect(new URL('/main', request.url));
       }
 

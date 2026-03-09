@@ -1,20 +1,5 @@
-import type { Metadata } from 'next';
-import { Suspense } from 'react';
-import AdminLoginPage from '@/components/auth/AdminLoginPage';
-import { isAdminGoogleAuthConfigured } from '@/lib/auth';
-
-export const metadata: Metadata = {
-  title: 'Admin Access',
-};
-
-function LoginPageFallback() {
-  return <div className="min-h-screen bg-zinc-100 dark:bg-zinc-950" />;
-}
+import { permanentRedirect } from 'next/navigation';
 
 export default function LoginPage() {
-  return (
-    <Suspense fallback={<LoginPageFallback />}>
-      <AdminLoginPage isGoogleAuthConfigured={isAdminGoogleAuthConfigured} />
-    </Suspense>
-  );
+  permanentRedirect('/signin');
 }

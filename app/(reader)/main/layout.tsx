@@ -8,6 +8,7 @@ import BottomNav from '@/components/layout/BottomNav';
 import MobileMenu from '@/components/layout/MobileMenu';
 import Footer from '@/components/layout/Footer';
 import AiChatLauncher from '@/components/ai-chat/AiChatLauncher';
+import AdminSigninBanner from '@/components/auth/AdminSigninBanner';
 import BreakingNews from '@/components/ui/BreakingNews';
 import Container from '@/components/layout/Container';
 import DailyEpaperAlert from '@/components/ui/DailyEpaperAlert';
@@ -77,6 +78,7 @@ export default function MainLayout({
               : 'pb-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+0.5rem)] pt-[7.25rem] sm:pt-[8rem] md:pt-[8.75rem] xl:pb-4'
           }
         >
+          {!isImmersiveVideoMode ? <AdminSigninBanner /> : null}
           <Container
             className={
               isImmersiveVideoMode

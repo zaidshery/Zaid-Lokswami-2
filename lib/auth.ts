@@ -1,4 +1,3 @@
-import type { NextRequest } from 'next/server';
 import NextAuth, { type NextAuthConfig } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import { LOKSWAMI_SESSION_COOKIE } from '@/lib/auth/cookies';
@@ -11,7 +10,6 @@ import {
 import connectDB from '@/lib/db/mongoose';
 import User from '@/lib/models/User';
 
-type AuthIntent = 'admin' | 'reader';
 type SyncableUser = {
   id?: string;
   userId?: string;
@@ -46,7 +44,10 @@ type SessionProfile = {
   savedArticles: string[];
 };
 
-const AUTH_INTENT_COOKIE = 'lokswami-auth-intent';
+const SIGNIN_ROUTE = '/signin';
+const MAIN_ROUTE = '/main';
+const POST_AUTH_MARKER = '1';
+const POST_AUTH_QUERY_PARAM = 'postAuth';
 const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() || '';
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim() || '';
 const nextAuthSecret = process.env.NEXTAUTH_SECRET?.trim() || '';
@@ -55,12 +56,6 @@ const nextAuthUrl = process.env.NEXTAUTH_URL?.trim() || '';
 export const isAdminGoogleAuthConfigured = Boolean(
   googleClientId && googleClientSecret && nextAuthSecret && nextAuthUrl
 );
-
-function getAuthIntent(request?: NextRequest): AuthIntent {
-  return request?.cookies.get(AUTH_INTENT_COOKIE)?.value === 'admin'
-    ? 'admin'
-    : 'reader';
-}
 
 function normalizeEmail(value?: string | null) {
   return (value || '').trim().toLowerCase();
@@ -101,8 +96,8 @@ function normalizeCreatedAt(value: Date | string | undefined) {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
-function getAuthErrorRedirect(authIntent: AuthIntent, errorCode: string) {
-  return `${authIntent === 'admin' ? '/login' : '/signin'}?error=${encodeURIComponent(errorCode)}`;
+function getAuthErrorRedirect(errorCode: string) {
+  return `${SIGNIN_ROUTE}?error=${encodeURIComponent(errorCode)}`;
 }
 
 function buildFallbackProfile(user: SyncableUser, role: UserRole): SessionProfile {
@@ -215,18 +210,11 @@ async function touchUserForLogin(existingUser: DbUserRecord, user: SyncableUser)
   return updatedUser;
 }
 
-function resolveAuthPages(authIntent: AuthIntent) {
-  if (authIntent === 'admin') {
-    return {
-      signIn: '/login',
-      error: '/login',
-    };
-  }
-
-  return {
-    signIn: '/signin',
-    error: '/signin',
-  };
+function isAllowedPostAuthSignInUrl(url: URL) {
+  return (
+    url.pathname === SIGNIN_ROUTE &&
+    url.searchParams.get(POST_AUTH_QUERY_PARAM) === POST_AUTH_MARKER
+  );
 }
 
 function resolveSafeRedirectPath(path: string, baseUrl: string): string | null {
@@ -236,15 +224,20 @@ function resolveSafeRedirectPath(path: string, baseUrl: string): string | null {
   }
 
   const parsedPath = new URL(normalizedPath, baseUrl);
-  if (parsedPath.pathname === '/signin' || parsedPath.pathname === '/login') {
-    if (parsedPath.searchParams.has('error')) {
+
+  if (parsedPath.pathname === '/login') {
+    parsedPath.pathname = SIGNIN_ROUTE;
+  }
+
+  if (parsedPath.pathname === SIGNIN_ROUTE) {
+    if (isAllowedPostAuthSignInUrl(parsedPath) || parsedPath.searchParams.has('error')) {
       return parsedPath.toString();
     }
 
     return (
       resolveSafeRedirectUrl(parsedPath.searchParams.get('redirect'), baseUrl) ||
       resolveSafeRedirectUrl(parsedPath.searchParams.get('callbackUrl'), baseUrl) ||
-      null
+      `${baseUrl}${MAIN_ROUTE}`
     );
   }
 
@@ -279,9 +272,7 @@ function resolveSafeRedirectUrl(
   }
 }
 
-function buildAuthOptions(request?: NextRequest): NextAuthConfig {
-  const authIntent = getAuthIntent(request);
-
+function buildAuthOptions(): NextAuthConfig {
   return {
     session: {
       strategy: 'jwt',
@@ -297,7 +288,10 @@ function buildAuthOptions(request?: NextRequest): NextAuthConfig {
         },
       },
     },
-    pages: resolveAuthPages(authIntent),
+    pages: {
+      signIn: SIGNIN_ROUTE,
+      error: SIGNIN_ROUTE,
+    },
     secret: nextAuthSecret || undefined,
     trustHost: true,
     providers: buildProviders(),
@@ -309,17 +303,13 @@ function buildAuthOptions(request?: NextRequest): NextAuthConfig {
 
         const normalizedEmail = normalizeEmail(user.email);
         if (!normalizedEmail) {
-          return getAuthErrorRedirect(authIntent, 'default');
+          return getAuthErrorRedirect('OAuthError');
         }
 
         try {
           const existingUser = await getUserByEmail(normalizedEmail);
 
           if (!existingUser) {
-            if (authIntent === 'admin') {
-              return getAuthErrorRedirect('admin', 'not_invited');
-            }
-
             const createdReader = await createReaderUser(user);
             const createdProfile =
               (createdReader && buildSessionProfileFromDbUser(createdReader)) ||
@@ -331,42 +321,23 @@ function buildAuthOptions(request?: NextRequest): NextAuthConfig {
 
           const existingRole = normalizeRole(existingUser.role);
           if (!existingRole) {
-            return getAuthErrorRedirect(authIntent, 'default');
+            return getAuthErrorRedirect('OAuthError');
           }
 
-          if (isAdminRole(existingRole)) {
-            if (existingUser.isActive === false) {
-              return getAuthErrorRedirect(authIntent, 'inactive');
-            }
-
-            const updatedAdmin = await touchUserForLogin(existingUser, user);
-            const adminProfile =
-              (updatedAdmin && buildSessionProfileFromDbUser(updatedAdmin)) ||
-              buildFallbackProfile(user, existingRole);
-
-            assignProfileToUser(user, adminProfile);
-
-            if (authIntent === 'reader') {
-              return '/admin';
-            }
-
-            return true;
+          if (isAdminRole(existingRole) && existingUser.isActive === false) {
+            return getAuthErrorRedirect('inactive');
           }
 
-          if (authIntent === 'admin') {
-            return getAuthErrorRedirect('admin', 'not_invited');
-          }
+          const updatedUser = await touchUserForLogin(existingUser, user);
+          const profile =
+            (updatedUser && buildSessionProfileFromDbUser(updatedUser)) ||
+            buildFallbackProfile(user, existingRole);
 
-          const updatedReader = await touchUserForLogin(existingUser, user);
-          const readerProfile =
-            (updatedReader && buildSessionProfileFromDbUser(updatedReader)) ||
-            buildFallbackProfile(user, 'reader');
-
-          assignProfileToUser(user, readerProfile);
+          assignProfileToUser(user, profile);
           return true;
         } catch (error) {
           console.error('NextAuth sign-in failed:', error);
-          return getAuthErrorRedirect(authIntent, 'default');
+          return getAuthErrorRedirect('OAuthError');
         }
       },
       async jwt({ token, user }) {
@@ -385,6 +356,38 @@ function buildAuthOptions(request?: NextRequest): NextAuthConfig {
             ? user.savedArticles
             : [];
           token.createdAt = user.createdAt;
+          token.picture =
+            typeof user.image === 'string' || user.image === null
+              ? user.image
+              : token.picture;
+
+          return token;
+        }
+
+        const tokenEmail = normalizeEmail(token.email);
+        const hasHydratedRole = Boolean(normalizeRole(token.role));
+        const hasHydratedUserId =
+          typeof token.userId === 'string' && token.userId.trim().length > 0;
+
+        if (!tokenEmail || (hasHydratedRole && hasHydratedUserId)) {
+          return token;
+        }
+
+        try {
+          const dbUser = await getUserByEmail(tokenEmail);
+          const dbProfile = dbUser && buildSessionProfileFromDbUser(dbUser);
+
+          if (dbProfile) {
+            token.id = dbProfile.userId;
+            token.userId = dbProfile.userId;
+            token.role = dbProfile.role;
+            token.isActive = dbProfile.isActive;
+            token.createdAt = dbProfile.createdAt;
+            token.savedArticles = dbProfile.savedArticles;
+            token.picture = dbProfile.image;
+          }
+        } catch (error) {
+          console.error('Failed to hydrate JWT from MongoDB:', error);
         }
 
         return token;
@@ -406,6 +409,10 @@ function buildAuthOptions(request?: NextRequest): NextAuthConfig {
           : [];
         session.user.createdAt =
           typeof token.createdAt === 'string' ? token.createdAt : undefined;
+        session.user.image =
+          typeof token.picture === 'string' || token.picture === null
+            ? token.picture
+            : session.user.image;
 
         if (sessionEmail) {
           session.user.email = sessionEmail;
@@ -413,10 +420,6 @@ function buildAuthOptions(request?: NextRequest): NextAuthConfig {
 
         if (typeof token.name === 'string' && token.name.trim()) {
           session.user.name = token.name;
-        }
-
-        if (typeof token.picture === 'string') {
-          session.user.image = token.picture;
         }
 
         if (!sessionEmail) {
@@ -444,6 +447,7 @@ function buildAuthOptions(request?: NextRequest): NextAuthConfig {
             token.isActive = dbProfile.isActive;
             token.createdAt = dbProfile.createdAt;
             token.savedArticles = dbProfile.savedArticles;
+            token.picture = dbProfile.image;
           }
         } catch (error) {
           console.error('Failed to hydrate session from MongoDB:', error);
@@ -452,24 +456,7 @@ function buildAuthOptions(request?: NextRequest): NextAuthConfig {
         return session;
       },
       async redirect({ url, baseUrl }) {
-        const resolvedUrl = resolveSafeRedirectUrl(url, baseUrl);
-
-        if (resolvedUrl) {
-          const parsedUrl = new URL(resolvedUrl);
-          if (parsedUrl.searchParams.has('error')) {
-            return resolvedUrl;
-          }
-        }
-
-        if (authIntent === 'admin') {
-          return `${baseUrl}/admin`;
-        }
-
-        if (!resolvedUrl) {
-          return `${baseUrl}/main`;
-        }
-
-        return resolvedUrl;
+        return resolveSafeRedirectUrl(url, baseUrl) || `${baseUrl}${MAIN_ROUTE}`;
       },
     },
   };
@@ -477,6 +464,4 @@ function buildAuthOptions(request?: NextRequest): NextAuthConfig {
 
 export const authOptions = buildAuthOptions();
 
-export const { handlers, auth, signIn, signOut } = NextAuth((request) =>
-  buildAuthOptions(request)
-);
+export const { handlers, auth, signIn, signOut } = NextAuth(authOptions);

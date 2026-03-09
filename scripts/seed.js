@@ -10,6 +10,7 @@ const mongoosePackage = require('mongoose');
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/lokswami';
 const FIXTURE_PATH = path.resolve(__dirname, 'seed-fixtures.json');
 const MAX_FIXTURE_ARTICLES = 5;
+const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '');
 
 const categories = [
   { name: 'National', slug: 'national', description: 'National news and updates' },
@@ -104,6 +105,13 @@ function loadArticlesFromFixtures() {
   });
 }
 
+function parseAdminEmails(value) {
+  return String(value || '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 async function seed() {
   async function defineSchemas() {
     const { Schema } = mongoosePackage;
@@ -140,6 +148,40 @@ async function seed() {
       avatar: { type: String, required: true },
     });
 
+    const UserSchema = new Schema(
+      {
+        name: { type: String, required: true, trim: true, maxlength: 120 },
+        email: {
+          type: String,
+          required: true,
+          unique: true,
+          trim: true,
+          lowercase: true,
+        },
+        image: { type: String, default: '' },
+        role: {
+          type: String,
+          enum: ['reader', 'admin', 'super_admin', 'editor', 'author', 'viewer'],
+          default: 'reader',
+        },
+        isActive: { type: Boolean, default: true },
+        lastLoginAt: { type: Date },
+        savedArticles: {
+          type: [{ type: Schema.Types.ObjectId, ref: 'Article' }],
+          default: [],
+        },
+        preferredLanguage: { type: String, enum: ['hi', 'en'], default: 'hi' },
+        preferredCategories: {
+          type: [{ type: String }],
+          default: [],
+        },
+        notificationsEnabled: { type: Boolean, default: false },
+      },
+      {
+        timestamps: true,
+      }
+    );
+
     return {
       Article:
         mongoosePackage.models.Article ||
@@ -150,7 +192,44 @@ async function seed() {
       Author:
         mongoosePackage.models.Author ||
         mongoosePackage.model('Author', AuthorSchema),
+      User:
+        mongoosePackage.models.User ||
+        mongoosePackage.model('User', UserSchema),
     };
+  }
+
+  async function seedSuperAdmins(User) {
+    const adminEmails = parseAdminEmails(ADMIN_EMAILS);
+
+    if (adminEmails.length === 0) {
+      console.log('Skipping super admin seed because ADMIN_EMAILS is not set');
+      return;
+    }
+
+    for (const email of adminEmails) {
+      await User.updateOne(
+        { email },
+        {
+          $set: {
+            name: 'Super Admin',
+            role: 'super_admin',
+            isActive: true,
+            lastLoginAt: new Date(),
+          },
+          $setOnInsert: {
+            email,
+            image: '',
+            savedArticles: [],
+            preferredLanguage: 'hi',
+            preferredCategories: [],
+            notificationsEnabled: false,
+          },
+        },
+        { upsert: true }
+      );
+    }
+
+    console.log(`Seeded ${adminEmails.length} super admin account(s) from ADMIN_EMAILS`);
   }
 
   try {
@@ -158,7 +237,7 @@ async function seed() {
     await mongoosePackage.connect(MONGODB_URI);
     console.log('Connected to MongoDB');
 
-    const { Article, Category, Author } = await defineSchemas();
+    const { Article, Category, Author, User } = await defineSchemas();
 
     await Article.deleteMany({});
     await Category.deleteMany({});
@@ -173,6 +252,8 @@ async function seed() {
 
     await Article.insertMany(articles);
     console.log(`Seeded ${articles.length} articles from scripts/seed-fixtures.json`);
+
+    await seedSuperAdmins(User);
 
     console.log('\nDatabase seeded successfully.');
     await mongoosePackage.connection.close();

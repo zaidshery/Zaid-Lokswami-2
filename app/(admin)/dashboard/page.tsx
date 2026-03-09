@@ -12,7 +12,7 @@ export default async function DashboardPage() {
     !isAdminRole(session.user.role) ||
     session.user.isActive === false
   ) {
-    redirect('/login');
+    redirect('/signin?redirect=/admin');
   }
 
   return (

@@ -10,6 +10,7 @@ declare module 'next-auth' {
       userId: string;
       role: UserRole;
       isActive: boolean;
+      image?: string | null;
       createdAt?: string;
       savedArticles: string[];
     } & DefaultSession['user'];
@@ -20,6 +21,7 @@ declare module 'next-auth' {
     userId?: string;
     role?: UserRole;
     isActive?: boolean;
+    image?: string | null;
     createdAt?: string;
     savedArticles?: string[];
   }
@@ -31,6 +33,7 @@ declare module 'next-auth/jwt' {
     userId?: string;
     role?: UserRole;
     isActive?: boolean;
+    picture?: string | null;
     createdAt?: string;
     savedArticles?: string[];
   }

@@ -4,10 +4,12 @@ const mongoose = require('mongoose');
 const Article = require('../lib/models/Article');
 const Category = require('../lib/models/Category');
 const Author = require('../lib/models/Author');
+const User = require('../lib/models/User');
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/lokswami';
 const FIXTURE_PATH = path.resolve(__dirname, 'seed-fixtures.json');
 const MAX_FIXTURE_ARTICLES = 5;
+const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '');
 
 const categories = [
   { name: 'National', slug: 'national', description: 'National news and updates' },
@@ -102,6 +104,47 @@ function loadArticlesFromFixtures() {
   });
 }
 
+function parseAdminEmails(value: string) {
+  return value
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+async function seedSuperAdmins() {
+  const adminEmails = parseAdminEmails(ADMIN_EMAILS);
+
+  if (adminEmails.length === 0) {
+    console.log('Skipping super admin seed because ADMIN_EMAILS is not set');
+    return;
+  }
+
+  for (const email of adminEmails) {
+    await User.updateOne(
+      { email },
+      {
+        $set: {
+          name: 'Super Admin',
+          role: 'super_admin',
+          isActive: true,
+          lastLoginAt: new Date(),
+        },
+        $setOnInsert: {
+          email,
+          image: '',
+          savedArticles: [],
+          preferredLanguage: 'hi',
+          preferredCategories: [],
+          notificationsEnabled: false,
+        },
+      },
+      { upsert: true }
+    );
+  }
+
+  console.log(`Seeded ${adminEmails.length} super admin account(s) from ADMIN_EMAILS`);
+}
+
 async function seed() {
   try {
     const articles = loadArticlesFromFixtures();
@@ -121,6 +164,8 @@ async function seed() {
 
     await Article.insertMany(articles);
     console.log(`Seeded ${articles.length} articles from scripts/seed-fixtures.json`);
+
+    await seedSuperAdmins();
 
     console.log('\nDatabase seeded successfully.');
     process.exit(0);

@@ -1,5 +1,9 @@
 import { auth } from '@/lib/auth';
-import { isAdminRole, type AdminRole } from '@/lib/auth/roles';
+import {
+  isAdminRole,
+  isSuperAdminRole,
+  type AdminRole,
+} from '@/lib/auth/roles';
 
 export type AdminSessionIdentity = {
   id: string;
@@ -26,4 +30,14 @@ export async function getAdminSession(): Promise<AdminSessionIdentity | null> {
     username: email,
     role,
   };
+}
+
+export async function getSuperAdminSession(): Promise<AdminSessionIdentity | null> {
+  const session = await getAdminSession();
+
+  if (!session || !isSuperAdminRole(session.role)) {
+    return null;
+  }
+
+  return session;
 }

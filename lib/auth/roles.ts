@@ -1,6 +1,8 @@
+export const SUPER_ADMIN_ROLE = 'super_admin' as const;
+
 export const ADMIN_ROLES = [
   'admin',
-  'super_admin',
+  SUPER_ADMIN_ROLE,
   'editor',
   'author',
   'viewer',
@@ -22,6 +24,10 @@ export function isAdminRole(role: unknown): role is AdminRole {
 
 export function isReaderRole(role: unknown): role is ReaderRole {
   return role === READER_ROLE;
+}
+
+export function isSuperAdminRole(role: unknown): role is typeof SUPER_ADMIN_ROLE {
+  return role === SUPER_ADMIN_ROLE;
 }
 
 export function formatUserRoleLabel(role: unknown) {

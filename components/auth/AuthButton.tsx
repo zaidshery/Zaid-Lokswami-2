@@ -16,8 +16,8 @@ interface AuthButtonProps {
 /** Reusable auth control for admin-facing UI surfaces. */
 export default function AuthButton({
   className = '',
-  loginHref = '/login',
-  redirectTo = '/login',
+  loginHref = '/signin',
+  redirectTo = '/signin',
   showEmail = true,
 }: AuthButtonProps) {
   const router = useRouter();

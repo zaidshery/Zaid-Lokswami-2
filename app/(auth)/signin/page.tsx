@@ -4,35 +4,29 @@ import Link from 'next/link';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { AlertCircle, Loader2, Moon, Sun } from 'lucide-react';
-import { signIn, useSession } from 'next-auth/react';
+import { AlertCircle, Loader2, LogOut, Moon, Sun } from 'lucide-react';
+import { signIn, signOut, useSession } from 'next-auth/react';
 import Logo from '@/components/layout/Logo';
+import { armAdminSigninBanner } from '@/lib/auth/adminBanner';
 import { normalizeRedirectPath } from '@/lib/auth/redirect';
+import { isAdminRole } from '@/lib/auth/roles';
 import { useAppStore } from '@/lib/store/appStore';
 
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
-  AccessDenied: 'Google sign-in was denied. Please allow access and try again.',
-  OAuthSignin: 'Unable to start Google sign-in. Please try again.',
-  OAuthCallback: 'Google authentication callback failed. Please try again.',
-  OAuthCreateAccount: 'Unable to create your account with Google.',
-  inactive: 'Your account has been deactivated. Contact the Lokswami team.',
-  Configuration: 'Authentication is not configured correctly on the server.',
-  Default: 'Google authentication failed. Please try again.',
+  inactive: 'आपका अकाउंट निष्क्रिय है। अपने एडमिन से संपर्क करें।',
+  OAuthError: 'साइन इन में समस्या। दोबारा कोशिश करें।',
+  OAuthSignin: 'साइन इन में समस्या। दोबारा कोशिश करें।',
+  OAuthCallback: 'साइन इन में समस्या। दोबारा कोशिश करें।',
+  no_admin_access: 'आपके पास एडमिन पैनल का एक्सेस नहीं है।',
+  Default: 'साइन इन में समस्या। दोबारा कोशिश करें।',
 };
-const AUTH_INTENT_COOKIE = 'lokswami-auth-intent';
+const POST_AUTH_QUERY_PARAM = 'postAuth';
+const ADMIN_BANNER_QUERY_PARAM = 'adminBanner';
 const READER_FEATURES = [
-  '\uD83D\uDCF0 Save articles for later',
-  '\uD83E\uDD16 AI news assistant',
-  '\uD83D\uDCC4 Access E-Paper',
+  '\uD83D\uDCF0 खबरें सेव करें',
+  '\uD83E\uDD16 AI न्यूज़ असिस्टेंट',
+  '\uD83D\uDCC4 E-Paper पढ़ें',
 ];
-
-function setReaderAuthIntentCookie() {
-  document.cookie = `${AUTH_INTENT_COOKIE}=reader; Path=/; Max-Age=600; SameSite=Lax`;
-}
-
-function clearAuthIntentCookie() {
-  document.cookie = `${AUTH_INTENT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
-}
 
 function GoogleGlyph() {
   return (
@@ -66,7 +60,7 @@ function resolvePostSignInRedirect(value: string | null): string | null {
   const normalizedPath = normalizeRedirectPath(next, '');
   if (normalizedPath) {
     if (normalizedPath === '/signin' || normalizedPath === '/login') {
-      return '/main/account';
+      return '/main';
     }
 
     if (normalizedPath.startsWith('/signin?') || normalizedPath.startsWith('/login?')) {
@@ -74,7 +68,7 @@ function resolvePostSignInRedirect(value: string | null): string | null {
       return (
         resolvePostSignInRedirect(nestedParams.get('redirect')) ||
         resolvePostSignInRedirect(nestedParams.get('callbackUrl')) ||
-        '/main/account'
+        '/main'
       );
     }
 
@@ -103,6 +97,23 @@ function resolveAuthError(errorKey: string | null): string {
   }
 
   return AUTH_ERROR_MESSAGES[errorKey] || AUTH_ERROR_MESSAGES.Default;
+}
+
+function isAdminOnlyTarget(path: string) {
+  return path === '/admin' || path.startsWith('/admin/');
+}
+
+function buildPostAuthCallbackUrl(redirectTo: string, shouldShowAdminBanner: boolean) {
+  const params = new URLSearchParams({
+    [POST_AUTH_QUERY_PARAM]: '1',
+    redirect: redirectTo,
+  });
+
+  if (shouldShowAdminBanner) {
+    params.set(ADMIN_BANNER_QUERY_PARAM, '1');
+  }
+
+  return `/signin?${params.toString()}`;
 }
 
 const formContainerVariants = {
@@ -176,13 +187,13 @@ function AuthFormContent({
     >
       <motion.div variants={formItemVariants}>
         <h1 className="text-center text-2xl font-black text-zinc-900 dark:text-zinc-100">
-          {'\u0932\u094b\u0915\u0938\u094d\u0935\u093e\u092e\u0940 \u092e\u0947\u0902 \u0938\u094d\u0935\u093e\u0917\u0924 \u0939\u0948 \uD83D\uDC4B'}
+          {'लोकस्वामी में आपका स्वागत है 👋'}
         </h1>
       </motion.div>
 
       <motion.div variants={formItemVariants}>
         <p className="mb-6 mt-1 text-center text-sm text-zinc-500 dark:text-zinc-400">
-          Sign in to save articles, get personalized news and access your e-paper
+          {'साइन इन करें और ताज़ा खबरें पाएं'}
         </p>
       </motion.div>
 
@@ -210,9 +221,7 @@ function AuthFormContent({
           ) : (
             <GoogleGlyph />
           )}
-          <span>
-            {isSigningIn ? 'Redirecting to Google...' : 'Continue with Google'}
-          </span>
+          <span>{isSigningIn ? 'Google पर जा रहे हैं...' : 'Google से जारी रखें'}</span>
         </motion.button>
       </motion.div>
 
@@ -230,7 +239,7 @@ function AuthFormContent({
             href="/main"
             className="inline-flex h-11 w-full items-center justify-center rounded-xl border-2 border-[#e63946] bg-transparent px-4 text-sm font-semibold text-[#e63946] transition hover:bg-[#e63946] hover:text-white"
           >
-            {'Continue as Guest \u2192'}
+            {'अतिथि के रूप में पढ़ें →'}
           </Link>
         </motion.div>
       </motion.div>
@@ -239,74 +248,163 @@ function AuthFormContent({
         variants={formItemVariants}
         className="mt-6 text-center text-xs text-zinc-400"
       >
-        By signing in, you agree to our{' '}
-        <Link href="#" className="text-zinc-600 underline dark:text-zinc-300">
-          Terms
-        </Link>{' '}
-        &{' '}
-        <Link href="#" className="text-zinc-600 underline dark:text-zinc-300">
+        {'साइन इन करके आप हमारी '}
+        <Link href="/privacy" className="text-zinc-600 underline dark:text-zinc-300">
           Privacy Policy
         </Link>
+        {' से सहमत हैं'}
       </motion.p>
     </motion.div>
   );
 }
 
-/** Renders the reader-facing Google sign-in screen. */
+function AuthenticatedNotice({
+  errorMessage,
+  primaryHref,
+  primaryLabel,
+  onSwitchAccount,
+  isSwitchingAccount,
+  name,
+  email,
+}: {
+  errorMessage: string;
+  primaryHref: string;
+  primaryLabel: string;
+  onSwitchAccount: () => Promise<void>;
+  isSwitchingAccount: boolean;
+  name: string;
+  email: string;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 text-sm text-amber-900 dark:border-amber-600/30 dark:bg-amber-500/10 dark:text-amber-100">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-200">
+          साइन इन अकाउंट
+        </p>
+        <p className="mt-2 text-lg font-bold text-zinc-900 dark:text-zinc-100">{name}</p>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{email}</p>
+        <p className="mt-3">{errorMessage}</p>
+      </div>
+
+      <Link
+        href={primaryHref}
+        className="inline-flex h-11 w-full items-center justify-center rounded-2xl bg-primary-600 px-4 text-sm font-semibold text-white transition hover:bg-primary-700"
+      >
+        {primaryLabel}
+      </Link>
+
+      <button
+        type="button"
+        onClick={() => void onSwitchAccount()}
+        disabled={isSwitchingAccount}
+        className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:bg-zinc-800"
+      >
+        {isSwitchingAccount ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+        <span>{isSwitchingAccount ? 'साइन आउट हो रहा है...' : 'दूसरे अकाउंट से साइन इन करें'}</span>
+      </button>
+    </div>
+  );
+}
+
+/** Renders the single smart Google sign-in screen for readers and admins. */
 function SignInPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { status } = useSession();
+  const { data: session, status } = useSession();
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const hasRedirectedAfterAuth = useRef(false);
+  const hasResolvedPostAuthRoute = useRef(false);
 
   const redirectTo = useMemo(
     () =>
       resolvePostSignInRedirect(searchParams.get('redirect')) ||
       resolvePostSignInRedirect(searchParams.get('callbackUrl')) ||
-      '/main/account',
+      '/main',
     [searchParams]
+  );
+  const isPostAuth = searchParams.get(POST_AUTH_QUERY_PARAM) === '1';
+  const shouldShowAdminBanner = searchParams.get(ADMIN_BANNER_QUERY_PARAM) === '1';
+  const errorKey = searchParams.get('error');
+  const isAdminSession = isAdminRole(session?.user?.role) && session?.user?.isActive !== false;
+  const callbackUrl = useMemo(
+    () =>
+      buildPostAuthCallbackUrl(
+        redirectTo,
+        !searchParams.get('redirect') && !searchParams.get('callbackUrl')
+      ),
+    [redirectTo, searchParams]
   );
 
   useEffect(() => {
     if (status !== 'authenticated') {
-      hasRedirectedAfterAuth.current = false;
+      hasResolvedPostAuthRoute.current = false;
       return;
     }
 
-    clearAuthIntentCookie();
-
-    if (hasRedirectedAfterAuth.current) {
+    if (errorKey === 'inactive' || errorKey === 'no_admin_access') {
       return;
     }
 
-    hasRedirectedAfterAuth.current = true;
+    if (!isPostAuth) {
+      router.replace('/main');
+      router.refresh();
+      return;
+    }
+
+    if (hasResolvedPostAuthRoute.current) {
+      return;
+    }
+
+    hasResolvedPostAuthRoute.current = true;
+
+    if (isAdminSession) {
+      if (shouldShowAdminBanner) {
+        armAdminSigninBanner();
+        router.replace('/main');
+        router.refresh();
+        return;
+      }
+
+      router.replace('/admin');
+      router.refresh();
+      return;
+    }
+
+    if (isAdminOnlyTarget(redirectTo)) {
+      router.replace('/signin?error=no_admin_access');
+      router.refresh();
+      return;
+    }
+
     router.replace(redirectTo);
     router.refresh();
-  }, [redirectTo, router, status]);
+  }, [errorKey, isAdminSession, isPostAuth, redirectTo, router, shouldShowAdminBanner, status]);
 
   useEffect(() => {
+    if (status === 'authenticated' && (errorKey === 'inactive' || errorKey === 'no_admin_access')) {
+      setErrorMessage(resolveAuthError(errorKey));
+      return;
+    }
+
     if (status === 'authenticated') {
       return;
     }
 
-    setErrorMessage(resolveAuthError(searchParams.get('error')));
-  }, [searchParams, status]);
+    setErrorMessage(resolveAuthError(errorKey));
+  }, [errorKey, status]);
 
   async function handleGoogleSignIn(): Promise<void> {
     setErrorMessage('');
     setIsSigningIn(true);
-    setReaderAuthIntentCookie();
 
     try {
       const result = await signIn('google', {
         redirect: false,
-        redirectTo,
+        redirectTo: callbackUrl,
       });
 
       if (result?.error) {
-        clearAuthIntentCookie();
         setErrorMessage(resolveAuthError(result.error));
         setIsSigningIn(false);
         return;
@@ -317,17 +415,39 @@ function SignInPageContent() {
         return;
       }
 
-      clearAuthIntentCookie();
       setErrorMessage(AUTH_ERROR_MESSAGES.Default);
       setIsSigningIn(false);
     } catch (error) {
-      clearAuthIntentCookie();
       const message =
         error instanceof Error ? error.message : AUTH_ERROR_MESSAGES.Default;
       setErrorMessage(message);
       setIsSigningIn(false);
     }
   }
+
+  async function handleSwitchAccount() {
+    setIsSwitchingAccount(true);
+
+    try {
+      await signOut({ redirect: false });
+    } catch {
+      // Ignore client sign-out errors and force the route transition anyway.
+    }
+
+    router.replace('/signin');
+    router.refresh();
+    setIsSwitchingAccount(false);
+  }
+
+  const signedInName =
+    session?.user?.name?.trim() ||
+    session?.user?.email?.split('@')[0]?.trim() ||
+    'Lokswami User';
+  const signedInEmail = session?.user?.email?.trim() || '';
+  const shouldShowAuthenticatedNotice =
+    status === 'authenticated' &&
+    signedInEmail &&
+    (errorKey === 'inactive' || errorKey === 'no_admin_access');
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[linear-gradient(180deg,#09090b_0%,#18181b_100%)]">
@@ -363,11 +483,23 @@ function SignInPageContent() {
                 transition={{ duration: 0.5, ease: 'easeOut' }}
                 className="mx-auto w-full max-w-sm rounded-3xl border border-zinc-200 bg-white p-8 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
               >
-                <AuthFormContent
-                  errorMessage={errorMessage}
-                  isSigningIn={isSigningIn}
-                  onGoogleSignIn={handleGoogleSignIn}
-                />
+                {shouldShowAuthenticatedNotice ? (
+                  <AuthenticatedNotice
+                    errorMessage={errorMessage}
+                    primaryHref="/main"
+                    primaryLabel="मुख्य पेज पर जाएं"
+                    onSwitchAccount={handleSwitchAccount}
+                    isSwitchingAccount={isSwitchingAccount}
+                    name={signedInName}
+                    email={signedInEmail}
+                  />
+                ) : (
+                  <AuthFormContent
+                    errorMessage={errorMessage}
+                    isSigningIn={isSigningIn}
+                    onGoogleSignIn={handleGoogleSignIn}
+                  />
+                )}
               </motion.section>
             </div>
 
@@ -378,11 +510,23 @@ function SignInPageContent() {
                 transition={{ duration: 0.45, ease: 'easeOut' }}
                 className="mx-auto w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-10 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
               >
-                <AuthFormContent
-                  errorMessage={errorMessage}
-                  isSigningIn={isSigningIn}
-                  onGoogleSignIn={handleGoogleSignIn}
-                />
+                {shouldShowAuthenticatedNotice ? (
+                  <AuthenticatedNotice
+                    errorMessage={errorMessage}
+                    primaryHref="/main"
+                    primaryLabel="मुख्य पेज पर जाएं"
+                    onSwitchAccount={handleSwitchAccount}
+                    isSwitchingAccount={isSwitchingAccount}
+                    name={signedInName}
+                    email={signedInEmail}
+                  />
+                ) : (
+                  <AuthFormContent
+                    errorMessage={errorMessage}
+                    isSigningIn={isSigningIn}
+                    onGoogleSignIn={handleGoogleSignIn}
+                  />
+                )}
               </motion.section>
             </div>
           </div>
@@ -422,11 +566,23 @@ function SignInPageContent() {
           <ThemeToggleButton className="absolute right-4 top-4" />
 
           <div className="mx-auto w-full max-w-sm">
-            <AuthFormContent
-              errorMessage={errorMessage}
-              isSigningIn={isSigningIn}
-              onGoogleSignIn={handleGoogleSignIn}
-            />
+            {shouldShowAuthenticatedNotice ? (
+              <AuthenticatedNotice
+                errorMessage={errorMessage}
+                primaryHref="/main"
+                primaryLabel="मुख्य पेज पर जाएं"
+                onSwitchAccount={handleSwitchAccount}
+                isSwitchingAccount={isSwitchingAccount}
+                name={signedInName}
+                email={signedInEmail}
+              />
+            ) : (
+              <AuthFormContent
+                errorMessage={errorMessage}
+                isSigningIn={isSigningIn}
+                onGoogleSignIn={handleGoogleSignIn}
+              />
+            )}
           </div>
         </motion.section>
       </div>
@@ -442,7 +598,7 @@ function SignInPageFallback() {
       <div className="relative z-10 mx-auto w-full max-w-sm rounded-3xl border border-zinc-800 bg-zinc-900 p-8 text-center shadow-2xl">
         <Loader2 className="mx-auto h-6 w-6 animate-spin text-[#e63946]" />
         <p className="mt-3 text-sm font-medium text-zinc-300">
-          Preparing sign-in...
+          Sign-in तैयार हो रहा है...
         </p>
       </div>
     </main>
