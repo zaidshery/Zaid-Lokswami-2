@@ -52,6 +52,12 @@ const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() || '';
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim() || '';
 const nextAuthSecret = process.env.NEXTAUTH_SECRET?.trim() || '';
 const nextAuthUrl = process.env.NEXTAUTH_URL?.trim() || '';
+const bootstrapAdminEmails = new Set(
+  String(process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean)
+);
 
 export const isAdminGoogleAuthConfigured = Boolean(
   googleClientId && googleClientSecret && nextAuthSecret && nextAuthUrl
@@ -59,6 +65,11 @@ export const isAdminGoogleAuthConfigured = Boolean(
 
 function normalizeEmail(value?: string | null) {
   return (value || '').trim().toLowerCase();
+}
+
+function isBootstrapAdminEmail(email?: string | null) {
+  const normalizedEmail = normalizeEmail(email);
+  return Boolean(normalizedEmail && bootstrapAdminEmails.has(normalizedEmail));
 }
 
 function resolveDisplayName(user: SyncableUser) {
@@ -189,6 +200,44 @@ async function createReaderUser(user: SyncableUser) {
   return User.findById(createdUser._id).lean<DbUserRecord | null>();
 }
 
+async function upsertBootstrapAdminUser(user: SyncableUser) {
+  await connectDB();
+
+  const email = normalizeEmail(user.email);
+  if (!email) {
+    return null;
+  }
+
+  const name = resolveDisplayName(user);
+  const image = user.image?.trim() || '';
+
+  const createdOrUpdatedUser = await User.findOneAndUpdate(
+    { email },
+    {
+      $set: {
+        name,
+        image,
+        role: 'super_admin',
+        isActive: true,
+        lastLoginAt: new Date(),
+      },
+      $setOnInsert: {
+        email,
+        savedArticles: [],
+        preferredLanguage: 'hi',
+        preferredCategories: [],
+        notificationsEnabled: false,
+      },
+    },
+    {
+      upsert: true,
+      new: true,
+    }
+  ).lean<DbUserRecord | null>();
+
+  return createdOrUpdatedUser;
+}
+
 async function touchUserForLogin(existingUser: DbUserRecord, user: SyncableUser) {
   await connectDB();
 
@@ -310,6 +359,16 @@ function buildAuthOptions(): NextAuthConfig {
           const existingUser = await getUserByEmail(normalizedEmail);
 
           if (!existingUser) {
+            if (isBootstrapAdminEmail(normalizedEmail)) {
+              const bootstrapAdmin = await upsertBootstrapAdminUser(user);
+              const bootstrapProfile =
+                (bootstrapAdmin && buildSessionProfileFromDbUser(bootstrapAdmin)) ||
+                buildFallbackProfile(user, 'super_admin');
+
+              assignProfileToUser(user, bootstrapProfile);
+              return true;
+            }
+
             const createdReader = await createReaderUser(user);
             const createdProfile =
               (createdReader && buildSessionProfileFromDbUser(createdReader)) ||
@@ -322,6 +381,16 @@ function buildAuthOptions(): NextAuthConfig {
           const existingRole = normalizeRole(existingUser.role);
           if (!existingRole) {
             return getAuthErrorRedirect('OAuthError');
+          }
+
+          if (existingRole === 'reader' && isBootstrapAdminEmail(normalizedEmail)) {
+            const bootstrapAdmin = await upsertBootstrapAdminUser(user);
+            const bootstrapProfile =
+              (bootstrapAdmin && buildSessionProfileFromDbUser(bootstrapAdmin)) ||
+              buildFallbackProfile(user, 'super_admin');
+
+            assignProfileToUser(user, bootstrapProfile);
+            return true;
           }
 
           if (isAdminRole(existingRole) && existingUser.isActive === false) {
