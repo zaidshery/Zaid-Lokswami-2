@@ -1,10 +1,10 @@
 # Lokswami
 
-Hindi news PWA built with Next.js 15, TypeScript, Tailwind CSS, MongoDB, Zustand, and NextAuth.
+Hindi news PWA built on Next.js 15 with TypeScript, Tailwind CSS, MongoDB, Zustand, and NextAuth Google OAuth.
 
 ## Stack
 
-- Next.js 15 (App Router)
+- Next.js 15 App Router
 - TypeScript
 - Tailwind CSS
 - MongoDB + Mongoose
@@ -12,26 +12,16 @@ Hindi news PWA built with Next.js 15, TypeScript, Tailwind CSS, MongoDB, Zustand
 - Zustand
 - Framer Motion
 
-## Route Groups
+## App Structure
 
-Internal route groups keep the public URLs unchanged:
+Route groups keep public URLs unchanged:
 
-- `app/(auth)` - `/login`, `/signin`
-- `app/(admin)` - `/admin`, `/dashboard`, admin CMS pages
-- `app/(reader)` - `/main/*`, `/article/[id]`, category/news pages
-- `app/(marketing)` - `/`, `/about`, `/advertise`, `/careers`, `/contact`, `/digital-newsroom`
+- `app/(auth)` -> `/login`, `/signin`
+- `app/(admin)` -> `/admin`, `/dashboard`, admin CMS pages
+- `app/(reader)` -> `/main/*`, `/article/[id]`, section pages
+- `app/(marketing)` -> `/`, `/about`, `/advertise`, `/careers`, `/contact`, `/digital-newsroom`
 
-## Authentication
-
-- Single auth system: NextAuth with Google OAuth
-- Admin sign-in uses `/login`
-- Reader sign-in uses `/signin`
-- Admin access is restricted by the email allowlist in [lib/auth.ts](./lib/auth.ts)
-- Middleware protects `/admin/*` and reader-only routes such as `/main/saved` and `/main/preferences`
-
-## Components
-
-Top-level component structure:
+Shared components live at the top level:
 
 - `components/ui`
 - `components/layout`
@@ -40,9 +30,19 @@ Top-level component structure:
 - `components/auth`
 - `components/ai-chat`
 
-## Environment Variables
+## Authentication
 
-Minimum required to run auth and the app locally:
+- Single auth system: NextAuth with Google OAuth
+- Reader sign-in page: `/signin`
+- Admin sign-in page: `/login`
+- Admin access is allowlist-based in `lib/auth.ts`
+- Middleware protects `/admin/*` plus reader-only routes such as `/main/saved` and `/main/preferences`
+
+## Environment
+
+Copy `.env.example` to `.env.local` and set the values you actually use.
+
+Minimum local setup:
 
 ```env
 MONGODB_URI=
@@ -54,14 +54,12 @@ GOOGLE_CLIENT_SECRET=
 
 Also supported:
 
-- `JWT_SECRET` or `AUTH_SECRET` as alternate session/JWT secrets
-- `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` for media uploads
-- `OPENAI_API_KEY`, `OPENAI_MODEL` for AI endpoints
-- `BHASHINI_*` variables for TTS
-- `OCR_*` variables for e-paper OCR
-- `NEXT_IMAGE_ALLOWED_HOSTS` for extra remote image hosts
-
-Use `.env.local.example` as a starting point, then set the values actually used by the current auth flow above.
+- `JWT_SECRET` or `AUTH_SECRET`
+- `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`
+- `OPENAI_API_KEY`, `OPENAI_MODEL`
+- `BHASHINI_*`
+- `OCR_*`
+- `NEXT_IMAGE_ALLOWED_HOSTS`
 
 ## Local Development
 
@@ -81,17 +79,13 @@ npm run typecheck
 npm run build
 ```
 
-## Database Seeding
+## Seeding
 
-Seed data now comes from [scripts/seed-fixtures.json](./scripts/seed-fixtures.json).
+Seed data comes from `scripts/seed-fixtures.json`.
 
-- The fixture file is intentionally small: 5 sample articles max
-- `npm run seed` executes [scripts/seed.js](./scripts/seed.js)
-- Seeding clears and recreates `Article`, `Category`, and `Author` data
-
-```bash
-npm run seed
-```
+- `npm run seed` executes `scripts/seed.js`
+- Fixtures are intentionally small
+- Seeding recreates `Article`, `Category`, and `Author` data
 
 ## API Overview
 
@@ -120,7 +114,7 @@ Public content:
 - `/api/public/epapers/[id]/pdf`
 - `/api/public/uploads/[...path]`
 
-AI and utility endpoints:
+AI and utility:
 
 - `/api/ai/search`
 - `/api/ai/summary`
@@ -134,15 +128,14 @@ AI and utility endpoints:
 - `/api/subscribe`
 - `/api/health`
 
-## Deployment Notes
+## Deployment
 
 - Set `NEXTAUTH_URL` to the production origin
-- Add the production callback URL to your Google OAuth client:
-  - `https://<your-domain>/api/auth/callback/google`
+- Add `https://<your-domain>/api/auth/callback/google` to the Google OAuth client
 - Keep `NEXTAUTH_SECRET` at 32+ characters
-- Use a persistent MongoDB instance in production
-- `public/uploads/*` and `data/articles.json` are gitignored for local/generated data
-- If you rely on media uploads in production, configure Cloudinary
+- Use a persistent MongoDB instance
+- Configure Cloudinary if production uploads are enabled
+- `public/uploads/*` and `data/articles.json` are gitignored local/generated data
 
 ## Scripts
 
