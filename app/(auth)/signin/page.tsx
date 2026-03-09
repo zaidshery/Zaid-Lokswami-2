@@ -15,10 +15,16 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   OAuthSignin: 'Unable to start Google sign-in. Please try again.',
   OAuthCallback: 'Google authentication callback failed. Please try again.',
   OAuthCreateAccount: 'Unable to create your account with Google.',
+  inactive: 'Your account has been deactivated. Contact the Lokswami team.',
   Configuration: 'Authentication is not configured correctly on the server.',
   Default: 'Google authentication failed. Please try again.',
 };
 const AUTH_INTENT_COOKIE = 'lokswami-auth-intent';
+const READER_FEATURES = [
+  '\uD83D\uDCF0 Save articles for later',
+  '\uD83E\uDD16 AI news assistant',
+  '\uD83D\uDCC4 Access E-Paper',
+];
 
 function setReaderAuthIntentCookie() {
   document.cookie = `${AUTH_INTENT_COOKIE}=reader; Path=/; Max-Age=600; SameSite=Lax`;
@@ -60,7 +66,7 @@ function resolvePostSignInRedirect(value: string | null): string | null {
   const normalizedPath = normalizeRedirectPath(next, '');
   if (normalizedPath) {
     if (normalizedPath === '/signin' || normalizedPath === '/login') {
-      return '/main';
+      return '/main/account';
     }
 
     if (normalizedPath.startsWith('/signin?') || normalizedPath.startsWith('/login?')) {
@@ -68,7 +74,7 @@ function resolvePostSignInRedirect(value: string | null): string | null {
       return (
         resolvePostSignInRedirect(nestedParams.get('redirect')) ||
         resolvePostSignInRedirect(nestedParams.get('callbackUrl')) ||
-        '/main'
+        '/main/account'
       );
     }
 
@@ -170,13 +176,13 @@ function AuthFormContent({
     >
       <motion.div variants={formItemVariants}>
         <h1 className="text-center text-2xl font-black text-zinc-900 dark:text-zinc-100">
-          {'\u0928\u092e\u0938\u094d\u0924\u0947! \uD83D\uDC4B'}
+          {'\u0932\u094b\u0915\u0938\u094d\u0935\u093e\u092e\u0940 \u092e\u0947\u0902 \u0938\u094d\u0935\u093e\u0917\u0924 \u0939\u0948 \uD83D\uDC4B'}
         </h1>
       </motion.div>
 
       <motion.div variants={formItemVariants}>
         <p className="mb-6 mt-1 text-center text-sm text-zinc-500 dark:text-zinc-400">
-          Sign in to your Lokswami account
+          Sign in to save articles, get personalized news and access your e-paper
         </p>
       </motion.div>
 
@@ -259,7 +265,7 @@ function SignInPageContent() {
     () =>
       resolvePostSignInRedirect(searchParams.get('redirect')) ||
       resolvePostSignInRedirect(searchParams.get('callbackUrl')) ||
-      '/main',
+      '/main/account',
     [searchParams]
   );
 
@@ -336,9 +342,16 @@ function SignInPageContent() {
               <div className="inline-flex">
                 <Logo size="lg" href="/main" />
               </div>
-              <p className="mt-4 text-sm text-zinc-400">
-                {'\u0906\u092a\u0915\u0940 \u0916\u092c\u0930, \u0906\u092a\u0915\u0940 \u092d\u093e\u0937\u093e \u092e\u0947\u0902'}
-              </p>
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                {READER_FEATURES.map((feature) => (
+                  <div
+                    key={feature}
+                    className="rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-300"
+                  >
+                    {feature}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -359,18 +372,6 @@ function SignInPageContent() {
             </div>
 
             <div className="hidden w-full md:block lg:hidden">
-              <div className="mb-6 flex flex-wrap justify-center gap-2">
-                <div className="rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-300">
-                  {'\uD83D\uDCF0 \u0924\u093e\u091c\u093c\u093e \u0916\u092c\u0930\u0947\u0902'}
-                </div>
-                <div className="rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-300">
-                  {'\uD83C\uDFA4 AI \u0938\u093e\u0930\u093e\u0902\u0936'}
-                </div>
-                <div className="rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-300">
-                  {'\uD83D\uDCC4 E-Paper'}
-                </div>
-              </div>
-
               <motion.section
                 initial={{ opacity: 0, y: 32 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -399,20 +400,11 @@ function SignInPageContent() {
 
           <div className="relative z-10 flex flex-col items-center text-center">
             <Logo size="lg" href="/main" />
-            <p className="mt-4 text-lg text-zinc-400">
-              {'\u0906\u092a\u0915\u0940 \u0916\u092c\u0930, \u0906\u092a\u0915\u0940 \u092d\u093e\u0937\u093e \u092e\u0947\u0902'}
-            </p>
 
             <div className="mt-8 flex flex-col items-center gap-3">
-              <FeaturePill>
-                {'\uD83D\uDCF0 \u0924\u093e\u091c\u093c\u093e \u0916\u092c\u0930\u0947\u0902 \u0939\u0930 \u092a\u0932'}
-              </FeaturePill>
-              <FeaturePill>
-                {'\uD83C\uDFA4 AI \u0938\u0947 \u0916\u092c\u0930 \u0915\u093e \u0938\u093e\u0930\u093e\u0902\u0936'}
-              </FeaturePill>
-              <FeaturePill>
-                {'\uD83D\uDCC4 \u0921\u093f\u091c\u093f\u091f\u0932 E-Paper'}
-              </FeaturePill>
+              {READER_FEATURES.map((feature) => (
+                <FeaturePill key={feature}>{feature}</FeaturePill>
+              ))}
             </div>
           </div>
 

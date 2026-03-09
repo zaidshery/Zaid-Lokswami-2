@@ -1,5 +1,4 @@
 export {
-  allowedAdminEmails,
   auth,
   authOptions,
   handlers,

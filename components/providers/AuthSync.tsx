@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useSession } from 'next-auth/react';
+import type { UserRole } from '@/lib/auth/roles';
 import { useAppStore, type AppUser } from '@/lib/store/appStore';
 
 function mapSessionToAppUser(
@@ -10,7 +11,8 @@ function mapSessionToAppUser(
     name?: string | null;
     email?: string | null;
     image?: string | null;
-    role?: 'reader' | 'admin';
+    role?: UserRole;
+    isActive?: boolean;
     savedArticles?: string[];
   } | null
 ): AppUser | null {
@@ -24,6 +26,7 @@ function mapSessionToAppUser(
     email: sessionUser.email,
     image: sessionUser.image || null,
     role: sessionUser.role || 'reader',
+    isActive: sessionUser.isActive !== false,
     savedArticles: Array.isArray(sessionUser.savedArticles)
       ? sessionUser.savedArticles
       : [],

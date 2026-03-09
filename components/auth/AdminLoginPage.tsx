@@ -1,34 +1,30 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertCircle, Loader2, Moon, ShieldCheck, Sun } from 'lucide-react';
-import { signIn, useSession } from 'next-auth/react';
+import { signIn, signOut, useSession } from 'next-auth/react';
 import Logo from '@/components/layout/Logo';
-import AuthButton from '@/components/auth/AuthButton';
+import { isAdminRole } from '@/lib/auth/roles';
 import { useAppStore } from '@/lib/store/appStore';
-import { normalizeRedirectPath } from '@/lib/auth/redirect';
 
 const AUTH_INTENT_COOKIE = 'lokswami-auth-intent';
 
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
-  AccessDenied: 'This Google account is not allowed to access the Lokswami admin.',
-  OAuthSignin: 'Unable to start Google sign-in. Please try again.',
-  OAuthCallback: 'Google authentication callback failed. Please try again.',
-  OAuthCreateAccount: 'Unable to create the admin session. Please try again.',
-  Configuration:
-    'Google admin auth is not configured yet. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, NEXTAUTH_SECRET, and NEXTAUTH_URL.',
-  Default: 'Google authentication failed. Please try again.',
+  not_invited: 'Your email is not authorized. Contact your super admin.',
+  inactive: 'Your account has been deactivated. Contact your super admin.',
+  wrong_account: 'You are signed in as a reader. This panel requires admin access.',
+  Default: 'Something went wrong. Try again.',
 };
 
 interface AdminLoginPageProps {
   isGoogleAuthConfigured: boolean;
 }
 
-function setAuthIntentCookie(intent: 'admin' | 'reader') {
-  document.cookie = `${AUTH_INTENT_COOKIE}=${intent}; Path=/; Max-Age=600; SameSite=Lax`;
+function setAdminAuthIntentCookie() {
+  document.cookie = `${AUTH_INTENT_COOKIE}=admin; Path=/; Max-Age=600; SameSite=Lax`;
 }
 
 function clearAuthIntentCookie() {
@@ -76,86 +72,53 @@ export default function AdminLoginPage({
   const { theme, toggleTheme } = useAppStore();
   const [errorMessage, setErrorMessage] = useState('');
   const [isStartingGoogle, setIsStartingGoogle] = useState(false);
-  const [isSyncingAdminSession, setIsSyncingAdminSession] = useState(false);
-  const [hasAttemptedSessionSync, setHasAttemptedSessionSync] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  const redirectTo = useMemo(
-    () => normalizeRedirectPath(searchParams.get('redirect'), '/admin'),
-    [searchParams]
-  );
+  const role = session?.user?.role;
+  const isAdminSession = isAdminRole(role) && session?.user?.isActive !== false;
+  const isReaderSession = status === 'authenticated' && !isAdminSession;
 
-  const userName =
-    session?.user?.name?.trim() ||
-    session?.user?.email?.split('@')[0]?.trim() ||
-    'Admin';
-  const userEmail = session?.user?.email?.trim() || '';
-  const isApprovedAdmin = session?.user?.role === 'admin';
-
-  const finalizeAdminLogin = useCallback(async () => {
-    setErrorMessage('');
-    setIsSyncingAdminSession(true);
-
-    try {
+  useEffect(() => {
+    if (status === 'authenticated' && isAdminSession) {
       clearAuthIntentCookie();
-      router.replace(redirectTo);
+      router.replace('/admin');
       router.refresh();
-    } catch {
-      setErrorMessage('Failed to finish admin login. Please try again.');
-      setIsSyncingAdminSession(false);
     }
-  }, [redirectTo, router]);
+  }, [isAdminSession, router, status]);
 
   useEffect(() => {
-    if (status !== 'authenticated') {
-      setHasAttemptedSessionSync(false);
+    if (status === 'authenticated' && isReaderSession) {
+      setErrorMessage('');
       return;
     }
 
-    clearAuthIntentCookie();
-
-    if (!isApprovedAdmin || hasAttemptedSessionSync) {
-      return;
-    }
-
-    setHasAttemptedSessionSync(true);
-    void finalizeAdminLogin();
-  }, [finalizeAdminLogin, hasAttemptedSessionSync, isApprovedAdmin, status]);
-
-  useEffect(() => {
     if (status === 'authenticated') {
       return;
     }
 
     setErrorMessage(resolveAuthError(searchParams.get('error')));
-  }, [searchParams, status]);
+  }, [isReaderSession, searchParams, status]);
 
   async function handleGoogleSignIn() {
     if (!isGoogleAuthConfigured) {
-      setErrorMessage(AUTH_ERROR_MESSAGES.Configuration);
+      setErrorMessage(AUTH_ERROR_MESSAGES.Default);
       return;
     }
 
     setErrorMessage('');
     setIsStartingGoogle(true);
-    setAuthIntentCookie('admin');
+    setAdminAuthIntentCookie();
 
-      try {
-        const result = await signIn('google', {
-          redirect: false,
-          redirectTo: `/login?redirect=${encodeURIComponent(redirectTo)}`,
-        });
+    try {
+      const result = await signIn('google', {
+        redirect: false,
+        redirectTo: '/admin',
+      });
 
-      if (result?.error) {
-        clearAuthIntentCookie();
-        setErrorMessage(resolveAuthError(result.error));
-        setIsStartingGoogle(false);
+      if (result?.url) {
+        window.location.assign(result.url);
         return;
       }
-
-        if (result?.url) {
-          window.location.assign(result.url);
-          return;
-        }
 
       clearAuthIntentCookie();
       setErrorMessage(AUTH_ERROR_MESSAGES.Default);
@@ -166,6 +129,27 @@ export default function AdminLoginPage({
       setIsStartingGoogle(false);
     }
   }
+
+  async function handleLogout() {
+    setIsLoggingOut(true);
+
+    try {
+      clearAuthIntentCookie();
+      await signOut({ redirect: false });
+    } catch {
+      // Ignore client sign-out errors and still force navigation to login.
+    }
+
+    router.replace('/login');
+    router.refresh();
+    setIsLoggingOut(false);
+  }
+
+  const userName =
+    session?.user?.name?.trim() ||
+    session?.user?.email?.split('@')[0]?.trim() ||
+    'Reader';
+  const userEmail = session?.user?.email?.trim() || '';
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-zinc-100 px-4 py-10 transition-colors dark:bg-zinc-950">
@@ -196,25 +180,18 @@ export default function AdminLoginPage({
             Admin Access
           </p>
           <h1 className="mt-2 text-3xl font-black text-zinc-900 dark:text-zinc-100">
-            Continue with Google
+            Admin Access
           </h1>
           <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
-            Only approved Lokswami admin email addresses can access the admin panel.
+            Only invited Lokswami team members can access the admin panel
           </p>
         </div>
 
         <div className="rounded-[28px] border border-white/70 bg-white/90 p-6 shadow-[0_25px_80px_rgba(15,23,42,0.16)] backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-900/88 sm:p-8">
           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/70 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-700/60 dark:bg-emerald-900/30 dark:text-emerald-300">
             <ShieldCheck className="h-3.5 w-3.5" />
-            <span>Secure admin login</span>
+            <span>Invited team access</span>
           </div>
-
-          {errorMessage ? (
-            <div className="mt-5 flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
-              <AlertCircle className="mt-0.5 h-4 w-4 flex-none" />
-              <span>{errorMessage}</span>
-            </div>
-          ) : null}
 
           {status === 'loading' ? (
             <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-5 text-center dark:border-zinc-700 dark:bg-zinc-950">
@@ -223,11 +200,11 @@ export default function AdminLoginPage({
                 Checking session...
               </p>
             </div>
-          ) : userEmail ? (
+          ) : isReaderSession ? (
             <div className="mt-6 space-y-4">
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 dark:border-zinc-700 dark:bg-zinc-950">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">
-                  Signed in
+              <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 dark:border-amber-700/50 dark:bg-amber-900/20">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">
+                  Signed in as reader
                 </p>
                 <p className="mt-2 text-lg font-bold text-zinc-900 dark:text-zinc-100">
                   {userName}
@@ -235,34 +212,32 @@ export default function AdminLoginPage({
                 <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
                   {userEmail}
                 </p>
-                <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
-                  {isApprovedAdmin
-                    ? isSyncingAdminSession
-                      ? 'Finalizing your admin session...'
-                      : 'Admin account verified. You can continue into the dashboard.'
-                    : 'This account is signed in, but it is not on the admin allowlist.'}
+                <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
+                  You are signed in as a reader. This panel requires admin access.
                 </p>
               </div>
 
-              {isApprovedAdmin && isSyncingAdminSession ? (
-                <div className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm font-semibold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200">
+              <button
+                type="button"
+                onClick={() => void handleLogout()}
+                disabled={isLoggingOut}
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:bg-zinc-800"
+              >
+                {isLoggingOut ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Redirecting to admin...</span>
-                </div>
-              ) : isApprovedAdmin ? (
-                <button
-                  type="button"
-                  onClick={() => void finalizeAdminLogin()}
-                  className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-primary-600 px-4 text-sm font-semibold text-white transition hover:bg-primary-700"
-                >
-                  Continue to Admin
-                </button>
-              ) : null}
-
-              <AuthButton redirectTo="/login" className="w-full" />
+                ) : null}
+                <span>{isLoggingOut ? 'Logging out...' : 'Logout'}</span>
+              </button>
             </div>
           ) : (
             <div className="mt-6 space-y-4">
+              {errorMessage ? (
+                <div className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+                  <AlertCircle className="mt-0.5 h-4 w-4 flex-none" />
+                  <span>{errorMessage}</span>
+                </div>
+              ) : null}
+
               <button
                 type="button"
                 onClick={() => void handleGoogleSignIn()}
@@ -278,13 +253,6 @@ export default function AdminLoginPage({
                   {isStartingGoogle ? 'Redirecting to Google...' : 'Continue with Google'}
                 </span>
               </button>
-
-              {!isGoogleAuthConfigured ? (
-                <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-700/60 dark:bg-amber-900/25 dark:text-amber-300">
-                  Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`, and
-                  `NEXTAUTH_URL` before using Google admin login.
-                </div>
-              ) : null}
             </div>
           )}
 

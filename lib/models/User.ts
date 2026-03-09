@@ -1,6 +1,6 @@
 import mongoose, { type Model, type Types } from 'mongoose';
+import { USER_ROLES, type UserRole } from '@/lib/auth/roles';
 
-export type UserRole = 'reader' | 'admin';
 export type PreferredLanguage = 'hi' | 'en';
 
 export interface IUser extends mongoose.Document {
@@ -8,6 +8,8 @@ export interface IUser extends mongoose.Document {
   email: string;
   image: string;
   role: UserRole;
+  isActive: boolean;
+  lastLoginAt?: Date;
   savedArticles: Types.ObjectId[];
   preferredLanguage: PreferredLanguage;
   preferredCategories: string[];
@@ -27,7 +29,9 @@ const UserSchema = new mongoose.Schema<IUser>(
       lowercase: true,
     },
     image: { type: String, default: '' },
-    role: { type: String, enum: ['reader', 'admin'], default: 'reader' },
+    role: { type: String, enum: USER_ROLES, default: 'reader' },
+    isActive: { type: Boolean, default: true },
+    lastLoginAt: { type: Date },
     savedArticles: {
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Article' }],
       default: [],

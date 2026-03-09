@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { UserRole } from '@/lib/auth/roles';
 
 function applyThemeToDom(theme: 'dark' | 'light') {
   if (typeof document === 'undefined') return;
@@ -30,7 +31,8 @@ export interface AppUser {
   name: string;
   email: string;
   image: string | null;
-  role: 'reader' | 'admin';
+  role: UserRole;
+  isActive: boolean;
   savedArticles: string[];
 }
 
