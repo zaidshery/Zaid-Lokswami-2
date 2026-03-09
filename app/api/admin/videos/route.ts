@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db/mongoose';
 import Video from '@/lib/models/Video';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 import { NEWS_CATEGORIES } from '@/lib/constants/newsCategories';
 import {
   createStoredVideo,
@@ -112,7 +112,7 @@ async function shouldUseFileStore() {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     const isAdmin = Boolean(user);
 
     const category = searchParams.get('category');
@@ -212,7 +212,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     if (!user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -316,3 +316,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

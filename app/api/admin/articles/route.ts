@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db/mongoose';
 import Article from '@/lib/models/Article';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 import {
   createStoredArticle,
   listStoredArticles,
@@ -192,7 +192,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     if (!user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -234,3 +234,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
+

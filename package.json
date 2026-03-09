@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "lint:strict": "eslint app/api/admin lib/auth lib/db lib/models lib/storage --max-warnings=0",
+    "typecheck": "tsc --noEmit",
     "seed": "node scripts/seed.js",
     "hash-password": "ts-node scripts/hash-password.ts",
     "migrate:epapers": "ts-node scripts/migrate-epapers-to-v2.ts"

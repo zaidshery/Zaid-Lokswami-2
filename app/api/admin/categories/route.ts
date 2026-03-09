@@ -3,7 +3,7 @@ import connectDB from '@/lib/db/mongoose';
 import Category from '@/lib/models/Category';
 import fs from 'fs/promises';
 import path from 'path';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 import { NEWS_CATEGORIES } from '@/lib/constants/newsCategories';
 
 type CategoryRecord = {
@@ -130,7 +130,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     if (!user) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     const body = await req.json();
     const { name, description } = body;
@@ -166,3 +166,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Failed to create category' }, { status: 500 });
   }
 }
+

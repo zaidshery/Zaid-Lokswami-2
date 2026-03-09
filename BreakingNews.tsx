@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { Zap } from 'lucide-react';
-import Container from '@/app/components/common/Container';
+import Container from '@/components/layout/Container';
 
 // Temporary mock data - connect to your store/API later
 const NEWS_ITEMS = [

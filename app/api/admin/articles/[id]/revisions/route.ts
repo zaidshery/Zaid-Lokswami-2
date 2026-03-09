@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Types } from 'mongoose';
 import connectDB from '@/lib/db/mongoose';
 import Article from '@/lib/models/Article';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 import { listStoredArticleRevisions } from '@/lib/storage/articlesFile';
 
 async function shouldUseFileStore() {
@@ -23,7 +23,7 @@ type RouteContext = {
 
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     if (!user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },

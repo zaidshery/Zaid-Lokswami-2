@@ -1,54 +1,116 @@
 import mongoose from 'mongoose';
 
+type MongooseCache = {
+  conn: typeof mongoose | null;
+  promise: Promise<typeof mongoose> | null;
+  lastConnectedDb: string | null;
+};
+
+type MongoErrorWithDetails = Error & {
+  code?: string;
+  errno?: number;
+  syscall?: string;
+  hostname?: string;
+  cause?: unknown;
+};
+
 declare global {
-  var mongooseCache:
-    | {
-        conn: typeof mongoose | null;
-        promise: Promise<typeof mongoose> | null;
-      }
-    | undefined;
+  var mongooseCache: MongooseCache | undefined;
 }
 
-const MONGODB_URI = process.env.MONGODB_URI;
-
-if (!MONGODB_URI) {
-  // Do not throw — allow a file-backed fallback for local/dev testing.
-  console.warn('MONGODB_URI is not set; database operations will be disabled (file-backed fallbacks enabled).');
-}
+const MONGODB_URI = process.env.MONGODB_URI?.trim() || '';
 
 const globalForMongoose = globalThis as typeof globalThis & {
-  mongooseCache?: {
-    conn: typeof mongoose | null;
-    promise: Promise<typeof mongoose> | null;
-  };
+  mongooseCache?: MongooseCache;
 };
-const cached = globalForMongoose.mongooseCache ?? { conn: null, promise: null };
+
+const cached =
+  globalForMongoose.mongooseCache ?? {
+    conn: null,
+    promise: null,
+    lastConnectedDb: null,
+  };
 
 if (!globalForMongoose.mongooseCache) {
   globalForMongoose.mongooseCache = cached;
 }
 
+if (!MONGODB_URI) {
+  console.warn(
+    '[MongoDB] MONGODB_URI is not set. Database-backed routes will fail until it is configured.'
+  );
+}
+
+function getMongoErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+
+  return String(error);
+}
+
+function getMongoErrorDetails(error: unknown) {
+  if (!(error instanceof Error)) {
+    return { message: String(error) };
+  }
+
+  const mongoError = error as MongoErrorWithDetails;
+
+  return {
+    name: mongoError.name,
+    message: mongoError.message,
+    code: mongoError.code,
+    errno: mongoError.errno,
+    syscall: mongoError.syscall,
+    hostname: mongoError.hostname,
+    cause:
+      mongoError.cause instanceof Error
+        ? mongoError.cause.message
+        : mongoError.cause,
+  };
+}
+
+function logMongoConnectionSuccess(connection: typeof mongoose) {
+  const databaseName =
+    connection.connection.db?.databaseName ||
+    connection.connection.name ||
+    'unknown';
+
+  if (cached.lastConnectedDb !== databaseName) {
+    console.info(`[MongoDB] Connected successfully to database "${databaseName}".`);
+    cached.lastConnectedDb = databaseName;
+  }
+}
+
 async function connectDB() {
-  if (cached.conn) {
+  if (cached.conn && mongoose.connection.readyState === 1) {
     return cached.conn;
   }
 
-  if (!cached.promise) {
-    const opts = {
-      bufferCommands: false,
-    };
+  if (!MONGODB_URI) {
+    throw new Error('MONGODB_URI is not set.');
+  }
 
-    cached.promise = mongoose.connect(MONGODB_URI!, opts);
+  if (!cached.promise) {
+    cached.promise = mongoose.connect(MONGODB_URI, {
+      bufferCommands: false,
+      serverSelectionTimeoutMS: 10000,
+    });
   }
 
   try {
     cached.conn = await cached.promise;
-  } catch (e) {
-    cached.promise = null;
-    throw e;
-  }
+    logMongoConnectionSuccess(cached.conn);
+    return cached.conn;
+  } catch (error) {
+    const errorMessage = getMongoErrorMessage(error);
 
-  return cached.conn;
+    console.error(`[MongoDB] Connection failed: ${errorMessage}`, getMongoErrorDetails(error));
+
+    cached.promise = null;
+    cached.conn = null;
+    throw new Error(errorMessage);
+  }
 }
 
 export default connectDB;

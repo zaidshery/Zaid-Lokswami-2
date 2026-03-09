@@ -3,7 +3,7 @@ import { Types } from 'mongoose';
 import connectDB from '@/lib/db/mongoose';
 import EPaper from '@/lib/models/EPaper';
 import EPaperArticle from '@/lib/models/EPaperArticle';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 import {
   normalizeHotspot,
   resolveUniqueSlug,
@@ -61,7 +61,7 @@ function isLikelyHttpUrl(value: string) {
 
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const admin = verifyAdminToken(req);
+    const admin = await getAdminSession();
     if (!admin) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -103,7 +103,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
 
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
-    const admin = verifyAdminToken(req);
+    const admin = await getAdminSession();
     if (!admin) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },

@@ -4,7 +4,7 @@ import connectDB from '@/lib/db/mongoose';
 import Article from '@/lib/models/Article';
 import EPaper from '@/lib/models/EPaper';
 import EPaperArticle from '@/lib/models/EPaperArticle';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 import {
   deleteStoredArticle,
   getStoredArticleById,
@@ -442,7 +442,7 @@ export async function PATCH(
   try {
     const { id } = await context.params;
 
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     if (!user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -524,7 +524,7 @@ export async function PUT(
   try {
     const { id } = await context.params;
 
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     if (!user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -614,7 +614,7 @@ export async function DELETE(
   try {
     const { id } = await context.params;
 
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     if (!user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },

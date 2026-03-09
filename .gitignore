@@ -24,3 +24,7 @@ pnpm-debug.log*
 .DS_Store
 .vscode/
 .idea/
+
+# Local content / uploads
+data/articles.json
+public/uploads/*

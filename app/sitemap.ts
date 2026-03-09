@@ -1,6 +1,8 @@
 import type { MetadataRoute } from 'next';
 import { listArticlesForSitemap } from '@/lib/content/serverArticles';
 
+export const dynamic = 'force-dynamic';
+
 const FALLBACK_SITE_URL = 'http://localhost:3000';
 
 function getSiteUrl() {

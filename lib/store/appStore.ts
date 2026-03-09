@@ -25,6 +25,15 @@ function resolveTheme(theme: unknown): 'dark' | 'light' {
   return readSystemTheme();
 }
 
+export interface AppUser {
+  id: string;
+  name: string;
+  email: string;
+  image: string | null;
+  role: 'reader' | 'admin';
+  savedArticles: string[];
+}
+
 interface AppState {
   // Theme
   theme: 'dark' | 'light';
@@ -62,8 +71,15 @@ interface AppState {
   // Immersive video mode (mobile/tablet shorts)
   isImmersiveVideoMode: boolean;
   setImmersiveVideoMode: (value: boolean) => void;
+
+  // Reader auth
+  currentUser: AppUser | null;
+  isAuthenticated: boolean;
+  setUser: (user: AppUser) => void;
+  clearUser: () => void;
 }
 
+/** Exposes the persisted UI store used across the Lokswami client app. */
 export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
@@ -121,6 +137,12 @@ export const useAppStore = create<AppState>()(
             ? state
             : { isImmersiveVideoMode }
         ),
+
+      // Reader auth
+      currentUser: null,
+      isAuthenticated: false,
+      setUser: (currentUser) => set({ currentUser, isAuthenticated: true }),
+      clearUser: () => set({ currentUser: null, isAuthenticated: false }),
     }),
     {
       name: 'lokswami-storage',

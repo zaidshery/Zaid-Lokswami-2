@@ -3,7 +3,7 @@ import connectDB from '@/lib/db/mongoose';
 import Category from '@/lib/models/Category';
 import fs from 'fs/promises';
 import path from 'path';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 
 type CategoryRecord = {
   _id?: string;
@@ -27,7 +27,7 @@ async function shouldUseFileStore() {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     if (!user) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
     // allow file-backed fallback when no DB configured

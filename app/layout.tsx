@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
-import { ThemeProvider } from '@/app/components/ThemeProvider';
+import { ThemeProvider } from '@/components/providers/ThemeProvider';
+import AuthSync from '@/components/providers/AuthSync';
+import AuthSessionProvider from '@/components/providers/SessionProvider';
 
 const THEME_INIT_SCRIPT = `
 (() => {
@@ -62,6 +64,7 @@ export const viewport: Viewport = {
   themeColor: '#e72129',
 };
 
+/** Renders the shared HTML shell and top-level client providers. */
 export default function RootLayout({
   children,
 }: {
@@ -75,7 +78,12 @@ export default function RootLayout({
       <body
         className="min-h-screen bg-white text-gray-900 antialiased transition-colors duration-300 dark:bg-gray-950 dark:text-gray-50"
       >
-        <ThemeProvider>{children}</ThemeProvider>
+        <AuthSessionProvider>
+          <ThemeProvider>
+            <AuthSync />
+            {children}
+          </ThemeProvider>
+        </AuthSessionProvider>
       </body>
     </html>
   );

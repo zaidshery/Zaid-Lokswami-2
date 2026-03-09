@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db/mongoose';
 import EPaper from '@/lib/models/EPaper';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 import { isEPaperCitySlug } from '@/lib/constants/epaperCities';
 import { parsePublishDate } from '@/lib/utils/epaperStorage';
 
@@ -82,7 +82,7 @@ function normalizePages(value: unknown): EpaperPage[] {
 
 export async function GET(req: NextRequest) {
   try {
-    const admin = verifyAdminToken(req);
+    const admin = await getAdminSession();
     if (!admin) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -193,3 +193,4 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+

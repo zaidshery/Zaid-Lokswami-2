@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Types } from 'mongoose';
 import connectDB from '@/lib/db/mongoose';
 import EPaper from '@/lib/models/EPaper';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 import {
   EPAPER_IMAGE_MAX_BYTES,
   formatPublishDateFolder,
@@ -90,7 +90,7 @@ function updateSinglePage(
 
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const admin = verifyAdminToken(req);
+    const admin = await getAdminSession();
     if (!admin) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }

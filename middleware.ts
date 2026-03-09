@@ -1,94 +1,88 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { getToken } from 'next-auth/jwt';
+import { LOKSWAMI_SESSION_COOKIE } from '@/lib/auth/cookies';
 import { normalizeRedirectPath } from '@/lib/auth/redirect';
 import { getJwtSecretOrNull } from '@/lib/auth/jwtSecret';
 
-const ADMIN_AUTH_COOKIE = 'auth-token';
+const READER_PROTECTED_PREFIXES = ['/main/saved', '/main/preferences'];
 
-function base64UrlToUint8Array(value: string) {
-  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padLength = (4 - (base64.length % 4)) % 4;
-  const padded = base64 + '='.repeat(padLength);
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
+function isReaderProtectedPath(pathname: string) {
+  return READER_PROTECTED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
 }
 
-async function verifyAdminJwtInEdge(token: string, secret: string) {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-
-    const [headerSegment, payloadSegment, signatureSegment] = parts;
-    const data = `${headerSegment}.${payloadSegment}`;
-
-    const key = await crypto.subtle.importKey(
-      'raw',
-      new TextEncoder().encode(secret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['verify']
-    );
-
-    const isValid = await crypto.subtle.verify(
-      'HMAC',
-      key,
-      base64UrlToUint8Array(signatureSegment),
-      new TextEncoder().encode(data)
-    );
-
-    if (!isValid) return null;
-
-    const payloadText = new TextDecoder().decode(
-      base64UrlToUint8Array(payloadSegment)
-    );
-    const payload = JSON.parse(payloadText) as Record<string, unknown>;
-
-    if (!payload || typeof payload !== 'object') return null;
-    if (payload.role !== 'admin') return null;
-
-    const exp = payload.exp;
-    if (typeof exp === 'number' && Date.now() >= exp * 1000) {
-      return null;
-    }
-
-    return payload;
-  } catch {
+async function getSessionToken(request: NextRequest) {
+  const secret = getJwtSecretOrNull();
+  if (!secret) {
     return null;
   }
+
+  return getToken({
+    req: request,
+    secret,
+    cookieName: LOKSWAMI_SESSION_COOKIE,
+  });
 }
 
+/** Protects admin and signed-in reader routes with the active NextAuth session. */
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-  const secret = getJwtSecretOrNull();
-  const token = request.cookies.get(ADMIN_AUTH_COOKIE)?.value || '';
-  const adminPayload =
-    token && secret ? await verifyAdminJwtInEdge(token, secret) : null;
+  try {
+    const { pathname } = request.nextUrl;
+    const session = await getSessionToken(request);
+    const email = typeof session?.email === 'string' ? session.email.trim() : '';
+    const isAuthenticated = Boolean(email);
+    const isAdmin = session?.role === 'admin';
 
-  if (pathname.startsWith('/admin')) {
-    if (!adminPayload) {
-      const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('redirect', pathname);
-      return NextResponse.redirect(loginUrl);
+    if (pathname.startsWith('/admin')) {
+      if (!isAdmin) {
+        const loginUrl = new URL('/login', request.url);
+        loginUrl.searchParams.set('redirect', pathname);
+        return NextResponse.redirect(loginUrl);
+      }
+
+      return NextResponse.next();
     }
-  }
 
-  if (pathname === '/login') {
-    if (adminPayload) {
-      const redirectTo = normalizeRedirectPath(
-        request.nextUrl.searchParams.get('redirect'),
-        '/admin'
+    if (pathname === '/login') {
+      if (isAdmin) {
+        const redirectTo = normalizeRedirectPath(
+          request.nextUrl.searchParams.get('redirect'),
+          '/admin'
+        );
+        return NextResponse.redirect(new URL(redirectTo, request.url));
+      }
+
+      return NextResponse.next();
+    }
+
+    if (pathname === '/signin') {
+      return NextResponse.next();
+    }
+
+    if (isReaderProtectedPath(pathname) && !isAuthenticated) {
+      const signInUrl = new URL('/signin', request.url);
+      signInUrl.searchParams.set(
+        'redirect',
+        `${pathname}${request.nextUrl.search}`
       );
-      return NextResponse.redirect(new URL(redirectTo, request.url));
+      return NextResponse.redirect(signInUrl);
     }
-  }
 
-  return NextResponse.next();
+    return NextResponse.next();
+  } catch (error) {
+    console.error('Middleware auth check failed:', error);
+    return NextResponse.next();
+  }
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/login'],
+  matcher: [
+    '/admin/:path*',
+    '/login',
+    '/signin',
+    '/main/saved/:path*',
+    '/main/preferences/:path*',
+  ],
 };

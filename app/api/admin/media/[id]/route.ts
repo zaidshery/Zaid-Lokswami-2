@@ -3,7 +3,7 @@ import connectDB from '@/lib/db/mongoose';
 import Media from '@/lib/models/Media';
 import fs from 'fs/promises';
 import path from 'path';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 
 type MediaRecord = {
   _id?: string;
@@ -17,7 +17,7 @@ type MediaRecord = {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     if (!user) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
     if (!process.env.MONGODB_URI) {

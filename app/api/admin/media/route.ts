@@ -3,7 +3,7 @@ import connectDB from '@/lib/db/mongoose';
 import Media from '@/lib/models/Media';
 import fs from 'fs/promises';
 import path from 'path';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 
 type MediaRecord = {
   _id?: string;
@@ -38,7 +38,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     if (!user) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json();
@@ -70,3 +70,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Failed to create media' }, { status: 500 });
   }
 }
+

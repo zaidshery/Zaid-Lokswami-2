@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db/mongoose';
 import Video from '@/lib/models/Video';
 import { Types } from 'mongoose';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 import { NEWS_CATEGORIES } from '@/lib/constants/newsCategories';
 import type { CreateVideoInput } from '@/lib/storage/videosFile';
 import {
@@ -139,7 +139,7 @@ export async function GET(
 ) {
   try {
     const { id } = await context.params;
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     const isAdmin = Boolean(user);
 
     if (await shouldUseFileStore()) {
@@ -188,7 +188,7 @@ export async function PUT(
 ) {
   try {
     const { id } = await context.params;
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     if (!user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -283,7 +283,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await context.params;
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     if (!user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },

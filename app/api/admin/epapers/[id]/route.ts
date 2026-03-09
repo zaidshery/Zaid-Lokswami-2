@@ -3,7 +3,7 @@ import { Types } from 'mongoose';
 import connectDB from '@/lib/db/mongoose';
 import EPaper from '@/lib/models/EPaper';
 import EPaperArticle from '@/lib/models/EPaperArticle';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 import {
   deleteAssetFile,
   parsePublishDate,
@@ -128,7 +128,7 @@ function resolveCityName(citySlug: string, inputCityName: string) {
 
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const admin = verifyAdminToken(req);
+    const admin = await getAdminSession();
     if (!admin) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -176,7 +176,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
 
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const admin = verifyAdminToken(req);
+    const admin = await getAdminSession();
     if (!admin) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -321,7 +321,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
-    const admin = verifyAdminToken(req);
+    const admin = await getAdminSession();
     if (!admin) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },

@@ -1,0 +1,64 @@
+{
+  "articles": [
+    {
+      "title": "Cabinet clears district flood resilience package",
+      "summary": "A new emergency funding package targets drainage upgrades, relief camps, and crop-loss support.",
+      "content": "State officials approved a district flood resilience package focused on drainage repairs, relief camp readiness, and compensation support for affected farmers. The first tranche of funding will prioritize low-lying wards before the next monsoon review.",
+      "image": "https://images.unsplash.com/photo-1557804506-669714d2e745?w=800",
+      "category": "National",
+      "author": "Raj Kumar",
+      "isBreaking": true,
+      "isTrending": true,
+      "views": 125000,
+      "publishedAtOffsetHours": 0
+    },
+    {
+      "title": "India seal series win after dominant middle-order chase",
+      "summary": "A controlled chase and sharp death bowling gave India a comfortable finish in the final overs.",
+      "content": "India closed out the series with a composed middle-order chase after restricting the opposition in the final ten overs. Analysts highlighted the finishing partnership and disciplined bowling plan as the turning points of the match.",
+      "image": "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=800",
+      "category": "Sports",
+      "author": "Amit Patel",
+      "isBreaking": false,
+      "isTrending": true,
+      "views": 86000,
+      "publishedAtOffsetHours": 2
+    },
+    {
+      "title": "Box office opens strong for festival weekend family drama",
+      "summary": "The new release drew steady occupancy across metros and tier-two cities on opening day.",
+      "content": "The film posted a strong opening across major Hindi-speaking markets, with evening shows outperforming trade expectations. Distributors expect family audiences and holiday footfall to keep the momentum through the weekend.",
+      "image": "https://images.unsplash.com/photo-1598899134739-24c46f58b8c0?w=800",
+      "category": "Entertainment",
+      "author": "Priya Sharma",
+      "isBreaking": false,
+      "isTrending": true,
+      "views": 94000,
+      "publishedAtOffsetHours": 4
+    },
+    {
+      "title": "Regional startups accelerate AI hiring for newsroom tooling",
+      "summary": "Publishers are expanding AI hiring to automate tagging, translation, and archive search.",
+      "content": "Several regional media startups have expanded AI hiring for newsroom tooling, especially around multilingual tagging, translation, and archive search. Founders say the next focus is faster newsroom operations rather than fully automated publishing.",
+      "image": "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800",
+      "category": "Tech",
+      "author": "Raj Kumar",
+      "isBreaking": false,
+      "isTrending": false,
+      "views": 47000,
+      "publishedAtOffsetHours": 6
+    },
+    {
+      "title": "Mid-cap rally lifts business sentiment ahead of earnings week",
+      "summary": "Analysts expect earnings guidance and banking commentary to drive the next market move.",
+      "content": "Mid-cap stocks extended their gains ahead of a busy earnings week, improving sentiment across broker desks and retail portfolios. Analysts said management commentary from banks and consumer companies will be the key driver of the next leg.",
+      "image": "https://images.unsplash.com/photo-1460925895917-adf4e20df82f?w=800",
+      "category": "Business",
+      "author": "Raj Kumar",
+      "isBreaking": false,
+      "isTrending": false,
+      "views": 33000,
+      "publishedAtOffsetHours": 8
+    }
+  ]
+}

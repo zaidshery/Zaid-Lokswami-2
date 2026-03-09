@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db/mongoose';
 import EPaper from '@/lib/models/EPaper';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 import {
   EPAPER_CITY_OPTIONS,
   getCityNameFromSlug,
@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
   const uploadedAssetRefs: Array<{ publicId: string; resourceType: 'image' | 'raw' }> = [];
 
   try {
-    const admin = verifyAdminToken(req);
+    const admin = await getAdminSession();
     if (!admin) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
@@ -359,3 +359,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

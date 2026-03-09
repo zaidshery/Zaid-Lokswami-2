@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 import { isPdfAsset } from '@/lib/constants/epaperCities';
 import { generateArticleHotspotsFromThumbnail } from '@/lib/utils/epaperOcrAssist';
 
@@ -20,7 +20,7 @@ function getErrorStatus(message: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     if (!user) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -75,3 +75,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

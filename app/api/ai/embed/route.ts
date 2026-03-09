@@ -4,7 +4,7 @@ import Article from '@/lib/models/Article';
 import EPaper from '@/lib/models/EPaper';
 import Story from '@/lib/models/Story';
 import Video from '@/lib/models/Video';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 import {
   embedContent,
   generateContentSummary,
@@ -466,8 +466,8 @@ async function runTraining(
   return trainStories(id, embedAll);
 }
 
-export async function GET(req: NextRequest) {
-  const admin = verifyAdminToken(req);
+export async function GET() {
+  const admin = await getAdminSession();
   if (!admin) {
     return NextResponse.json(
       { success: false, error: 'Unauthorized' },
@@ -493,7 +493,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const admin = verifyAdminToken(req);
+  const admin = await getAdminSession();
   if (!admin) {
     return NextResponse.json(
       { success: false, error: 'Unauthorized' },
@@ -562,3 +562,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

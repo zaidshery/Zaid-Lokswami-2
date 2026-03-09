@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyAdminToken } from '@/lib/auth/adminToken';
+import { getAdminSession } from '@/lib/auth/admin';
 import { uploadBufferToCloudinary } from '@/lib/utils/cloudinary';
 
 type UploadPurpose =
@@ -112,7 +112,7 @@ function getUploadRule(purpose: UploadPurpose): UploadRule {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = verifyAdminToken(req);
+    const user = await getAdminSession();
     if (!user) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
@@ -161,3 +161,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Failed to upload file' }, { status: 500 });
   }
 }
+
