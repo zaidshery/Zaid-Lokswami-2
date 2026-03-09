@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import NextAuth, { type NextAuthConfig } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import { LOKSWAMI_SESSION_COOKIE } from '@/lib/auth/cookies';
+import { normalizeRedirectPath } from '@/lib/auth/redirect';
 import connectDB from '@/lib/db/mongoose';
 import User from '@/lib/models/User';
 
@@ -181,6 +182,52 @@ function resolveAuthPages(authIntent: AuthIntent) {
   };
 }
 
+function resolveSafeRedirectPath(path: string, baseUrl: string): string | null {
+  const normalizedPath = normalizeRedirectPath(path, '');
+  if (!normalizedPath) {
+    return null;
+  }
+
+  const parsedPath = new URL(normalizedPath, baseUrl);
+  if (parsedPath.pathname === '/signin' || parsedPath.pathname === '/login') {
+    return (
+      resolveSafeRedirectUrl(parsedPath.searchParams.get('redirect'), baseUrl) ||
+      resolveSafeRedirectUrl(parsedPath.searchParams.get('callbackUrl'), baseUrl) ||
+      null
+    );
+  }
+
+  return parsedPath.toString();
+}
+
+function resolveSafeRedirectUrl(
+  url: string | null | undefined,
+  baseUrl: string
+): string | null {
+  const next = (url || '').trim();
+  if (!next) {
+    return null;
+  }
+
+  if (next.startsWith('/')) {
+    return resolveSafeRedirectPath(next, baseUrl);
+  }
+
+  try {
+    const parsedUrl = new URL(next);
+    if (parsedUrl.origin !== baseUrl) {
+      return null;
+    }
+
+    return resolveSafeRedirectPath(
+      `${parsedUrl.pathname}${parsedUrl.search}`,
+      baseUrl
+    );
+  } catch {
+    return null;
+  }
+}
+
 function buildAuthOptions(request?: NextRequest): NextAuthConfig {
   const authIntent = getAuthIntent(request);
 
@@ -299,20 +346,7 @@ function buildAuthOptions(request?: NextRequest): NextAuthConfig {
         return session;
       },
       async redirect({ url, baseUrl }) {
-        if (url.startsWith('/')) {
-          return `${baseUrl}${url}`;
-        }
-
-        try {
-          const parsedUrl = new URL(url);
-          if (parsedUrl.origin === baseUrl) {
-            return url;
-          }
-        } catch {
-          return baseUrl;
-        }
-
-        return baseUrl;
+        return resolveSafeRedirectUrl(url, baseUrl) || baseUrl;
       },
     },
   };

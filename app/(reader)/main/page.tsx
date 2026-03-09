@@ -115,7 +115,7 @@ export default function HomePage() {
     const imageUrl = article?.image
       ? toAbsoluteShareUrl(resolveArticleOgImageUrl({ image: article.image }), origin)
       : '';
-    const title = article?.title?.trim() || (language === 'hi' ? 'ÃƒÂ Ã‚Â¤Ã‚Â²ÃƒÂ Ã‚Â¥Ã¢â‚¬Â¹ÃƒÂ Ã‚Â¤Ã¢â‚¬Â¢ÃƒÂ Ã‚Â¤Ã‚Â¸ÃƒÂ Ã‚Â¥Ã‚ÂÃƒÂ Ã‚Â¤Ã‚ÂµÃƒÂ Ã‚Â¤Ã‚Â¾ÃƒÂ Ã‚Â¤Ã‚Â®ÃƒÂ Ã‚Â¥Ã¢â€šÂ¬ ÃƒÂ Ã‚Â¤Ã¢â‚¬â€œÃƒÂ Ã‚Â¤Ã‚Â¬ÃƒÂ Ã‚Â¤Ã‚Â°' : 'Lokswami story');
+    const title = article?.title?.trim() || (language === 'hi' ? '\u0932\u094b\u0915\u0938\u094d\u0935\u093e\u092e\u0940 \u0916\u092c\u0930' : 'Lokswami story');
     const shareUrl = buildArticleWhatsAppShareUrl({
       title,
       articleUrl,
@@ -358,19 +358,19 @@ export default function HomePage() {
             <div className="relative">
               <h3 className="mb-2 inline-flex items-center gap-2 text-lg font-black tracking-tight">
                 <CalendarDays className="h-[18px] w-[18px]" />
-                {language === 'hi' ? 'ÃƒÂ Ã‚Â¤Ã‹â€ -ÃƒÂ Ã‚Â¤Ã‚ÂªÃƒÂ Ã‚Â¥Ã¢â‚¬Â¡ÃƒÂ Ã‚Â¤Ã‚ÂªÃƒÂ Ã‚Â¤Ã‚Â°' : 'E-Paper'}
+                {language === 'hi' ? '\u0908-\u092a\u0947\u092a\u0930' : 'E-Paper'}
               </h3>
               <p className="mb-4 text-xs leading-relaxed text-red-50/95 sm:text-sm">
                 {language === 'hi'
-                  ? 'ÃƒÂ Ã‚Â¤Ã¢â‚¬Â ÃƒÂ Ã‚Â¤Ã…â€œ ÃƒÂ Ã‚Â¤Ã¢â‚¬Â¢ÃƒÂ Ã‚Â¤Ã‚Â¾ ÃƒÂ Ã‚Â¤Ã¢â‚¬Â¦ÃƒÂ Ã‚Â¤Ã¢â‚¬â€œÃƒÂ Ã‚Â¤Ã‚Â¬ÃƒÂ Ã‚Â¤Ã‚Â¾ÃƒÂ Ã‚Â¤Ã‚Â° ÃƒÂ Ã‚Â¤Ã‚ÂªÃƒÂ Ã‚Â¤Ã‚Â¢ÃƒÂ Ã‚Â¤Ã‚Â¼ÃƒÂ Ã‚Â¥Ã¢â‚¬Â¡ÃƒÂ Ã‚Â¤Ã¢â‚¬Å¡ÃƒÂ Ã‚Â¥Ã‚Â¤ ÃƒÂ Ã‚Â¤Ã¢â‚¬Â¡ÃƒÂ Ã‚Â¤Ã¢â‚¬Å¡ÃƒÂ Ã‚Â¤Ã‚Â¦ÃƒÂ Ã‚Â¥Ã…â€™ÃƒÂ Ã‚Â¤Ã‚Â°, ÃƒÂ Ã‚Â¤Ã¢â‚¬Â°ÃƒÂ Ã‚Â¤Ã…â€œÃƒÂ Ã‚Â¥Ã‚ÂÃƒÂ Ã‚Â¤Ã…â€œÃƒÂ Ã‚Â¥Ã‹â€ ÃƒÂ Ã‚Â¤Ã‚Â¨, ÃƒÂ Ã‚Â¤Ã‚Â®ÃƒÂ Ã‚Â¥Ã‚ÂÃƒÂ Ã‚Â¤Ã¢â‚¬Å¡ÃƒÂ Ã‚Â¤Ã‚Â¬ÃƒÂ Ã‚Â¤Ã‹â€  ÃƒÂ Ã‚Â¤Ã¢â‚¬ÂÃƒÂ Ã‚Â¤Ã‚Â° ÃƒÂ Ã‚Â¤Ã‚Â¦ÃƒÂ Ã‚Â¤Ã‚Â¿ÃƒÂ Ã‚Â¤Ã‚Â²ÃƒÂ Ã‚Â¥Ã‚ÂÃƒÂ Ã‚Â¤Ã‚Â²ÃƒÂ Ã‚Â¥Ã¢â€šÂ¬ ÃƒÂ Ã‚Â¤Ã¢â‚¬Â¢ÃƒÂ Ã‚Â¥Ã¢â‚¬Â¡ ÃƒÂ Ã‚Â¤Ã‚Â¸ÃƒÂ Ã‚Â¤Ã¢â‚¬Å¡ÃƒÂ Ã‚Â¤Ã‚Â¸ÃƒÂ Ã‚Â¥Ã‚ÂÃƒÂ Ã‚Â¤Ã¢â‚¬Â¢ÃƒÂ Ã‚Â¤Ã‚Â°ÃƒÂ Ã‚Â¤Ã‚Â£ ÃƒÂ Ã‚Â¤Ã¢â‚¬Â°ÃƒÂ Ã‚Â¤Ã‚ÂªÃƒÂ Ã‚Â¤Ã‚Â²ÃƒÂ Ã‚Â¤Ã‚Â¬ÃƒÂ Ã‚Â¥Ã‚ÂÃƒÂ Ã‚Â¤Ã‚Â§ÃƒÂ Ã‚Â¥Ã‚Â¤'
-                  : 'Read todayÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢s newspaper edition. Indore, Ujjain, Mumbai and Delhi editions available.'}
+                  ? '\u0906\u091c \u0915\u093e \u0905\u0916\u092c\u093e\u0930 \u092a\u0922\u093c\u0947\u0902\u0964 \u0907\u0902\u0926\u094c\u0930, \u0909\u091c\u094d\u091c\u0948\u0928, \u092e\u0941\u0902\u092c\u0908 \u0914\u0930 \u0926\u093f\u0932\u094d\u0932\u0940 \u0915\u0947 \u0921\u093f\u091c\u093f\u091f\u0932 \u0938\u0902\u0938\u094d\u0915\u0930\u0923 \u0909\u092a\u0932\u092c\u094d\u0927 \u0939\u0948\u0902\u0964'
+                  : 'Read today\'s newspaper edition. Indore, Ujjain, Mumbai and Delhi editions available.'}
               </p>
 
               <Link
                 href="/main/epaper"
                 className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-white/95 px-3.5 py-2.5 text-xs font-bold text-red-700 transition-colors hover:bg-white sm:text-sm"
               >
-                {language === 'hi' ? 'E-Paper ÃƒÂ Ã‚Â¤Ã‚Â¦ÃƒÂ Ã‚Â¥Ã¢â‚¬Â¡ÃƒÂ Ã‚Â¤Ã¢â‚¬â€œÃƒÂ Ã‚Â¥Ã¢â‚¬Â¡ÃƒÂ Ã‚Â¤Ã¢â‚¬Å¡' : 'View E-Paper'}
+                {language === 'hi' ? '\u0908-\u092a\u0947\u092a\u0930 \u0926\u0947\u0916\u0947\u0902' : 'View E-Paper'}
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
@@ -474,7 +474,7 @@ export default function HomePage() {
                       className="inline-flex h-8 w-full items-center justify-center gap-1 rounded-full border border-zinc-300 bg-zinc-100 px-2 text-[10px] font-semibold text-zinc-700 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 dark:border-zinc-700 dark:bg-zinc-900/65 dark:text-zinc-100 dark:hover:border-orange-500/50 dark:hover:bg-orange-900/20 dark:hover:text-orange-300 sm:h-9 sm:px-2.5 sm:text-[11px]"
                     >
                       <Newspaper className="h-3.5 w-3.5 text-orange-500 dark:text-orange-400" />
-                      <span>{language === 'hi' ? 'ÃƒÂ Ã‚Â¤Ã‹â€ -ÃƒÂ Ã‚Â¤Ã‚ÂªÃƒÂ Ã‚Â¥Ã¢â‚¬Â¡ÃƒÂ Ã‚Â¤Ã‚ÂªÃƒÂ Ã‚Â¤Ã‚Â°' : 'E-Paper'}</span>
+                      <span>{language === 'hi' ? '\u0908-\u092a\u0947\u092a\u0930' : 'E-Paper'}</span>
                     </Link>
 
                     <button

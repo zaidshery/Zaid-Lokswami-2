@@ -73,6 +73,7 @@ export default function RootLayout({
   return (
     <html lang="hi" suppressHydrationWarning>
       <head>
+        <meta charSet="utf-8" />
         <script id="lokswami-theme-init" dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body

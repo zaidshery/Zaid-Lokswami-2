@@ -161,7 +161,7 @@ export default function Header() {
                       whileTap={{ scale: 0.97 }}
                       onClick={() => setIsUserMenuOpen((open) => !open)}
                       className="relative inline-flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-zinc-200/80 bg-white text-zinc-800 shadow-sm dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 sm:h-10 sm:w-10"
-                      aria-label={language === 'hi' ? 'à¤°à¥€à¤¡à¤° à¤®à¥‡à¤¨à¥‚' : 'Reader menu'}
+                      aria-label={language === 'hi' ? '\u0930\u0940\u0921\u0930 \u092e\u0947\u0928\u0942' : 'Reader menu'}
                     >
                       {userImage ? (
                         <Image
@@ -233,7 +233,7 @@ export default function Header() {
                     <Link
                       href="/signin?redirect=/main/account"
                       className="cnp-motion inline-flex h-8 items-center gap-1 rounded-xl border border-zinc-200/80 bg-white px-2 text-[10px] font-semibold text-zinc-800 shadow-sm hover:border-red-300 hover:bg-red-50 hover:text-red-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-red-500/40 dark:hover:bg-red-500/15 dark:hover:text-red-300 sm:h-10 sm:px-3 sm:text-xs"
-                      aria-label={language === 'hi' ? 'à¤¸à¤¾à¤‡à¤¨ à¤‡à¤¨' : 'Sign In'}
+                      aria-label={language === 'hi' ? '\u0938\u093e\u0907\u0928 \u0907\u0928' : 'Sign In'}
                     >
                       <User size={16} />
                       <span className="hidden min-[420px]:inline">Sign In</span>

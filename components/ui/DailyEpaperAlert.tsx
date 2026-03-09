@@ -62,9 +62,9 @@ export default function DailyEpaperAlert() {
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
           const body =
             language === 'hi'
-              ? `${paper.city} à¤•à¤¾ à¤¨à¤¯à¤¾ à¤ˆ-à¤ªà¥‡à¤ªà¤° à¤† à¤—à¤¯à¤¾ à¤¹à¥ˆà¥¤`
+              ? `${paper.city} \u0915\u093e \u0928\u092f\u093e \u0908-\u092a\u0947\u092a\u0930 \u0906 \u0917\u092f\u093e \u0939\u0948\u0964`
               : `Today's ${paper.city} e-paper is now available.`;
-          new Notification(language === 'hi' ? 'à¤†à¤œ à¤•à¤¾ à¤ˆ-à¤ªà¥‡à¤ªà¤° à¤† à¤—à¤¯à¤¾!' : "Today's E-paper has arrived!", {
+          new Notification(language === 'hi' ? '\u0906\u091c \u0915\u093e \u0908-\u092a\u0947\u092a\u0930 \u0906 \u0917\u092f\u093e!' : "Today's E-paper has arrived!", {
             body,
             icon: '/logo-icon-final.png',
             tag: `epaper-${today}`,
@@ -95,9 +95,9 @@ export default function DailyEpaperAlert() {
         if (latestPaper) {
           const body =
             language === 'hi'
-              ? `${latestPaper.city} à¤•à¤¾ à¤¨à¤¯à¤¾ à¤ˆ-à¤ªà¥‡à¤ªà¤° à¤‰à¤ªà¤²à¤¬à¥à¤§ à¤¹à¥ˆà¥¤`
+              ? `${latestPaper.city} \u0915\u093e \u0928\u092f\u093e \u0908-\u092a\u0947\u092a\u0930 \u0909\u092a\u0932\u092c\u094d\u0927 \u0939\u0948\u0964`
               : `Today's ${latestPaper.city} e-paper is available now.`;
-          new Notification(language === 'hi' ? 'à¤…à¤²à¤°à¥à¤Ÿ à¤¸à¤•à¥à¤·à¤® à¤¹à¥‹ à¤—à¤¯à¤¾' : 'Alerts enabled', {
+          new Notification(language === 'hi' ? '\u0905\u0932\u0930\u094d\u091f \u0938\u0915\u094d\u0937\u092e \u0939\u094b \u0917\u092f\u093e' : 'Alerts enabled', {
             body,
             icon: '/logo-icon-final.png',
           });
@@ -110,9 +110,9 @@ export default function DailyEpaperAlert() {
           body: JSON.stringify({ wantsDailyAlerts: true }),
         }).catch(() => undefined);
 
-        setNotice(language === 'hi' ? 'à¤¨à¥‹à¤Ÿà¤¿à¤«à¤¿à¤•à¥‡à¤¶à¤¨ à¤¸à¤•à¥à¤·à¤® à¤¹à¥‹ à¤—à¤¯à¤¾' : 'Browser notifications enabled');
+        setNotice(language === 'hi' ? '\u0928\u094b\u091f\u093f\u092b\u093f\u0915\u0947\u0936\u0928 \u0938\u0915\u094d\u0937\u092e \u0939\u094b \u0917\u092f\u093e' : 'Browser notifications enabled');
       } else {
-        setNotice(language === 'hi' ? 'à¤¨à¥‹à¤Ÿà¤¿à¤«à¤¿à¤•à¥‡à¤¶à¤¨ à¤…à¤¨à¥à¤®à¤¤à¤¿ à¤¨à¤¹à¥€à¤‚ à¤®à¤¿à¤²à¥€' : 'Notification permission denied');
+        setNotice(language === 'hi' ? '\u0928\u094b\u091f\u093f\u092b\u093f\u0915\u0947\u0936\u0928 \u0905\u0928\u0941\u092e\u0924\u093f \u0928\u0939\u0940\u0902 \u092e\u093f\u0932\u0940' : 'Notification permission denied');
       }
     } finally {
       setEnableState('idle');
@@ -134,7 +134,7 @@ export default function DailyEpaperAlert() {
             </span>
             <div>
               <p className="text-sm font-black text-zinc-900 dark:text-zinc-100">
-                {language === 'hi' ? 'à¤†à¤œ à¤•à¤¾ à¤ˆ-à¤ªà¥‡à¤ªà¤° à¤† à¤—à¤¯à¤¾!' : "Today's E-paper has arrived!"}
+                {language === 'hi' ? '\u0906\u091c \u0915\u093e \u0908-\u092a\u0947\u092a\u0930 \u0906 \u0917\u092f\u093e!' : "Today's E-paper has arrived!"}
               </p>
               <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
                 {latestPaper.city}: {latestPaper.title}
@@ -145,7 +145,7 @@ export default function DailyEpaperAlert() {
             type="button"
             onClick={() => setShowBanner(false)}
             className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            aria-label={language === 'hi' ? 'à¤¬à¤‚à¤¦ à¤•à¤°à¥‡à¤‚' : 'Dismiss'}
+            aria-label={language === 'hi' ? '\u092c\u0902\u0926 \u0915\u0930\u0947\u0902' : 'Dismiss'}
           >
             <X className="h-4 w-4" />
           </button>
@@ -168,13 +168,13 @@ export default function DailyEpaperAlert() {
               disabled={enableState === 'working'}
               className="inline-flex h-8 items-center rounded-full border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
             >
-              {enableState === 'working'
-                ? language === 'hi'
-                  ? 'à¤¸à¤•à¥à¤·à¤® à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...'
-                  : 'Enabling...'
-                : language === 'hi'
-                  ? 'à¤…à¤²à¤°à¥à¤Ÿ à¤¸à¤•à¥à¤·à¤® à¤•à¤°à¥‡à¤‚'
-                  : 'Enable Alerts'}
+                {enableState === 'working'
+                  ? language === 'hi'
+                    ? '\u0938\u0915\u094d\u0937\u092e \u0939\u094b \u0930\u0939\u093e \u0939\u0948...'
+                    : 'Enabling...'
+                  : language === 'hi'
+                    ? '\u0905\u0932\u0930\u094d\u091f \u0938\u0915\u094d\u0937\u092e \u0915\u0930\u0947\u0902'
+                    : 'Enable Alerts'}
             </button>
           ) : null}
         </div>

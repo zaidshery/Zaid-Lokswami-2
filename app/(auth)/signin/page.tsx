@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { AlertCircle, Loader2, Moon, Sun } from 'lucide-react';
 import { signIn, useSession } from 'next-auth/react';
 import Logo from '@/components/layout/Logo';
+import { normalizeRedirectPath } from '@/lib/auth/redirect';
 import { useAppStore } from '@/lib/store/appStore';
 
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
@@ -50,12 +51,44 @@ function GoogleGlyph() {
   );
 }
 
-function normalizeRedirectPath(value: string | null): string {
-  if (!value || !value.startsWith('/') || value.startsWith('//')) {
-    return '/main';
+function resolvePostSignInRedirect(value: string | null): string | null {
+  const next = (value || '').trim();
+  if (!next) {
+    return null;
   }
 
-  return value;
+  const normalizedPath = normalizeRedirectPath(next, '');
+  if (normalizedPath) {
+    if (normalizedPath === '/signin' || normalizedPath === '/login') {
+      return '/main';
+    }
+
+    if (normalizedPath.startsWith('/signin?') || normalizedPath.startsWith('/login?')) {
+      const nestedParams = new URLSearchParams(normalizedPath.split('?')[1] || '');
+      return (
+        resolvePostSignInRedirect(nestedParams.get('redirect')) ||
+        resolvePostSignInRedirect(nestedParams.get('callbackUrl')) ||
+        '/main'
+      );
+    }
+
+    return normalizedPath;
+  }
+
+  if (!/^https?:\/\//i.test(next) || typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const parsedUrl = new URL(next);
+    if (parsedUrl.origin !== window.location.origin) {
+      return null;
+    }
+
+    return resolvePostSignInRedirect(`${parsedUrl.pathname}${parsedUrl.search}`);
+  } catch {
+    return null;
+  }
 }
 
 function resolveAuthError(errorKey: string | null): string {
@@ -137,12 +170,12 @@ function AuthFormContent({
     >
       <motion.div variants={formItemVariants}>
         <h1 className="text-center text-2xl font-black text-zinc-900 dark:text-zinc-100">
-          à¤¨à¤®à¤¸à¥à¤¤à¥‡! ðŸ‘‹
+          {'\u0928\u092e\u0938\u094d\u0924\u0947! \uD83D\uDC4B'}
         </h1>
       </motion.div>
 
       <motion.div variants={formItemVariants}>
-        <p className="mt-1 mb-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="mb-6 mt-1 text-center text-sm text-zinc-500 dark:text-zinc-400">
           Sign in to your Lokswami account
         </p>
       </motion.div>
@@ -191,7 +224,7 @@ function AuthFormContent({
             href="/main"
             className="inline-flex h-11 w-full items-center justify-center rounded-xl border-2 border-[#e63946] bg-transparent px-4 text-sm font-semibold text-[#e63946] transition hover:bg-[#e63946] hover:text-white"
           >
-            Continue as Guest â†’
+            {'Continue as Guest \u2192'}
           </Link>
         </motion.div>
       </motion.div>
@@ -220,30 +253,51 @@ function SignInPageContent() {
   const { status } = useSession();
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const hasRedirectedAfterAuth = useRef(false);
 
-  const callbackUrl = normalizeRedirectPath(searchParams.get('redirect'));
+  const redirectTo = useMemo(
+    () =>
+      resolvePostSignInRedirect(searchParams.get('redirect')) ||
+      resolvePostSignInRedirect(searchParams.get('callbackUrl')) ||
+      '/main',
+    [searchParams]
+  );
+
+  useEffect(() => {
+    if (status !== 'authenticated') {
+      hasRedirectedAfterAuth.current = false;
+      return;
+    }
+
+    clearAuthIntentCookie();
+
+    if (hasRedirectedAfterAuth.current) {
+      return;
+    }
+
+    hasRedirectedAfterAuth.current = true;
+    router.replace(redirectTo);
+    router.refresh();
+  }, [redirectTo, router, status]);
 
   useEffect(() => {
     if (status === 'authenticated') {
-      clearAuthIntentCookie();
-      router.replace(callbackUrl);
+      return;
     }
-  }, [callbackUrl, router, status]);
 
-  useEffect(() => {
     setErrorMessage(resolveAuthError(searchParams.get('error')));
-  }, [searchParams]);
+  }, [searchParams, status]);
 
   async function handleGoogleSignIn(): Promise<void> {
     setErrorMessage('');
     setIsSigningIn(true);
     setReaderAuthIntentCookie();
 
-      try {
-        const result = await signIn('google', {
-          redirect: false,
-          redirectTo: callbackUrl,
-        });
+    try {
+      const result = await signIn('google', {
+        redirect: false,
+        redirectTo,
+      });
 
       if (result?.error) {
         clearAuthIntentCookie();
@@ -252,10 +306,10 @@ function SignInPageContent() {
         return;
       }
 
-        if (result?.url) {
-          window.location.assign(result.url);
-          return;
-        }
+      if (result?.url) {
+        window.location.assign(result.url);
+        return;
+      }
 
       clearAuthIntentCookie();
       setErrorMessage(AUTH_ERROR_MESSAGES.Default);
@@ -274,7 +328,7 @@ function SignInPageContent() {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(230,57,70,0.2),transparent_32%)]" />
 
       <div className="lg:hidden">
-        <ThemeToggleButton className="fixed top-4 right-4 z-50" />
+        <ThemeToggleButton className="fixed right-4 top-4 z-50" />
 
         <div className="relative flex min-h-screen flex-col px-4 py-10 md:px-8 md:py-14">
           <div className="mx-auto w-full max-w-4xl">
@@ -283,7 +337,7 @@ function SignInPageContent() {
                 <Logo size="lg" href="/main" />
               </div>
               <p className="mt-4 text-sm text-zinc-400">
-                à¤†à¤ªà¤•à¥€ à¤–à¤¬à¤°, à¤†à¤ªà¤•à¥€ à¤­à¤¾à¤·à¤¾ à¤®à¥‡à¤‚
+                {'\u0906\u092a\u0915\u0940 \u0916\u092c\u0930, \u0906\u092a\u0915\u0940 \u092d\u093e\u0937\u093e \u092e\u0947\u0902'}
               </p>
             </div>
           </div>
@@ -307,13 +361,13 @@ function SignInPageContent() {
             <div className="hidden w-full md:block lg:hidden">
               <div className="mb-6 flex flex-wrap justify-center gap-2">
                 <div className="rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-300">
-                  ðŸ“° à¤¤à¤¾à¤œà¤¼à¤¾ à¤–à¤¬à¤°à¥‡à¤‚
+                  {'\uD83D\uDCF0 \u0924\u093e\u091c\u093c\u093e \u0916\u092c\u0930\u0947\u0902'}
                 </div>
                 <div className="rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-300">
-                  ðŸŽ™ï¸ AI à¤¸à¤¾à¤°à¤¾à¤‚à¤¶
+                  {'\uD83C\uDFA4 AI \u0938\u093e\u0930\u093e\u0902\u0936'}
                 </div>
                 <div className="rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-300">
-                  ðŸ“„ E-Paper
+                  {'\uD83D\uDCC4 E-Paper'}
                 </div>
               </div>
 
@@ -346,13 +400,19 @@ function SignInPageContent() {
           <div className="relative z-10 flex flex-col items-center text-center">
             <Logo size="lg" href="/main" />
             <p className="mt-4 text-lg text-zinc-400">
-              à¤†à¤ªà¤•à¥€ à¤–à¤¬à¤°, à¤†à¤ªà¤•à¥€ à¤­à¤¾à¤·à¤¾ à¤®à¥‡à¤‚
+              {'\u0906\u092a\u0915\u0940 \u0916\u092c\u0930, \u0906\u092a\u0915\u0940 \u092d\u093e\u0937\u093e \u092e\u0947\u0902'}
             </p>
 
             <div className="mt-8 flex flex-col items-center gap-3">
-              <FeaturePill>ðŸ“° à¤¤à¤¾à¤œà¤¼à¤¾ à¤–à¤¬à¤°à¥‡à¤‚ à¤¹à¤° à¤ªà¤²</FeaturePill>
-              <FeaturePill>ðŸŽ™ï¸ AI à¤¸à¥‡ à¤–à¤¬à¤° à¤•à¤¾ à¤¸à¤¾à¤°à¤¾à¤‚à¤¶</FeaturePill>
-              <FeaturePill>ðŸ“„ à¤¡à¤¿à¤œà¤¿à¤Ÿà¤² E-Paper</FeaturePill>
+              <FeaturePill>
+                {'\uD83D\uDCF0 \u0924\u093e\u091c\u093c\u093e \u0916\u092c\u0930\u0947\u0902 \u0939\u0930 \u092a\u0932'}
+              </FeaturePill>
+              <FeaturePill>
+                {'\uD83C\uDFA4 AI \u0938\u0947 \u0916\u092c\u0930 \u0915\u093e \u0938\u093e\u0930\u093e\u0902\u0936'}
+              </FeaturePill>
+              <FeaturePill>
+                {'\uD83D\uDCC4 \u0921\u093f\u091c\u093f\u091f\u0932 E-Paper'}
+              </FeaturePill>
             </div>
           </div>
 
@@ -367,7 +427,7 @@ function SignInPageContent() {
           transition={{ duration: 0.5, ease: 'easeOut' }}
           className="relative flex items-center justify-center bg-white p-12 dark:bg-zinc-950"
         >
-          <ThemeToggleButton className="absolute top-4 right-4" />
+          <ThemeToggleButton className="absolute right-4 top-4" />
 
           <div className="mx-auto w-full max-w-sm">
             <AuthFormContent
