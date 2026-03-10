@@ -17,7 +17,7 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   OAuthError: 'साइन इन में समस्या। दोबारा कोशिश करें।',
   OAuthSignin: 'साइन इन में समस्या। दोबारा कोशिश करें।',
   OAuthCallback: 'साइन इन में समस्या। दोबारा कोशिश करें।',
-  no_admin_access: 'आपके पास एडमिन पैनल का एक्सेस नहीं है।',
+  no_admin_access: 'आप इस पेज को नहीं खोल सकते। होम पेज पर जाएं।',
   Default: 'साइन इन में समस्या। दोबारा कोशिश करें।',
 };
 const POST_AUTH_QUERY_PARAM = 'postAuth';
@@ -228,7 +228,7 @@ function AuthFormContent({
       <motion.div variants={formItemVariants} className="my-5 flex items-center gap-3">
         <span className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
         <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
-          or
+          या
         </span>
         <span className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
       </motion.div>
@@ -248,7 +248,7 @@ function AuthFormContent({
         variants={formItemVariants}
         className="mt-6 text-center text-xs text-zinc-400"
       >
-        {'साइन इन करके आप हमारी '}
+        {'साइन इन करके आप '}
         <Link href="/privacy" className="text-zinc-600 underline dark:text-zinc-300">
           Privacy Policy
         </Link>

@@ -72,7 +72,7 @@ function AccountSkeleton({ message }: { message: string }) {
   );
 }
 
-/** Reader/admin account profile sourced from the active NextAuth session. */
+/** Account profile sourced from the active NextAuth session. */
 export default function ReaderAccountPage() {
   const router = useRouter();
   const { data: session, status } = useSession();

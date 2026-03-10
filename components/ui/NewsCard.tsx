@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { type MouseEvent, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { Share2, Bookmark, TrendingUp } from 'lucide-react';
 import { useAppStore } from '@/lib/store/appStore';
 import type { Article } from '@/lib/mock/data';
@@ -18,10 +20,16 @@ interface NewsCardProps {
 }
 
 export default function NewsCard({ article, variant = 'default', size = 'default', index = 0 }: NewsCardProps) {
+  const router = useRouter();
+  const { data: session, status } = useSession();
   const { language } = useAppStore();
   const [isHydrated, setIsHydrated] = useState(false);
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [isSavingBookmark, setIsSavingBookmark] = useState(false);
+  const isSignedIn = status === 'authenticated';
   const isSmall = size === 'sm';
   const articleHref = `/main/article/${encodeURIComponent(article.id)}`;
+  const canSaveArticle = /^[a-fA-F0-9]{24}$/.test(article.id);
   const horizontalImage = buildArticleImageVariantUrl(article.image, 'thumb');
   const featuredImage = buildArticleImageVariantUrl(article.image, 'featured');
   const defaultCardImage = buildArticleImageVariantUrl(article.image, 'card');
@@ -29,6 +37,44 @@ export default function NewsCard({ article, variant = 'default', size = 'default
   useEffect(() => {
     setIsHydrated(true);
   }, []);
+
+  useEffect(() => {
+    const savedArticleIds = Array.isArray(session?.user?.savedArticles)
+      ? session.user.savedArticles
+      : [];
+    setIsBookmarked(savedArticleIds.includes(article.id));
+  }, [article.id, session?.user?.savedArticles]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleSavedArticleEvent = (
+      event: Event
+    ) => {
+      const payload = (event as CustomEvent<{
+        articleId?: string;
+        saved?: boolean;
+      }>).detail;
+
+      if (!payload || payload.articleId !== article.id || typeof payload.saved !== 'boolean') {
+        return;
+      }
+
+      setIsBookmarked(payload.saved);
+    };
+
+    window.addEventListener(
+      'lokswami:saved-article-updated',
+      handleSavedArticleEvent as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        'lokswami:saved-article-updated',
+        handleSavedArticleEvent as EventListener
+      );
+    };
+  }, [article.id]);
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -59,6 +105,59 @@ export default function NewsCard({ article, variant = 'default', size = 'default
         delay: index * 0.06,
       },
     },
+  };
+
+  const handleBookmarkClick = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!isSignedIn) {
+      router.push('/signin?redirect=/main/saved');
+      return;
+    }
+
+    if (!canSaveArticle || isSavingBookmark) return;
+
+    setIsSavingBookmark(true);
+
+    try {
+      const response = await fetch('/api/user/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ articleId: article.id }),
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: {
+          saved?: boolean;
+        };
+      };
+
+      if (!response.ok || !payload.success || !payload.data) {
+        throw new Error('Failed to toggle bookmark');
+      }
+
+      const nextSaved = Boolean(payload.data.saved);
+      setIsBookmarked(nextSaved);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('lokswami:saved-article-updated', {
+            detail: {
+              articleId: article.id,
+              saved: nextSaved,
+            },
+          })
+        );
+      }
+    } catch (error) {
+      console.error('Failed to toggle bookmark:', error);
+    } finally {
+      setIsSavingBookmark(false);
+    }
   };
 
   if (variant === 'horizontal') {
@@ -212,11 +311,20 @@ export default function NewsCard({ article, variant = 'default', size = 'default
               <Share2 className={isSmall ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
             </button>
             <button
-              className={`flex items-center justify-center rounded-full bg-white/90 text-gray-900 shadow-lg transition-all hover:bg-orange-600 hover:text-white hover:shadow-orange-600/30 dark:bg-gray-800/90 dark:text-gray-100 dark:hover:bg-orange-500 dark:hover:shadow-orange-500/20 ${isSmall ? 'h-8 w-8' : 'h-9 w-9'}`}
-              onClick={(e) => e.preventDefault()}
-              aria-label="Bookmark"
+              className={`flex items-center justify-center rounded-full shadow-lg transition-all ${isBookmarked ? 'bg-orange-600 text-white hover:bg-orange-700 hover:shadow-orange-600/30 dark:bg-orange-500 dark:hover:bg-orange-500 dark:hover:shadow-orange-500/20' : 'bg-white/90 text-gray-900 hover:bg-orange-600 hover:text-white hover:shadow-orange-600/30 dark:bg-gray-800/90 dark:text-gray-100 dark:hover:bg-orange-500 dark:hover:shadow-orange-500/20'} ${isSmall ? 'h-8 w-8' : 'h-9 w-9'} ${!canSaveArticle || isSavingBookmark ? 'cursor-not-allowed opacity-60' : ''}`}
+              onClick={handleBookmarkClick}
+              disabled={!canSaveArticle || isSavingBookmark}
+              aria-pressed={isBookmarked}
+              aria-label={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+              title={
+                !canSaveArticle
+                  ? language === 'hi'
+                    ? '\u0921\u0947\u092e\u094b \u0938\u094d\u091f\u094b\u0930\u0940 \u0915\u094b \u0938\u0947\u0935 \u0928\u0939\u0940\u0902 \u0915\u093f\u092f\u093e \u091c\u093e \u0938\u0915\u0924\u093e'
+                    : 'Demo stories cannot be saved'
+                  : undefined
+              }
             >
-              <Bookmark className={isSmall ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+              <Bookmark className={`${isSmall ? 'h-3.5 w-3.5' : 'h-4 w-4'} ${isBookmarked ? 'fill-current' : ''}`} />
             </button>
           </div>
         </div>

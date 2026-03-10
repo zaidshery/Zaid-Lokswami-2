@@ -3,7 +3,9 @@
 import { motion } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { type MouseEvent, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { Share2, Bookmark, ArrowUpRight } from 'lucide-react';
 import { useAppStore } from '@/lib/store/appStore';
 import type { Article } from '@/lib/mock/data';
@@ -17,14 +19,58 @@ interface HeroCardProps {
 }
 
 export default function HeroCard({ article, parallax = { x: 0, y: 0 }, variant = 'editorial' }: HeroCardProps) {
+  const router = useRouter();
+  const { data: session, status } = useSession();
   const { language } = useAppStore();
   const [isHydrated, setIsHydrated] = useState(false);
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [isSavingBookmark, setIsSavingBookmark] = useState(false);
+  const isSignedIn = status === 'authenticated';
   const articleHref = `/main/article/${encodeURIComponent(article.id)}`;
+  const canSaveArticle = /^[a-fA-F0-9]{24}$/.test(article.id);
   const heroImage = buildArticleImageVariantUrl(article.image, 'hero');
 
   useEffect(() => {
     setIsHydrated(true);
   }, []);
+
+  useEffect(() => {
+    const savedArticleIds = Array.isArray(session?.user?.savedArticles)
+      ? session.user.savedArticles
+      : [];
+    setIsBookmarked(savedArticleIds.includes(article.id));
+  }, [article.id, session?.user?.savedArticles]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleSavedArticleEvent = (
+      event: Event
+    ) => {
+      const payload = (event as CustomEvent<{
+        articleId?: string;
+        saved?: boolean;
+      }>).detail;
+
+      if (!payload || payload.articleId !== article.id || typeof payload.saved !== 'boolean') {
+        return;
+      }
+
+      setIsBookmarked(payload.saved);
+    };
+
+    window.addEventListener(
+      'lokswami:saved-article-updated',
+      handleSavedArticleEvent as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        'lokswami:saved-article-updated',
+        handleSavedArticleEvent as EventListener
+      );
+    };
+  }, [article.id]);
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -44,6 +90,59 @@ export default function HeroCard({ article, parallax = { x: 0, y: 0 }, variant =
 
   const renderTime = (dateString: string) =>
     isHydrated ? formatTime(dateString) : language === 'hi' ? '\u0939\u093e\u0932 \u0939\u0940 \u092e\u0947\u0902' : 'recently';
+
+  const handleBookmarkClick = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!isSignedIn) {
+      router.push('/signin?redirect=/main/saved');
+      return;
+    }
+
+    if (!canSaveArticle || isSavingBookmark) return;
+
+    setIsSavingBookmark(true);
+
+    try {
+      const response = await fetch('/api/user/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ articleId: article.id }),
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: {
+          saved?: boolean;
+        };
+      };
+
+      if (!response.ok || !payload.success || !payload.data) {
+        throw new Error('Failed to toggle bookmark');
+      }
+
+      const nextSaved = Boolean(payload.data.saved);
+      setIsBookmarked(nextSaved);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('lokswami:saved-article-updated', {
+            detail: {
+              articleId: article.id,
+              saved: nextSaved,
+            },
+          })
+        );
+      }
+    } catch (error) {
+      console.error('Failed to toggle bookmark:', error);
+    } finally {
+      setIsSavingBookmark(false);
+    }
+  };
 
   return (
     <motion.article
@@ -113,10 +212,24 @@ export default function HeroCard({ article, parallax = { x: 0, y: 0 }, variant =
               <motion.button
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.95 }}
-                className="w-11 h-11 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white hover:bg-lokswami-red transition-all shadow-lg hover:shadow-lokswami-red/50"
-                aria-label="Bookmark"
+                onClick={handleBookmarkClick}
+                className={`w-11 h-11 rounded-full backdrop-blur-md flex items-center justify-center transition-all shadow-lg ${
+                  isBookmarked
+                    ? 'bg-lokswami-red text-white hover:bg-red-700 hover:shadow-lokswami-red/50'
+                    : 'bg-black/60 text-white hover:bg-lokswami-red hover:shadow-lokswami-red/50'
+                } ${!canSaveArticle || isSavingBookmark ? 'cursor-not-allowed opacity-60' : ''}`}
+                disabled={!canSaveArticle || isSavingBookmark}
+                aria-pressed={isBookmarked}
+                aria-label={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+                title={
+                  !canSaveArticle
+                    ? language === 'hi'
+                      ? '\u0921\u0947\u092e\u094b \u0938\u094d\u091f\u094b\u0930\u0940 \u0915\u094b \u0938\u0947\u0935 \u0928\u0939\u0940\u0902 \u0915\u093f\u092f\u093e \u091c\u093e \u0938\u0915\u0924\u093e'
+                      : 'Demo stories cannot be saved'
+                    : undefined
+                }
               >
-                <Bookmark className="w-5 h-5" />
+                <Bookmark className={`w-5 h-5 ${isBookmarked ? 'fill-current' : ''}`} />
               </motion.button>
             </div>
           ) : null}

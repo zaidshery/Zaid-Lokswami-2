@@ -220,7 +220,7 @@ export default function ArticleDetailPage() {
       let merged: Article[] = [];
 
       try {
-        const res = await fetch(`/api/admin/articles/${encodeURIComponent(articleId)}`, {
+        const res = await fetch(`/api/articles/${encodeURIComponent(articleId)}`, {
           cache: 'no-store',
         });
         if (res.ok) {
@@ -790,7 +790,7 @@ export default function ArticleDetailPage() {
     return (
       <div className="mx-auto max-w-4xl py-10">
         <div className="cnp-surface p-6 text-sm text-zinc-600 dark:text-zinc-300">
-          {language === 'hi' ? 'à¤²à¥‡à¤– à¤²à¥‹à¤¡ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...' : 'Loading article...'}
+          {language === 'hi' ? 'लेख लोड हो रहा है...' : 'Loading article...'}
         </div>
       </div>
     );
@@ -801,11 +801,11 @@ export default function ArticleDetailPage() {
       <div className="mx-auto max-w-4xl py-10">
         <div className="cnp-surface p-6 sm:p-8">
           <h1 className="text-2xl font-black text-zinc-900 dark:text-zinc-100">
-            {language === 'hi' ? 'à¤²à¥‡à¤– à¤¨à¤¹à¥€à¤‚ à¤®à¤¿à¤²à¤¾' : 'Article not found'}
+            {language === 'hi' ? 'लेख नहीं मिला' : 'Article not found'}
           </h1>
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
             {language === 'hi'
-              ? 'à¤¯à¤¹ à¤²à¥‡à¤– à¤‰à¤ªà¤²à¤¬à¥à¤§ à¤¨à¤¹à¥€à¤‚ à¤¹à¥ˆ à¤¯à¤¾ à¤¹à¤Ÿà¤¾à¤¯à¤¾ à¤œà¤¾ à¤šà¥à¤•à¤¾ à¤¹à¥ˆà¥¤'
+              ? 'यह लेख उपलब्ध नहीं है या हटाया जा चुका है।'
               : 'This article is unavailable or may have been removed.'}
           </p>
           <Link
@@ -813,7 +813,7 @@ export default function ArticleDetailPage() {
             className="mt-5 inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-900 hover:border-orange-300 hover:text-orange-600 dark:border-zinc-700 dark:text-zinc-100 dark:hover:border-orange-700 dark:hover:text-orange-400"
           >
             <ArrowLeft className="h-4 w-4" />
-            {language === 'hi' ? 'à¤¹à¥‹à¤® à¤ªà¤° à¤µà¤¾à¤ªà¤¸ à¤œà¤¾à¤à¤‚' : 'Back to Home'}
+            {language === 'hi' ? 'होम पर वापस जाएं' : 'Back to Home'}
           </Link>
         </div>
       </div>
@@ -841,7 +841,7 @@ export default function ArticleDetailPage() {
         className="mb-3 inline-flex items-center gap-2 text-sm font-semibold text-zinc-700 hover:text-orange-600 dark:text-zinc-300 dark:hover:text-orange-400 sm:mb-4"
       >
         <ArrowLeft className="h-4 w-4" />
-        {language === 'hi' ? 'à¤¹à¥‹à¤®' : 'Home'}
+        {language === 'hi' ? 'होम' : 'Home'}
       </Link>
 
       <article className="cnp-surface overflow-hidden p-0">
@@ -864,12 +864,12 @@ export default function ArticleDetailPage() {
             </span>
             {article.isBreaking ? (
               <span className="inline-flex h-7 shrink-0 items-center rounded-full bg-red-600 px-2.5 text-[10px] font-semibold leading-none text-white sm:h-auto sm:px-3 sm:py-1 sm:text-xs sm:leading-normal">
-                {language === 'hi' ? 'à¤¬à¥à¤°à¥‡à¤•à¤¿à¤‚à¤—' : 'BREAKING'}
+                {language === 'hi' ? 'ब्रेकिंग' : 'BREAKING'}
               </span>
             ) : null}
             {article.isTrending ? (
               <span className="inline-flex h-7 shrink-0 items-center rounded-full bg-zinc-900 px-2.5 text-[10px] font-semibold leading-none text-white dark:bg-zinc-700 sm:h-auto sm:px-3 sm:py-1 sm:text-xs sm:leading-normal">
-                {language === 'hi' ? 'à¤Ÿà¥à¤°à¥‡à¤‚à¤¡à¤¿à¤‚à¤—' : 'TRENDING'}
+                {language === 'hi' ? 'ट्रेंडिंग' : 'TRENDING'}
               </span>
             ) : null}
             <div className="inline-flex items-center gap-1 sm:ml-auto sm:gap-2">
@@ -1021,7 +1021,7 @@ export default function ArticleDetailPage() {
       {relatedArticles.length ? (
         <section className="mt-6 space-y-3">
           <h2 className="text-lg font-black text-zinc-900 dark:text-zinc-100 sm:text-xl">
-            {language === 'hi' ? 'à¤¸à¤‚à¤¬à¤‚à¤§à¤¿à¤¤ à¤–à¤¬à¤°à¥‡à¤‚' : 'Related News'}
+            {language === 'hi' ? 'संबंधित खबरें' : 'Related News'}
           </h2>
           <div className="space-y-3">
             {relatedArticles.map((item, index) => (

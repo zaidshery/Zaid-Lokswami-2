@@ -8,11 +8,11 @@ import BottomNav from '@/components/layout/BottomNav';
 import MobileMenu from '@/components/layout/MobileMenu';
 import Footer from '@/components/layout/Footer';
 import AiChatLauncher from '@/components/ai-chat/AiChatLauncher';
-import AdminSigninBanner from '@/components/auth/AdminSigninBanner';
+import SigninRoleBanner from '@/components/auth/SigninRoleBanner';
 import BreakingNews from '@/components/ui/BreakingNews';
 import Container from '@/components/layout/Container';
 import DailyEpaperAlert from '@/components/ui/DailyEpaperAlert';
-import SmartEngagementPopup from '@/components/ui/SmartEngagementPopup';
+import PopupOrchestrator from '@/components/ui/PopupOrchestrator';
 import MobileSwipeTabs, {
   type MobileSwipeTabRoute,
 } from '@/components/layout/MobileSwipeTabs';
@@ -78,7 +78,7 @@ export default function MainLayout({
               : 'pb-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+0.5rem)] pt-[7.25rem] sm:pt-[8rem] md:pt-[8.75rem] xl:pb-4'
           }
         >
-          {!isImmersiveVideoMode ? <AdminSigninBanner /> : null}
+          {!isImmersiveVideoMode ? <SigninRoleBanner /> : null}
           <Container
             className={
               isImmersiveVideoMode
@@ -99,7 +99,7 @@ export default function MainLayout({
       ) : null}
 
       {!isImmersiveVideoMode ? <DailyEpaperAlert /> : null}
-      {!isImmersiveVideoMode ? <SmartEngagementPopup /> : null}
+      {!isImmersiveVideoMode ? <PopupOrchestrator /> : null}
       {!isImmersiveVideoMode ? <AiChatLauncher /> : null}
 
       {/* Bottom Navigation - Mobile + Tablet (below 1280px) */}
