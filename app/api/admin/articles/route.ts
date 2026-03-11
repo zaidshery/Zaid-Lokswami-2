@@ -138,28 +138,36 @@ export async function GET(req: NextRequest) {
     const isUnbounded = limit === null;
     const effectivePage = isUnbounded ? 1 : page;
     const effectiveLimit = isUnbounded ? FILE_STORE_UNBOUNDED_LIMIT : limit;
+    const fileResult = await listStoredArticles({
+      category,
+      limit: effectiveLimit,
+      page: effectivePage,
+    });
 
-    if (await shouldUseFileStore()) {
-      const { data, total } = await listStoredArticles({
-        category,
-        limit: effectiveLimit,
-        page: effectivePage,
-      });
-      return NextResponse.json({
+    const createFileResponse = () =>
+      NextResponse.json({
         success: true,
-        data,
+        data: fileResult.data,
         pagination: {
-          total,
+          total: fileResult.total,
           page: effectivePage,
-          limit: isUnbounded ? total : effectiveLimit,
-          pages: isUnbounded ? 1 : Math.ceil(total / effectiveLimit),
+          limit: isUnbounded ? fileResult.total : effectiveLimit,
+          pages: isUnbounded ? 1 : Math.ceil(fileResult.total / effectiveLimit),
         },
       });
+
+    if (await shouldUseFileStore()) {
+      return createFileResponse();
     }
 
     const query: Record<string, unknown> = {};
     if (category && category !== 'all') {
       query.category = category;
+    }
+
+    const total = await Article.countDocuments(query);
+    if (total === 0 && fileResult.total > 0) {
+      return createFileResponse();
     }
 
     const skip = (effectivePage - 1) * effectiveLimit;
@@ -168,8 +176,6 @@ export async function GET(req: NextRequest) {
       articlesQuery = articlesQuery.limit(effectiveLimit);
     }
     const articles = await articlesQuery.lean();
-
-    const total = await Article.countDocuments(query);
 
     return NextResponse.json({
       success: true,

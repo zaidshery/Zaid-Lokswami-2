@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth';
+import { isAdminCredentialsAuthConfigured } from '@/lib/auth/adminCredentials';
 import { normalizeRedirectPath } from '@/lib/auth/redirect';
 import { isAdminRole } from '@/lib/auth/roles';
 import SignInPageClient from './SignInPageClient';
@@ -63,6 +64,7 @@ export default async function SignInPage({
     readSearchParam(params[ADMIN_BANNER_QUERY_PARAM]) === '1';
   const errorKey = readSearchParam(params.error);
   const session = await auth();
+  const adminCredentialsEnabled = isAdminCredentialsAuthConfigured();
   const isAuthenticated = Boolean(session?.user?.email);
   const isAdminSession =
     isAdminRole(session?.user?.role) && session?.user?.isActive !== false;
@@ -74,7 +76,7 @@ export default async function SignInPage({
 
     if (isAdminSession) {
       if (shouldShowAdminBanner) {
-        return <SignInPageClient />;
+        return <SignInPageClient adminCredentialsEnabled={adminCredentialsEnabled} />;
       }
 
       redirect('/admin');
@@ -87,5 +89,5 @@ export default async function SignInPage({
     redirect(redirectTo);
   }
 
-  return <SignInPageClient />;
+  return <SignInPageClient adminCredentialsEnabled={adminCredentialsEnabled} />;
 }

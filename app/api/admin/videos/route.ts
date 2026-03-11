@@ -127,28 +127,30 @@ export async function GET(req: NextRequest) {
     const isUnbounded = limit === null;
     const effectivePage = isUnbounded ? 1 : page;
     const effectiveLimit = isUnbounded ? FILE_STORE_UNBOUNDED_LIMIT : limit;
+    const fileResult = await listStoredVideos({
+      category,
+      type,
+      published: effectivePublished,
+      search,
+      sort,
+      limit: effectiveLimit,
+      page: effectivePage,
+    });
 
-    if (await shouldUseFileStore()) {
-      const { data, total } = await listStoredVideos({
-        category,
-        type,
-        published: effectivePublished,
-        search,
-        sort,
-        limit: effectiveLimit,
-        page: effectivePage,
-      });
-
-      return NextResponse.json({
+    const createFileResponse = () =>
+      NextResponse.json({
         success: true,
-        data,
+        data: fileResult.data,
         pagination: {
-          total,
+          total: fileResult.total,
           page: effectivePage,
-          limit: isUnbounded ? total : effectiveLimit,
-          pages: isUnbounded ? 1 : Math.ceil(total / effectiveLimit),
+          limit: isUnbounded ? fileResult.total : effectiveLimit,
+          pages: isUnbounded ? 1 : Math.ceil(fileResult.total / effectiveLimit),
         },
       });
+
+    if (await shouldUseFileStore()) {
+      return createFileResponse();
     }
 
     const query: Record<string, unknown> = {};
@@ -174,6 +176,11 @@ export async function GET(req: NextRequest) {
       ];
     }
 
+    const total = await Video.countDocuments(query);
+    if (total === 0 && fileResult.total > 0) {
+      return createFileResponse();
+    }
+
     let sortQuery: Record<string, 1 | -1> = { publishedAt: -1 };
     if (sort === 'trending') {
       sortQuery = { views: -1, publishedAt: -1 };
@@ -188,8 +195,6 @@ export async function GET(req: NextRequest) {
     }
 
     const videos = await videosQuery.lean();
-
-    const total = await Video.countDocuments(query);
 
     return NextResponse.json({
       success: true,

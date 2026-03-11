@@ -1,6 +1,8 @@
 import NextAuth, { type NextAuthConfig } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
+import CredentialsProvider from 'next-auth/providers/credentials';
 import { LOKSWAMI_SESSION_COOKIE } from '@/lib/auth/cookies';
+import { authorizeAdminCredentials } from '@/lib/auth/adminCredentials';
 import { normalizeRedirectPath } from '@/lib/auth/redirect';
 import {
   isAdminRole,
@@ -53,6 +55,8 @@ const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() || '';
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim() || '';
 const nextAuthSecret = getJwtSecretOrNull() || '';
 const nextAuthUrl = process.env.NEXTAUTH_URL?.trim() || '';
+const adminGoogleLoginEnabled =
+  process.env.ADMIN_GOOGLE_LOGIN_ENABLED?.trim().toLowerCase() === 'true';
 const bootstrapAdminEmails = new Set(
   String(process.env.ADMIN_EMAILS || '')
     .split(',')
@@ -61,7 +65,11 @@ const bootstrapAdminEmails = new Set(
 );
 
 export const isAdminGoogleAuthConfigured = Boolean(
-  googleClientId && googleClientSecret && nextAuthSecret && nextAuthUrl
+  adminGoogleLoginEnabled &&
+    googleClientId &&
+    googleClientSecret &&
+    nextAuthSecret &&
+    nextAuthUrl
 );
 
 function normalizeEmail(value?: string | null) {
@@ -70,7 +78,9 @@ function normalizeEmail(value?: string | null) {
 
 function isBootstrapAdminEmail(email?: string | null) {
   const normalizedEmail = normalizeEmail(email);
-  return Boolean(normalizedEmail && bootstrapAdminEmails.has(normalizedEmail));
+  return Boolean(
+    adminGoogleLoginEnabled && normalizedEmail && bootstrapAdminEmails.has(normalizedEmail)
+  );
 }
 
 function resolveDisplayName(user: SyncableUser) {
@@ -164,17 +174,41 @@ function assignProfileToUser(user: SyncableUser, profile: SessionProfile) {
   user.savedArticles = profile.savedArticles;
 }
 
-function buildProviders() {
-  if (!googleClientId || !googleClientSecret) {
-    return [];
-  }
+function buildProviders(): NonNullable<NextAuthConfig['providers']> {
+  const providers: NonNullable<NextAuthConfig['providers']> = [
+    CredentialsProvider({
+      name: 'Admin Credentials',
+      credentials: {
+        loginId: {
+          label: 'Login ID',
+          type: 'text',
+        },
+        password: {
+          label: 'Password',
+          type: 'password',
+        },
+      },
+      async authorize(credentials) {
+        const loginId =
+          typeof credentials?.loginId === 'string' ? credentials.loginId : '';
+        const password =
+          typeof credentials?.password === 'string' ? credentials.password : '';
 
-  return [
-    GoogleProvider({
-      clientId: googleClientId,
-      clientSecret: googleClientSecret,
+        return authorizeAdminCredentials({ loginId, password });
+      },
     }),
   ];
+
+  if (googleClientId && googleClientSecret) {
+    providers.push(
+      GoogleProvider({
+        clientId: googleClientId,
+        clientSecret: googleClientSecret,
+      })
+    );
+  }
+
+  return providers;
 }
 
 async function getUserByEmail(email: string) {
@@ -347,6 +381,14 @@ function buildAuthOptions(): NextAuthConfig {
     providers: buildProviders(),
     callbacks: {
       async signIn({ user, account }) {
+        if (account?.provider === 'credentials') {
+          return Boolean(
+            user.email &&
+              isAdminRole(user.role) &&
+              user.isActive !== false
+          );
+        }
+
         if (account?.provider !== 'google') {
           return false;
         }
@@ -382,6 +424,10 @@ function buildAuthOptions(): NextAuthConfig {
           const existingRole = normalizeRole(existingUser.role);
           if (!existingRole) {
             return getAuthErrorRedirect('OAuthError');
+          }
+
+          if (isAdminRole(existingRole) && !adminGoogleLoginEnabled) {
+            return getAuthErrorRedirect('no_admin_access');
           }
 
           if (existingRole === 'reader' && isBootstrapAdminEmail(normalizedEmail)) {

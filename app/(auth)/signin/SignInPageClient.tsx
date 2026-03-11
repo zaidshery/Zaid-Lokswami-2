@@ -13,19 +13,21 @@ import { isAdminRole } from '@/lib/auth/roles';
 import { useAppStore } from '@/lib/store/appStore';
 
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
-  inactive: 'आपका अकाउंट निष्क्रिय है। अपने एडमिन से संपर्क करें।',
-  OAuthError: 'साइन इन में समस्या। दोबारा कोशिश करें।',
-  OAuthSignin: 'साइन इन में समस्या। दोबारा कोशिश करें।',
-  OAuthCallback: 'साइन इन में समस्या। दोबारा कोशिश करें।',
-  no_admin_access: 'आप इस पेज को नहीं खोल सकते। होम पेज पर जाएं।',
-  Default: 'साइन इन में समस्या। दोबारा कोशिश करें।',
+  inactive: 'Your account is inactive. Contact an administrator.',
+  OAuthError: 'Google sign-in failed. Please try again.',
+  OAuthSignin: 'Google sign-in failed. Please try again.',
+  OAuthCallback: 'Google sign-in failed. Please try again.',
+  CredentialsSignin: 'Invalid admin ID or password.',
+  no_admin_access: 'This account cannot access the admin panel.',
+  Default: 'Sign-in failed. Please try again.',
 };
+
 const POST_AUTH_QUERY_PARAM = 'postAuth';
 const ADMIN_BANNER_QUERY_PARAM = 'adminBanner';
 const READER_FEATURES = [
-  '\uD83D\uDCF0 खबरें सेव करें',
-  '\uD83E\uDD16 AI न्यूज़ असिस्टेंट',
-  '\uD83D\uDCC4 E-Paper पढ़ें',
+  'Save articles',
+  'AI news assistant',
+  'Read e-paper',
 ];
 
 function GoogleGlyph() {
@@ -116,6 +118,16 @@ function buildPostAuthCallbackUrl(redirectTo: string, shouldShowAdminBanner: boo
   return `/signin?${params.toString()}`;
 }
 
+function buildSignInRoute(redirectTo: string) {
+  const params = new URLSearchParams();
+  if (redirectTo) {
+    params.set('redirect', redirectTo);
+  }
+
+  const query = params.toString();
+  return query ? `/signin?${query}` : '/signin';
+}
+
 const formContainerVariants = {
   hidden: { opacity: 0 },
   show: {
@@ -172,11 +184,25 @@ function FeaturePill({
 function AuthFormContent({
   errorMessage,
   isSigningIn,
+  isCredentialSigningIn,
+  showAdminCredentialsLogin,
+  adminLoginId,
+  adminPassword,
+  onAdminLoginIdChange,
+  onAdminPasswordChange,
   onGoogleSignIn,
+  onAdminCredentialsSignIn,
 }: {
   errorMessage: string;
   isSigningIn: boolean;
+  isCredentialSigningIn: boolean;
+  showAdminCredentialsLogin: boolean;
+  adminLoginId: string;
+  adminPassword: string;
+  onAdminLoginIdChange: (value: string) => void;
+  onAdminPasswordChange: (value: string) => void;
   onGoogleSignIn: () => Promise<void>;
+  onAdminCredentialsSignIn: () => Promise<void>;
 }) {
   return (
     <motion.div
@@ -187,13 +213,15 @@ function AuthFormContent({
     >
       <motion.div variants={formItemVariants}>
         <h1 className="text-center text-2xl font-black text-zinc-900 dark:text-zinc-100">
-          {'लोकस्वामी में आपका स्वागत है 👋'}
+          {showAdminCredentialsLogin ? 'Admin Sign In' : 'Welcome to Lokswami'}
         </h1>
       </motion.div>
 
       <motion.div variants={formItemVariants}>
         <p className="mb-6 mt-1 text-center text-sm text-zinc-500 dark:text-zinc-400">
-          {'साइन इन करें और ताज़ा खबरें पाएं'}
+          {showAdminCredentialsLogin
+            ? 'Use your admin ID and password to access the control panel.'
+            : 'Sign in to continue to your account.'}
         </p>
       </motion.div>
 
@@ -207,31 +235,86 @@ function AuthFormContent({
         </motion.div>
       ) : null}
 
-      <motion.div variants={formItemVariants}>
-        <motion.button
-          type="button"
-          onClick={() => void onGoogleSignIn()}
-          disabled={isSigningIn}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          className="inline-flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-[#dadce0] bg-white px-4 text-sm font-semibold text-[#3c4043] shadow-sm transition hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+      {showAdminCredentialsLogin ? (
+        <motion.div
+          variants={formItemVariants}
+          className="mb-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950"
         >
-          {isSigningIn ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <GoogleGlyph />
-          )}
-          <span>{isSigningIn ? 'Google पर जा रहे हैं...' : 'Google से जारी रखें'}</span>
-        </motion.button>
-      </motion.div>
+          <div className="space-y-3">
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Admin ID or email
+              </span>
+              <input
+                type="text"
+                value={adminLoginId}
+                onChange={(event) => onAdminLoginIdChange(event.target.value)}
+                autoComplete="username"
+                className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                placeholder="admin"
+              />
+            </label>
 
-      <motion.div variants={formItemVariants} className="my-5 flex items-center gap-3">
-        <span className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
-        <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
-          या
-        </span>
-        <span className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
-      </motion.div>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Password
+              </span>
+              <input
+                type="password"
+                value={adminPassword}
+                onChange={(event) => onAdminPasswordChange(event.target.value)}
+                autoComplete="current-password"
+                className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                placeholder="Enter password"
+              />
+            </label>
+
+            <motion.button
+              type="button"
+              onClick={() => void onAdminCredentialsSignIn()}
+              disabled={isCredentialSigningIn || isSigningIn}
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#e63946] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#d62839] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isCredentialSigningIn ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              <span>{isCredentialSigningIn ? 'Signing in...' : 'Sign in as Admin'}</span>
+            </motion.button>
+          </div>
+        </motion.div>
+      ) : null}
+
+      {!showAdminCredentialsLogin ? (
+        <>
+          <motion.div variants={formItemVariants}>
+            <motion.button
+              type="button"
+              onClick={() => void onGoogleSignIn()}
+              disabled={isSigningIn || isCredentialSigningIn}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="inline-flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-[#dadce0] bg-white px-4 text-sm font-semibold text-[#3c4043] shadow-sm transition hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSigningIn ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <GoogleGlyph />
+              )}
+              <span>{isSigningIn ? 'Redirecting to Google...' : 'Continue with Google'}</span>
+            </motion.button>
+          </motion.div>
+
+          <motion.div variants={formItemVariants} className="my-5 flex items-center gap-3">
+            <span className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
+            <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
+              or
+            </span>
+            <span className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
+          </motion.div>
+        </>
+      ) : null}
 
       <motion.div variants={formItemVariants}>
         <motion.div whileHover={{ scale: 1.01 }}>
@@ -239,7 +322,7 @@ function AuthFormContent({
             href="/main"
             className="inline-flex h-11 w-full items-center justify-center rounded-xl border-2 border-[#e63946] bg-transparent px-4 text-sm font-semibold text-[#e63946] transition hover:bg-[#e63946] hover:text-white"
           >
-            {'अतिथि के रूप में पढ़ें →'}
+            Continue as guest
           </Link>
         </motion.div>
       </motion.div>
@@ -248,11 +331,11 @@ function AuthFormContent({
         variants={formItemVariants}
         className="mt-6 text-center text-xs text-zinc-400"
       >
-        {'साइन इन करके आप '}
+        By signing in you agree to the{' '}
         <Link href="/privacy" className="text-zinc-600 underline dark:text-zinc-300">
           Privacy Policy
         </Link>
-        {' से सहमत हैं'}
+        .
       </motion.p>
     </motion.div>
   );
@@ -279,7 +362,7 @@ function AuthenticatedNotice({
     <div className="space-y-4">
       <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 text-sm text-amber-900 dark:border-amber-600/30 dark:bg-amber-500/10 dark:text-amber-100">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-200">
-          साइन इन अकाउंट
+          Signed in account
         </p>
         <p className="mt-2 text-lg font-bold text-zinc-900 dark:text-zinc-100">{name}</p>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{email}</p>
@@ -299,21 +382,31 @@ function AuthenticatedNotice({
         disabled={isSwitchingAccount}
         className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:bg-zinc-800"
       >
-        {isSwitchingAccount ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
-        <span>{isSwitchingAccount ? 'साइन आउट हो रहा है...' : 'दूसरे अकाउंट से साइन इन करें'}</span>
+        {isSwitchingAccount ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <LogOut className="h-4 w-4" />
+        )}
+        <span>{isSwitchingAccount ? 'Signing out...' : 'Use another account'}</span>
       </button>
     </div>
   );
 }
 
-/** Renders the single smart Google sign-in screen for readers and admins. */
-function SignInPageContent() {
+function SignInPageContent({
+  adminCredentialsEnabled,
+}: {
+  adminCredentialsEnabled: boolean;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data: session, status } = useSession();
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [isCredentialSigningIn, setIsCredentialSigningIn] = useState(false);
   const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [adminLoginId, setAdminLoginId] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
   const hasHandledPostAuthMount = useRef(false);
   const hasHandledSessionRedirect = useRef(false);
   const redirectParam = searchParams.get('redirect');
@@ -329,13 +422,13 @@ function SignInPageContent() {
       '/main',
     [callbackUrlParam, redirectParam]
   );
-  const isAdminSession = isAdminRole(session?.user?.role) && session?.user?.isActive !== false;
+  const isAdminTarget = isAdminOnlyTarget(redirectTo);
+  const showAdminCredentialsLogin = adminCredentialsEnabled && isAdminTarget;
+  const isAdminSession =
+    isAdminRole(session?.user?.role) && session?.user?.isActive !== false;
   const callbackUrl = useMemo(
     () =>
-      buildPostAuthCallbackUrl(
-        redirectTo,
-        !redirectParam && !callbackUrlParam
-      ),
+      buildPostAuthCallbackUrl(redirectTo, !redirectParam && !callbackUrlParam),
     [callbackUrlParam, redirectParam, redirectTo]
   );
 
@@ -376,13 +469,13 @@ function SignInPageContent() {
 
     hasHandledSessionRedirect.current = true;
 
-    if (isAdminSession && isAdminOnlyTarget(redirectTo)) {
+    if (isAdminSession && isAdminTarget) {
       router.replace('/admin');
       router.refresh();
       return;
     }
 
-    if (isAdminOnlyTarget(redirectTo)) {
+    if (isAdminTarget) {
       router.replace('/signin?error=no_admin_access');
       router.refresh();
       return;
@@ -390,7 +483,7 @@ function SignInPageContent() {
 
     router.replace(redirectTo);
     router.refresh();
-  }, [errorKey, isAdminSession, isPostAuth, redirectTo, router, status]);
+  }, [errorKey, isAdminSession, isAdminTarget, isPostAuth, redirectTo, router, status]);
 
   useEffect(() => {
     if (status === 'authenticated' && (errorKey === 'inactive' || errorKey === 'no_admin_access')) {
@@ -436,6 +529,44 @@ function SignInPageContent() {
     }
   }
 
+  async function handleAdminCredentialsSignIn(): Promise<void> {
+    if (!adminLoginId.trim() || !adminPassword) {
+      setErrorMessage('Enter your admin ID and password.');
+      return;
+    }
+
+    setErrorMessage('');
+    setIsCredentialSigningIn(true);
+
+    try {
+      const result = await signIn('credentials', {
+        redirect: false,
+        loginId: adminLoginId.trim(),
+        password: adminPassword,
+        redirectTo: callbackUrl,
+      });
+
+      if (result?.error) {
+        setErrorMessage(resolveAuthError(result.error));
+        setIsCredentialSigningIn(false);
+        return;
+      }
+
+      if (result?.url) {
+        window.location.assign(result.url);
+        return;
+      }
+
+      setErrorMessage(AUTH_ERROR_MESSAGES.Default);
+      setIsCredentialSigningIn(false);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : AUTH_ERROR_MESSAGES.Default;
+      setErrorMessage(message);
+      setIsCredentialSigningIn(false);
+    }
+  }
+
   async function handleSwitchAccount() {
     setIsSwitchingAccount(true);
 
@@ -445,7 +576,7 @@ function SignInPageContent() {
       // Ignore client sign-out errors and force the route transition anyway.
     }
 
-    router.replace('/signin');
+    router.replace(buildSignInRoute(redirectTo));
     router.refresh();
     setIsSwitchingAccount(false);
   }
@@ -498,7 +629,7 @@ function SignInPageContent() {
                   <AuthenticatedNotice
                     errorMessage={errorMessage}
                     primaryHref="/main"
-                    primaryLabel="मुख्य पेज पर जाएं"
+                    primaryLabel="Go to main site"
                     onSwitchAccount={handleSwitchAccount}
                     isSwitchingAccount={isSwitchingAccount}
                     name={signedInName}
@@ -508,7 +639,14 @@ function SignInPageContent() {
                   <AuthFormContent
                     errorMessage={errorMessage}
                     isSigningIn={isSigningIn}
+                    isCredentialSigningIn={isCredentialSigningIn}
+                    showAdminCredentialsLogin={showAdminCredentialsLogin}
+                    adminLoginId={adminLoginId}
+                    adminPassword={adminPassword}
+                    onAdminLoginIdChange={setAdminLoginId}
+                    onAdminPasswordChange={setAdminPassword}
                     onGoogleSignIn={handleGoogleSignIn}
+                    onAdminCredentialsSignIn={handleAdminCredentialsSignIn}
                   />
                 )}
               </motion.section>
@@ -525,7 +663,7 @@ function SignInPageContent() {
                   <AuthenticatedNotice
                     errorMessage={errorMessage}
                     primaryHref="/main"
-                    primaryLabel="मुख्य पेज पर जाएं"
+                    primaryLabel="Go to main site"
                     onSwitchAccount={handleSwitchAccount}
                     isSwitchingAccount={isSwitchingAccount}
                     name={signedInName}
@@ -535,7 +673,14 @@ function SignInPageContent() {
                   <AuthFormContent
                     errorMessage={errorMessage}
                     isSigningIn={isSigningIn}
+                    isCredentialSigningIn={isCredentialSigningIn}
+                    showAdminCredentialsLogin={showAdminCredentialsLogin}
+                    adminLoginId={adminLoginId}
+                    adminPassword={adminPassword}
+                    onAdminLoginIdChange={setAdminLoginId}
+                    onAdminPasswordChange={setAdminPassword}
                     onGoogleSignIn={handleGoogleSignIn}
+                    onAdminCredentialsSignIn={handleAdminCredentialsSignIn}
                   />
                 )}
               </motion.section>
@@ -581,7 +726,7 @@ function SignInPageContent() {
               <AuthenticatedNotice
                 errorMessage={errorMessage}
                 primaryHref="/main"
-                primaryLabel="मुख्य पेज पर जाएं"
+                primaryLabel="Go to main site"
                 onSwitchAccount={handleSwitchAccount}
                 isSwitchingAccount={isSwitchingAccount}
                 name={signedInName}
@@ -591,7 +736,14 @@ function SignInPageContent() {
               <AuthFormContent
                 errorMessage={errorMessage}
                 isSigningIn={isSigningIn}
+                isCredentialSigningIn={isCredentialSigningIn}
+                showAdminCredentialsLogin={showAdminCredentialsLogin}
+                adminLoginId={adminLoginId}
+                adminPassword={adminPassword}
+                onAdminLoginIdChange={setAdminLoginId}
+                onAdminPasswordChange={setAdminPassword}
                 onGoogleSignIn={handleGoogleSignIn}
+                onAdminCredentialsSignIn={handleAdminCredentialsSignIn}
               />
             )}
           </div>
@@ -609,17 +761,21 @@ function SignInPageFallback() {
       <div className="relative z-10 mx-auto w-full max-w-sm rounded-3xl border border-zinc-800 bg-zinc-900 p-8 text-center shadow-2xl">
         <Loader2 className="mx-auto h-6 w-6 animate-spin text-[#e63946]" />
         <p className="mt-3 text-sm font-medium text-zinc-300">
-          Sign-in तैयार हो रहा है...
+          Preparing sign-in...
         </p>
       </div>
     </main>
   );
 }
 
-export default function SignInPage() {
+export default function SignInPage({
+  adminCredentialsEnabled,
+}: {
+  adminCredentialsEnabled: boolean;
+}) {
   return (
     <Suspense fallback={<SignInPageFallback />}>
-      <SignInPageContent />
+      <SignInPageContent adminCredentialsEnabled={adminCredentialsEnabled} />
     </Suspense>
   );
 }

@@ -142,31 +142,32 @@ export async function GET(req: NextRequest) {
       parsedDateFilter = parsedDate;
     }
 
-    if (await shouldUseFileStore()) {
-      const cityName = citySlug ? getCityNameFromSlug(citySlug) : '';
-      const publishDate = parsedDateFilter ? parsedDateFilter.toISOString().slice(0, 10) : null;
-      const { data: fileRows, total } = await listStoredEPapers({
-        city: cityName || null,
-        publishDate,
-        limit,
-        page,
-      });
+    const cityName = citySlug ? getCityNameFromSlug(citySlug) : '';
+    const publishDate = parsedDateFilter ? parsedDateFilter.toISOString().slice(0, 10) : null;
+    const fileResult = await listStoredEPapers({
+      city: cityName || null,
+      publishDate,
+      limit,
+      page,
+    });
 
-      const data = fileRows.map((row) => {
-        const safe = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
-        return mapStoredRecord(safe);
-      });
-
-      return NextResponse.json({
+    const createFileResponse = () =>
+      NextResponse.json({
         success: true,
-        data,
+        data: fileResult.data.map((row) => {
+          const safe = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+          return mapStoredRecord(safe);
+        }),
         pagination: {
-          total,
+          total: fileResult.total,
           page,
           limit,
-          pages: Math.ceil(total / limit),
+          pages: Math.ceil(fileResult.total / limit),
         },
       });
+
+    if (await shouldUseFileStore()) {
+      return createFileResponse();
     }
 
     const query: Record<string, unknown> = { status: 'published' };
@@ -179,11 +180,17 @@ export async function GET(req: NextRequest) {
       query.publishDate = { $gte: parsedDateFilter, $lt: next };
     }
 
+    const total = await EPaper.countDocuments(query);
+    if (total === 0 && fileResult.total > 0) {
+      return createFileResponse();
+    }
+
     const skip = (page - 1) * limit;
-    const [records, total] = await Promise.all([
-      EPaper.find(query).sort({ publishDate: -1, createdAt: -1 }).skip(skip).limit(limit).lean(),
-      EPaper.countDocuments(query),
-    ]);
+    const records = await EPaper.find(query)
+      .sort({ publishDate: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
 
     const data = records.map((record) => {
       const item = asObject(record);

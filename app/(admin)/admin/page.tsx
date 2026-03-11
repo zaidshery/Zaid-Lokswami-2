@@ -1,245 +1,343 @@
-'use client';
-
 import Link from 'next/link';
-import { motion } from 'framer-motion';
-import { 
-  FileText, 
-  Video, 
-  Users, 
-  Eye, 
-  TrendingUp, 
+import {
   Activity,
+  FileText,
+  Inbox,
   MessageSquare,
-  ArrowUpRight,
-  ArrowDownRight,
-  Plus
+  Newspaper,
+  Plus,
+  Video,
 } from 'lucide-react';
-import { articles, videos } from '@/lib/mock/data';
+import type { LucideIcon } from 'lucide-react';
+import { getAdminDashboardData } from '@/lib/admin/dashboard';
 import formatNumber from '@/lib/utils/formatNumber';
 
-const stats = [
-  { 
-    label: 'Total Articles', 
-    value: '1,234', 
-    icon: FileText, 
-    change: '+12%', 
-    trend: 'up',
-    color: 'bg-blue-500/20 text-blue-600'
+type ActionCard = {
+  label: string;
+  description: string;
+  href: string;
+  icon: LucideIcon;
+  tone: string;
+};
+
+function formatDate(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'Unknown date';
+  }
+
+  return parsed.toLocaleDateString('en-GB');
+}
+
+function formatDuration(seconds: number) {
+  const safe = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+  const minutes = Math.floor(safe / 60);
+  const remainder = safe % 60;
+  return `${minutes}:${String(remainder).padStart(2, '0')}`;
+}
+
+const quickActions: ActionCard[] = [
+  {
+    label: 'Upload Article',
+    description: 'Create a new article',
+    href: '/admin/articles/new',
+    icon: FileText,
+    tone: 'bg-blue-500/10 text-blue-600 hover:bg-blue-500/20',
   },
-  { 
-    label: 'Total Videos', 
-    value: '456', 
-    icon: Video, 
-    change: '+8%', 
-    trend: 'up',
-    color: 'bg-purple-500/20 text-purple-600'
+  {
+    label: 'Create Story',
+    description: 'Publish a new story',
+    href: '/admin/stories/new',
+    icon: Activity,
+    tone: 'bg-rose-500/10 text-rose-600 hover:bg-rose-500/20',
   },
-  { 
-    label: 'Total Users', 
-    value: '89.2K', 
-    icon: Users, 
-    change: '+23%', 
-    trend: 'up',
-    color: 'bg-green-500/20 text-green-600'
+  {
+    label: 'Upload Video',
+    description: 'Add a new video',
+    href: '/admin/videos/new',
+    icon: Video,
+    tone: 'bg-purple-500/10 text-purple-600 hover:bg-purple-500/20',
   },
-  { 
-    label: 'Page Views', 
-    value: '2.4M', 
-    icon: Eye, 
-    change: '-5%', 
-    trend: 'down',
-    color: 'bg-orange-500/20 text-orange-600'
+  {
+    label: 'Manage E-Papers',
+    description: 'Review published editions',
+    href: '/admin/epapers',
+    icon: Newspaper,
+    tone: 'bg-orange-500/10 text-orange-600 hover:bg-orange-500/20',
+  },
+  {
+    label: 'Contact Inbox',
+    description: 'Respond to reader messages',
+    href: '/admin/contact-messages',
+    icon: MessageSquare,
+    tone: 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20',
   },
 ];
 
-const uploadOptions = [
-  { label: 'Upload Article', icon: FileText, href: '/admin/articles/new', color: 'bg-blue-500/10 text-blue-600 hover:bg-blue-500/20' },
-  { label: 'Create Story', icon: Eye, href: '/admin/stories/new', color: 'bg-rose-500/10 text-rose-600 hover:bg-rose-500/20' },
-  { label: 'Upload Video', icon: Video, href: '/admin/videos/new', color: 'bg-purple-500/10 text-purple-600 hover:bg-purple-500/20' },
-  { label: 'Manage E-Papers', icon: FileText, href: '/admin/epapers', color: 'bg-orange-500/10 text-orange-600 hover:bg-orange-500/20' },
-  { label: 'Contact Inbox', icon: MessageSquare, href: '/admin/contact-messages', color: 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20' },
-];
+export default async function AdminDashboardPage() {
+  const dashboard = await getAdminDashboardData();
 
-const recentArticles = articles.slice(0, 5);
-const recentVideos = videos.slice(0, 3);
+  const stats = [
+    {
+      label: 'Total Articles',
+      value: dashboard.stats.totalArticles,
+      note: 'Published and draft articles',
+      icon: FileText,
+      tone: 'bg-blue-500/15 text-blue-600',
+    },
+    {
+      label: 'Published Videos',
+      value: dashboard.stats.totalVideos,
+      note: 'Videos currently available',
+      icon: Video,
+      tone: 'bg-purple-500/15 text-purple-600',
+    },
+    {
+      label: 'Published E-Papers',
+      value: dashboard.stats.totalEPapers,
+      note: 'Editions available to readers',
+      icon: Newspaper,
+      tone: 'bg-orange-500/15 text-orange-600',
+    },
+    {
+      label: 'New Messages',
+      value: dashboard.stats.newMessages,
+      note: 'Inbox items awaiting review',
+      icon: Inbox,
+      tone: 'bg-emerald-500/15 text-emerald-600',
+    },
+  ];
 
-export default function AdminDashboard() {
   return (
     <div className="space-y-6">
-      {/* Quick Upload Section */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5"
-      >
-        {uploadOptions.map((option, index) => {
-          const Icon = option.icon;
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        {quickActions.map((action) => {
+          const Icon = action.icon;
           return (
-            <Link key={option.href} href={option.href}>
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-                className={`p-6 rounded-xl border border-gray-200 shadow-sm transition-all hover:shadow-md cursor-pointer ${option.color}`}
+            <Link key={action.href} href={action.href}>
+              <div
+                className={`rounded-2xl border border-zinc-200 p-6 shadow-sm transition-all hover:shadow-md dark:border-zinc-800 ${action.tone}`}
               >
                 <div className="flex items-center gap-3">
-                  <div className={`p-3 rounded-lg ${option.color}`}>
-                    <Icon className="w-6 h-6" />
+                  <div className={`rounded-xl p-3 ${action.tone}`}>
+                    <Icon className="h-6 w-6" />
                   </div>
-                  <div>
-                    <p className="font-semibold text-gray-900">{option.label}</p>
-                    <p className="text-xs text-gray-500 mt-1">Add new content</p>
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-zinc-900 dark:text-zinc-100">
+                      {action.label}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                      {action.description}
+                    </p>
                   </div>
-                  <Plus className="w-5 h-5 ml-auto opacity-50" />
+                  <Plus className="ml-auto h-5 w-5 opacity-50" />
                 </div>
-              </motion.div>
+              </div>
             </Link>
           );
         })}
-      </motion.div>
+      </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, index) => (
-          <motion.div
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {stats.map((stat) => (
+          <div
             key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-            className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm hover:shadow-md transition-shadow"
+            className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
           >
-            <div className="flex items-start justify-between">
+            <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-sm text-gray-600 font-medium">{stat.label}</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{stat.value}</p>
+                <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                  {stat.label}
+                </p>
+                <p className="mt-2 text-3xl font-black text-zinc-900 dark:text-zinc-100">
+                  {formatNumber(stat.value)}
+                </p>
               </div>
-              <div className={`p-3 rounded-lg ${stat.color}`}>
-                <stat.icon className="w-5 h-5" />
+              <div className={`rounded-xl p-3 ${stat.tone}`}>
+                <stat.icon className="h-5 w-5" />
               </div>
             </div>
-            <div className="flex items-center gap-1 mt-4">
-              {stat.trend === 'up' ? (
-                <ArrowUpRight className="w-4 h-4 text-green-600" />
-              ) : (
-                <ArrowDownRight className="w-4 h-4 text-red-600" />
-              )}
-              <span className={`text-sm font-semibold ${stat.trend === 'up' ? 'text-green-600' : 'text-red-600'}`}>
-                {stat.change}
-              </span>
-              <span className="text-sm text-gray-500">vs last month</span>
-            </div>
-          </motion.div>
+            <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">{stat.note}</p>
+          </div>
         ))}
       </div>
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Traffic Chart Placeholder */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-          className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm"
-        >
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <Activity className="w-5 h-5 text-primary-600" />
-              Traffic Overview
-            </h3>
-            <select className="px-3 py-1 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-100 transition-colors">
-              <option>Last 7 days</option>
-              <option>Last 30 days</option>
-              <option>Last 90 days</option>
-            </select>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                Operational Snapshot
+              </h2>
+              <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                Source:{' '}
+                {dashboard.source === 'hybrid'
+                  ? 'MongoDB + local file store'
+                  : dashboard.source === 'mongodb'
+                    ? 'MongoDB live data'
+                    : 'Local file store'}
+              </p>
+            </div>
+            <Link
+              href="/admin/contact-messages"
+              className="text-sm font-semibold text-red-600 transition-colors hover:text-red-500"
+            >
+              Open Inbox
+            </Link>
           </div>
-          <div className="h-64 bg-gray-50 rounded-lg flex items-center justify-center border border-gray-200">
-            <div className="text-center">
-              <TrendingUp className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-              <p className="text-gray-500 text-sm">Traffic chart will be displayed here</p>
+
+          <div className="mt-6 grid grid-cols-2 gap-4">
+            <div className="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-950">
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                All Messages
+              </p>
+              <p className="mt-2 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                {formatNumber(dashboard.inbox.all)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-950">
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                New
+              </p>
+              <p className="mt-2 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                {formatNumber(dashboard.inbox.new)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-950">
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                In Progress
+              </p>
+              <p className="mt-2 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                {formatNumber(dashboard.inbox.inProgress)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-950">
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Resolved
+              </p>
+              <p className="mt-2 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                {formatNumber(dashboard.inbox.resolved)}
+              </p>
             </div>
           </div>
-        </motion.div>
+        </section>
 
-        {/* Popular Content */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm"
-        >
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-primary-600" />
-              Popular Content
-            </h3>
-          </div>
-          <div className="space-y-4">
-            {recentArticles.slice(0, 4).map((article, index) => (
-              <div key={article.id} className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                <span className="text-lg font-bold text-primary-600">#{index + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-900 font-medium truncate">{article.title}</p>
-                  <p className="text-xs text-gray-500">{formatNumber(article.views)} views</p>
-                </div>
+        <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+            Popular Content
+          </h2>
+          <div className="mt-6 space-y-3">
+            {dashboard.popularArticles.length ? (
+              dashboard.popularArticles.map((article, index) => (
+                <Link
+                  key={article.id}
+                  href={`/admin/articles/${encodeURIComponent(article.id)}/edit`}
+                  className="flex items-center gap-4 rounded-2xl bg-zinc-50 p-4 transition-colors hover:bg-zinc-100 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                >
+                  <span className="text-lg font-black text-red-600">#{index + 1}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                      {article.title}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                      {formatNumber(article.views)} views
+                    </p>
+                  </div>
+                </Link>
+              ))
+            ) : (
+              <div className="rounded-2xl bg-zinc-50 p-4 text-sm text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400">
+                No popular articles yet.
               </div>
-            ))}
+            )}
           </div>
-        </motion.div>
+        </section>
       </div>
 
-      {/* Recent Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Articles */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6 }}
-          className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm"
-        >
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-gray-900">Recent Articles</h3>
-            <a href="/admin/articles" className="text-sm text-primary-600 hover:text-primary-700 font-medium transition-colors">View All</a>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+              Recent Articles
+            </h2>
+            <Link
+              href="/admin/articles"
+              className="text-sm font-semibold text-red-600 transition-colors hover:text-red-500"
+            >
+              View All
+            </Link>
           </div>
-          <div className="space-y-3">
-            {recentArticles.map((article) => (
-              <div key={article.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-900 font-medium truncate">{article.title}</p>
-                  <p className="text-xs text-gray-500">{article.category} • {article.author.name}</p>
-                </div>
-                <span className="text-xs text-gray-500 whitespace-nowrap ml-2">
-                  {new Date(article.publishedAt).toLocaleDateString('en-GB')}
-                </span>
-              </div>
-            ))}
-          </div>
-        </motion.div>
 
-        {/* Recent Videos */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
-          className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm"
-        >
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-gray-900">Recent Videos</h3>
-            <a href="/admin/videos/new" className="text-sm text-primary-600 hover:text-primary-700 font-medium transition-colors">Upload New</a>
-          </div>
-          <div className="space-y-3">
-            {recentVideos.map((video) => (
-              <div key={video.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-900 font-medium truncate">{video.title}</p>
-                  <p className="text-xs text-gray-500">{video.category} • {formatNumber(video.views)} views</p>
-                </div>
-                <span className="text-xs text-gray-500 whitespace-nowrap ml-2">
-                  {Math.floor(video.duration / 60)}:{(video.duration % 60).toString().padStart(2, '0')}
-                </span>
+          <div className="mt-6 space-y-3">
+            {dashboard.recentArticles.length ? (
+              dashboard.recentArticles.map((article) => (
+                <Link
+                  key={article.id}
+                  href={`/admin/articles/${encodeURIComponent(article.id)}/edit`}
+                  className="flex items-center justify-between gap-3 rounded-2xl bg-zinc-50 p-4 transition-colors hover:bg-zinc-100 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                      {article.title}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                      {article.category} / {article.author}
+                    </p>
+                  </div>
+                  <span className="whitespace-nowrap text-xs text-zinc-500 dark:text-zinc-400">
+                    {formatDate(article.publishedAt)}
+                  </span>
+                </Link>
+              ))
+            ) : (
+              <div className="rounded-2xl bg-zinc-50 p-4 text-sm text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400">
+                No articles available yet.
               </div>
-            ))}
+            )}
           </div>
-        </motion.div>
+        </section>
+
+        <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+              Recent Videos
+            </h2>
+            <Link
+              href="/admin/videos"
+              className="text-sm font-semibold text-red-600 transition-colors hover:text-red-500"
+            >
+              View All
+            </Link>
+          </div>
+
+          <div className="mt-6 space-y-3">
+            {dashboard.recentVideos.length ? (
+              dashboard.recentVideos.map((video) => (
+                <Link
+                  key={video.id}
+                  href={`/admin/videos/${encodeURIComponent(video.id)}/edit`}
+                  className="flex items-center justify-between gap-3 rounded-2xl bg-zinc-50 p-4 transition-colors hover:bg-zinc-100 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                      {video.title}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                      {video.category} / {formatNumber(video.views)} views
+                    </p>
+                  </div>
+                  <span className="whitespace-nowrap text-xs text-zinc-500 dark:text-zinc-400">
+                    {formatDuration(video.duration)}
+                  </span>
+                </Link>
+              ))
+            ) : (
+              <div className="rounded-2xl bg-zinc-50 p-4 text-sm text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400">
+                No videos available yet.
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );

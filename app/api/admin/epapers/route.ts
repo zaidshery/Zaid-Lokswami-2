@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db/mongoose';
 import EPaper from '@/lib/models/EPaper';
 import { getAdminSession } from '@/lib/auth/admin';
-import { isEPaperCitySlug } from '@/lib/constants/epaperCities';
+import {
+  getCityNameFromSlug,
+  getCitySlugFromName,
+  isEPaperCitySlug,
+} from '@/lib/constants/epaperCities';
+import { listStoredEPapers } from '@/lib/storage/epapersFile';
 import { parsePublishDate } from '@/lib/utils/epaperStorage';
 
 type EpaperPage = {
@@ -90,8 +95,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    await connectDB();
-
     const { searchParams } = new URL(req.url);
     const citySlug = (searchParams.get('citySlug') || '').trim().toLowerCase();
     const status = (searchParams.get('status') || '').trim().toLowerCase();
@@ -138,16 +141,62 @@ export async function GET(req: NextRequest) {
       query.publishDate = { $gte: parsedDate, $lt: next };
     }
 
+    const fileResult =
+      !status || status === 'all' || status === 'published'
+        ? await listStoredEPapers({
+            city: citySlug ? getCityNameFromSlug(citySlug) : null,
+            publishDate: date || null,
+            limit: isUnbounded ? Number.MAX_SAFE_INTEGER : effectiveLimit,
+            page: effectivePage,
+          })
+        : { data: [], total: 0 };
+
+    const createFileResponse = () =>
+      NextResponse.json({
+        success: true,
+        data: fileResult.data.map((row) => ({
+          _id: row._id,
+          citySlug: getCitySlugFromName(row.city),
+          cityName: row.city,
+          title: row.title,
+          publishDate: row.publishDate,
+          pdfPath: row.pdfUrl,
+          thumbnailPath: row.thumbnail,
+          pageCount: Number(row.pages) || 1,
+          pages: [],
+          status: 'published' as const,
+          pagesWithImage: 0,
+          pagesMissingImage: Number(row.pages) || 1,
+          createdAt: row.publishedAt,
+          updatedAt: row.updatedAt,
+        })),
+        pagination: {
+          total: fileResult.total,
+          page: effectivePage,
+          limit: isUnbounded ? fileResult.total : effectiveLimit,
+          pages: isUnbounded ? 1 : Math.ceil(fileResult.total / effectiveLimit),
+        },
+      });
+
+    try {
+      await connectDB();
+    } catch (error) {
+      console.error('Mongo unavailable for admin e-papers, using file store:', error);
+      return createFileResponse();
+    }
+
+    const total = await EPaper.countDocuments(query);
+    if (total === 0 && fileResult.total > 0) {
+      return createFileResponse();
+    }
+
     const skip = (effectivePage - 1) * effectiveLimit;
     let recordsQuery = EPaper.find(query).sort({ publishDate: -1, createdAt: -1 }).skip(skip);
     if (!isUnbounded) {
       recordsQuery = recordsQuery.limit(effectiveLimit);
     }
 
-    const [records, total] = await Promise.all([
-      recordsQuery.lean(),
-      EPaper.countDocuments(query),
-    ]);
+    const records = await recordsQuery.lean();
 
     const data = records.map((record) => {
       const item = asObject(record);
