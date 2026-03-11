@@ -7,6 +7,7 @@ type ViewportMode = 'mobile' | 'tablet' | 'desktop';
 
 type AiChatHeaderProps = {
   viewportMode: ViewportMode;
+  language: 'hi' | 'en';
   isLight: boolean;
   onMinimize: () => void;
   onClose: () => void;
@@ -14,27 +15,31 @@ type AiChatHeaderProps = {
 
 export default function AiChatHeader({
   viewportMode,
+  language,
   isLight,
   onMinimize,
   onClose,
 }: AiChatHeaderProps) {
   const isMobile = viewportMode === 'mobile';
+  const title = 'Lokswami AI Assistant';
+  const statusLabel = language === 'hi' ? 'लाइव न्यूज़ अपडेट्स' : 'Live news updates';
+
   const headerClassName = `${
     isLight
-      ? 'border-zinc-200 bg-[linear-gradient(180deg,rgba(239,68,68,0.08),rgba(255,255,255,0.98))]'
-      : 'border-zinc-800 bg-[linear-gradient(180deg,rgba(185,28,28,0.2),rgba(9,9,11,0.98))]'
-  } flex h-16 flex-shrink-0 items-center justify-between border-b px-4 ${
-    isMobile ? '' : 'rounded-t-3xl'
+      ? 'border-red-200 bg-[linear-gradient(180deg,rgba(248,113,113,0.14),rgba(255,255,255,0.97))]'
+      : 'border-red-500/30 bg-[linear-gradient(180deg,rgba(127,29,29,0.38),rgba(9,9,11,0.98))]'
+  } relative z-10 flex h-16 flex-shrink-0 items-center justify-between border-b px-4 ${
+    isMobile ? '' : 'rounded-t-[1.9rem]'
   }`;
   const iconButtonClassName = `${
     isLight
-      ? 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200'
-      : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+      ? 'border border-zinc-300 bg-zinc-100 text-zinc-600 hover:border-red-300 hover:text-red-600'
+      : 'border border-red-500/35 bg-zinc-900/85 text-zinc-300 hover:border-red-400/60 hover:text-red-200'
   } inline-flex h-8 w-8 items-center justify-center rounded-xl transition`;
   const closeButtonClassName = `${
     isLight
-      ? 'bg-zinc-100 text-zinc-500 hover:bg-red-500/10 hover:text-red-500'
-      : 'bg-zinc-800 text-zinc-400 hover:bg-red-500/20 hover:text-red-400'
+      ? 'border border-red-200 bg-red-50 text-red-600 hover:bg-red-100'
+      : 'border border-red-500/45 bg-red-500/12 text-red-200 hover:bg-red-500/20'
   } inline-flex h-8 w-8 items-center justify-center rounded-xl transition`;
 
   return (
@@ -51,28 +56,26 @@ export default function AiChatHeader({
           </button>
         ) : null}
 
-        <AiChatBrandMark compact />
+        <AiChatBrandMark
+          compact
+          pulse
+          className="h-11 w-11 md:h-12 md:w-12"
+          imageScale={1.45}
+          imagePosition="50% 40%"
+        />
 
         <div className="min-w-0">
-          <p
-            className={`truncate text-sm font-bold ${
-              isLight ? 'text-zinc-900' : 'text-zinc-100'
-            }`}
-          >
-            Lokswami AI
+          <p className={`truncate text-sm font-semibold ${isLight ? 'text-zinc-900' : 'text-white'}`}>
+            {title}
           </p>
-
-          <div className="mt-1 flex items-center gap-1.5">
-            <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-red-400" />
-            <span className={`text-xs ${isLight ? 'text-red-600' : 'text-red-300'}`}>
-              Live news assistant
-            </span>
-          </div>
+          <p className={`mt-1 text-xs ${isLight ? 'text-red-700' : 'text-red-400'}`}>
+            {statusLabel}
+          </p>
         </div>
       </div>
 
       {!isMobile ? (
-        <div className="flex items-center gap-2 pr-0">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onMinimize}

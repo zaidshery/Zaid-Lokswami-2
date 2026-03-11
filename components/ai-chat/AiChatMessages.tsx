@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import type { RefObject } from 'react';
+import AiChatBrandMark from './AiChatBrandMark';
 import AiChatContentCards from './AiChatContentCards';
 import type { AiCategorySuggestion, AiChatSuggestions, ChatMessage } from './types';
 
@@ -29,16 +30,16 @@ const MESSAGE_ANIMATION = {
   transition: { duration: 0.22 },
 };
 
-const EMPTY_STATE_SUGGESTIONS = [
-  '🗞️ आज की बड़ी खबरें',
-  '🏏 IPL 2026 अपडेट',
-  '🌤️ मौसम की जानकारी',
-];
-
 function getGreetingSeed(language: 'hi' | 'en') {
   return language === 'hi'
     ? 'नमस्ते, मैं लोकस्वामी AI हूं। आप खबर खोज सकते हैं, सारांश पा सकते हैं, या सुन सकते हैं।'
     : 'Hello, I am Lokswami AI. You can search news, get summaries, or listen here.';
+}
+
+function getEmptyStateSuggestions(language: 'hi' | 'en') {
+  return language === 'hi'
+    ? ['आज की बड़ी खबरें', 'IPL 2026 अपडेट', 'दिल्ली मौसम अपडेट']
+    : ['Top stories today', 'IPL 2026 updates', 'Delhi weather update'];
 }
 
 function formatDuration(seconds?: number) {
@@ -51,17 +52,13 @@ function formatDuration(seconds?: number) {
 }
 
 function AssistantAvatar() {
-  return (
-    <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(135deg,#e63946,#c1121f)] text-xs font-black text-white">
-      लो
-    </span>
-  );
+  return <AiChatBrandMark compact />;
 }
 
 function TypingIndicator({ isLight }: { isLight: boolean }) {
   const bubbleClassName = isLight
-    ? 'border border-zinc-200 bg-zinc-100 text-zinc-800'
-    : 'border border-zinc-700/50 bg-zinc-800 text-zinc-200';
+    ? 'border border-red-200 bg-red-50/80 text-zinc-800'
+    : 'border border-red-500/25 bg-zinc-900/90 text-zinc-100';
 
   return (
     <div className={`rounded-2xl rounded-tl-sm px-4 py-3 ${bubbleClassName}`}>
@@ -69,8 +66,8 @@ function TypingIndicator({ isLight }: { isLight: boolean }) {
         {[0, 0.2, 0.4].map((delay) => (
           <motion.span
             key={delay}
-            className="h-2 w-2 rounded-full bg-zinc-500"
-            animate={{ scale: [1, 1.4, 1] }}
+            className="h-2 w-2 rounded-full bg-red-400"
+            animate={{ scale: [1, 1.45, 1] }}
             transition={{ repeat: Infinity, duration: 1, delay }}
           />
         ))}
@@ -79,31 +76,44 @@ function TypingIndicator({ isLight }: { isLight: boolean }) {
   );
 }
 
-function ExploreMoreRow({ isLight }: { isLight: boolean }) {
+function ExploreMoreRow({
+  language,
+  isLight,
+}: {
+  language: 'hi' | 'en';
+  isLight: boolean;
+}) {
   const pillClassName = isLight
-    ? 'rounded-full bg-white border border-zinc-300 px-3 py-1 text-xs text-zinc-600 transition hover:border-red-500/40 hover:text-red-500'
-    : 'rounded-full bg-zinc-800 border border-zinc-700 px-3 py-1 text-xs text-zinc-400 transition hover:border-red-500/40 hover:text-red-300';
+    ? 'rounded-full border border-red-200 bg-white px-3 py-1 text-xs text-zinc-700 transition hover:border-red-500 hover:text-red-600'
+    : 'rounded-full border border-red-500/25 bg-zinc-900 px-3 py-1 text-xs text-zinc-300 transition hover:border-red-500/55 hover:text-red-200';
+
+  const labels =
+    language === 'hi'
+      ? { news: 'और खबरें', videos: 'वीडियो', epaper: 'ई-पेपर' }
+      : { news: 'More news', videos: 'Videos', epaper: 'E-Paper' };
 
   return (
     <div className="mt-3 flex flex-wrap gap-2">
       <Link href="/main" className={pillClassName}>
-        📰 और खबरें
+        {labels.news}
       </Link>
       <Link href="/main/videos" className={pillClassName}>
-        🎬 वीडियो
+        {labels.videos}
       </Link>
       <Link href="/main/epaper" className={pillClassName}>
-        📄 E-Paper
+        {labels.epaper}
       </Link>
     </div>
   );
 }
 
 function SuggestionsRail({
+  language,
   suggestions,
   isLoading,
   isLight,
 }: {
+  language: 'hi' | 'en';
   suggestions: AiChatSuggestions;
   isLoading: boolean;
   isLight: boolean;
@@ -117,13 +127,13 @@ function SuggestionsRail({
 
   if (isLoading) {
     return (
-      <div className="mt-6 w-full overflow-x-auto scrollbar-hide">
+      <div className="mt-5 w-full overflow-x-auto scrollbar-hide">
         <div className="flex gap-3 pb-1">
           {[0, 1, 2].map((index) => (
             <div
               key={index}
               className={`h-24 w-[220px] flex-shrink-0 animate-pulse rounded-2xl border ${
-                isLight ? 'border-zinc-200 bg-zinc-100' : 'border-zinc-800 bg-zinc-900'
+                isLight ? 'border-red-100 bg-red-50/70' : 'border-zinc-800 bg-zinc-900'
               }`}
             />
           ))}
@@ -137,13 +147,13 @@ function SuggestionsRail({
   }
 
   return (
-    <div className="mt-6 w-full">
+    <div className="mt-5 w-full">
       <p
-        className={`mb-3 text-left text-xs font-semibold uppercase tracking-wide ${
-          isLight ? 'text-zinc-500' : 'text-zinc-400'
+        className={`mb-3 text-left text-[11px] font-semibold uppercase tracking-[0.15em] ${
+          isLight ? 'text-zinc-600' : 'text-zinc-400'
         }`}
       >
-        आज का सुझाव
+        {language === 'hi' ? 'आज के सुझाव' : 'Live suggestions'}
       </p>
 
       <div className="overflow-x-auto scrollbar-hide">
@@ -160,11 +170,11 @@ function SuggestionsRail({
                     : 'border-sky-500/30 bg-sky-500/10'
                   : card.type === 'story'
                     ? isLight
-                      ? 'border-purple-300 bg-purple-50'
-                      : 'border-purple-500/20 bg-purple-500/10'
+                      ? 'border-fuchsia-300 bg-fuchsia-50'
+                      : 'border-fuchsia-500/25 bg-fuchsia-500/10'
                     : isLight
-                      ? 'border-zinc-200 bg-white'
-                      : 'border-zinc-800 bg-zinc-900';
+                      ? 'border-red-200 bg-white'
+                      : 'border-red-500/25 bg-zinc-900';
 
             return (
               <Link
@@ -203,14 +213,14 @@ function SuggestionsRail({
                   </div>
                 ) : (
                   <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-xl bg-white/10 text-2xl">
-                    {card.type === 'epaper' ? '📄' : card.type === 'article' ? '📰' : '⚡'}
+                    {card.type === 'epaper' ? '📰' : card.type === 'article' ? '📢' : '⚡'}
                   </div>
                 )}
 
                 <div className="min-w-0 flex-1">
                   <p
                     className={`text-[11px] font-semibold ${
-                      card.type === 'story' ? 'text-purple-400' : 'text-red-400'
+                      card.type === 'story' ? 'text-fuchsia-400' : 'text-red-400'
                     }`}
                   >
                     {card.subtitle}
@@ -236,11 +246,13 @@ function SuggestionsRail({
 }
 
 function CategorySuggestionSection({
+  language,
   categorySuggestions,
   isLoading,
   onQuickSearch,
   isLight,
 }: {
+  language: 'hi' | 'en';
   categorySuggestions: AiCategorySuggestion[];
   isLoading: boolean;
   onQuickSearch: (value: string) => void;
@@ -268,7 +280,7 @@ function CategorySuggestionSection({
   return (
     <div className="mt-3">
       <p className={`text-xs font-semibold ${isLight ? 'text-zinc-600' : 'text-zinc-400'}`}>
-        शायद आप यह जानना चाहें 💡
+        {language === 'hi' ? 'आप ये भी पूछ सकते हैं' : 'Try these related topics'}
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
         {categorySuggestions.map((item) => (
@@ -278,8 +290,8 @@ function CategorySuggestionSection({
             onClick={() => onQuickSearch(item.query)}
             className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
               isLight
-                ? 'border-zinc-300 bg-white text-zinc-700 hover:border-red-500/40 hover:text-red-500'
-                : 'border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-red-500/40 hover:text-red-300'
+                ? 'border-red-200 bg-white text-zinc-700 hover:border-red-500 hover:text-red-600'
+                : 'border-red-500/25 bg-zinc-900 text-zinc-300 hover:border-red-500/55 hover:text-red-200'
             }`}
           >
             {item.label}
@@ -291,10 +303,12 @@ function CategorySuggestionSection({
 }
 
 function ResponseActions({
+  language,
   message,
   onRetrySearch,
   isLight,
 }: {
+  language: 'hi' | 'en';
   message: ChatMessage;
   onRetrySearch: (value: string) => void;
   isLight: boolean;
@@ -311,18 +325,18 @@ function ResponseActions({
           onClick={() => onRetrySearch(message.retryQuery || '')}
           className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
             isLight
-              ? 'bg-zinc-100 text-zinc-800 hover:bg-zinc-200'
-              : 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700'
+              ? 'border border-zinc-300 bg-zinc-100 text-zinc-800 hover:bg-zinc-200'
+              : 'border border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700'
           }`}
         >
-          फिर कोशिश करें ↻
+          {language === 'hi' ? 'फिर कोशिश करें' : 'Try again'}
         </button>
       ) : null}
 
       {message.primaryAction ? (
         <Link
           href={message.primaryAction.url}
-          className="rounded-xl bg-[linear-gradient(135deg,#e63946,#c1121f)] px-3 py-2 text-xs font-semibold text-white shadow-md shadow-red-500/20"
+          className="rounded-xl border border-red-400/60 bg-[linear-gradient(135deg,#fb7185,#dc2626_56%,#991b1b)] px-3 py-2 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(127,29,29,0.35)]"
         >
           {message.primaryAction.label}
         </Link>
@@ -347,6 +361,8 @@ export default function AiChatMessages({
   isLight,
 }: AiChatMessagesProps) {
   const greetingSeed = getGreetingSeed(language);
+  const emptyStateSuggestions = getEmptyStateSuggestions(language);
+
   const visibleMessages = messages.filter(
     (message) =>
       !(
@@ -356,44 +372,57 @@ export default function AiChatMessages({
       )
   );
 
-  const areaClassName = isLight ? 'bg-zinc-50' : 'bg-zinc-900';
+  const areaClassName = isLight
+    ? 'bg-[linear-gradient(180deg,#fff,#fff8f8)]'
+    : 'bg-[linear-gradient(180deg,rgba(9,9,11,0.96),rgba(24,24,27,0.98))]';
   const aiBubbleClassName = isLight
-    ? 'border border-zinc-200 bg-zinc-100 text-zinc-800'
-    : 'border border-zinc-700/50 bg-zinc-800 text-zinc-200';
+    ? 'border border-red-200/85 bg-white text-zinc-800'
+    : 'border border-red-500/25 bg-zinc-900/90 text-zinc-100';
   const suggestionClassName = isLight
-    ? 'border-zinc-300 bg-zinc-100 text-zinc-600 hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-500'
-    : 'border-zinc-700 bg-zinc-800/80 text-zinc-300 hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-300';
+    ? 'border-red-200 bg-white text-zinc-700 hover:border-red-500 hover:bg-red-50 hover:text-red-600'
+    : 'border-red-500/25 bg-zinc-900/80 text-zinc-300 hover:border-red-500/55 hover:bg-red-500/8 hover:text-red-200';
+
+  const emptyTitle =
+    language === 'hi' ? 'नमस्ते! मैं Lokswami AI हूं।' : 'Namaste! I am Lokswami AI.';
+  const emptyBody =
+    language === 'hi'
+      ? 'सर्च, सारांश और लाइव खबरों में मदद के लिए तैयार।'
+      : 'Ready to help with search, summaries, and live updates.';
+  const nextQuestionLabel = language === 'hi' ? 'अगला सवाल' : 'Next question';
 
   return (
     <div
-      className={`flex-1 overflow-y-auto px-4 py-4 [scrollbar-color:#52525b_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-700 ${areaClassName}`}
+      className={`relative z-10 flex-1 overflow-y-auto px-4 py-4 [scrollbar-color:#52525b_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-700 ${areaClassName}`}
     >
       {visibleMessages.length === 0 && !isWorking ? (
-        <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+        <div className="flex h-full flex-col items-center justify-center px-4 text-center">
           <motion.div
-            className="mb-4 text-6xl"
+            className="mb-4"
             animate={{ y: [0, -8, 0] }}
             transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
           >
-            🤖
+            <div className="inline-flex rounded-full border border-red-400/55 bg-[radial-gradient(circle_at_25%_15%,#f87171_0%,#dc2626_42%,#7f1d1d_74%,#09090b_100%)] p-4 text-white shadow-[0_16px_40px_rgba(127,29,29,0.5)]">
+              <AiChatBrandMark />
+            </div>
           </motion.div>
 
-          <h3 className={`mt-2 text-lg font-bold ${isLight ? 'text-zinc-900' : 'text-zinc-100'}`}>
-            नमस्ते! मैं लोकस्वामी AI हूं 👋
+          <h3 className={`text-lg font-bold ${isLight ? 'text-zinc-900' : 'text-zinc-100'}`}>
+            {emptyTitle}
           </h3>
-          <p className={`mt-1 text-sm ${isLight ? 'text-zinc-500' : 'text-zinc-500'}`}>
-            खबर खोजें, सारांश पाएं, या सुनें
+          <p className={`mt-1 text-sm ${isLight ? 'text-zinc-600' : 'text-zinc-400'}`}>
+            {emptyBody}
           </p>
 
           <SuggestionsRail
+            language={language}
             suggestions={suggestions}
             isLoading={isLoadingSuggestions}
             isLight={isLight}
           />
 
-          <div className="mt-6 w-full overflow-x-auto scrollbar-hide">
+          <div className="mt-5 w-full overflow-x-auto scrollbar-hide">
             <div className="flex w-max min-w-full flex-nowrap justify-center gap-2 pb-1">
-              {EMPTY_STATE_SUGGESTIONS.map((suggestion) => (
+              {emptyStateSuggestions.map((suggestion) => (
                 <button
                   key={suggestion}
                   type="button"
@@ -428,7 +457,7 @@ export default function AiChatMessages({
                 className={isUser ? 'flex justify-end' : 'flex'}
               >
                 {isUser ? (
-                  <div className="max-w-[82%] rounded-2xl rounded-tr-sm bg-[linear-gradient(135deg,#e63946,#c1121f)] px-4 py-3 text-sm leading-relaxed text-white shadow-md shadow-red-500/20">
+                  <div className="max-w-[84%] rounded-2xl rounded-tr-sm border border-red-400/65 bg-[linear-gradient(135deg,#fb7185,#dc2626_56%,#991b1b)] px-4 py-3 text-sm leading-relaxed text-white shadow-[0_12px_24px_rgba(127,29,29,0.42)]">
                     <p className="whitespace-pre-line break-words">{message.text}</p>
                   </div>
                 ) : (
@@ -443,7 +472,7 @@ export default function AiChatMessages({
 
                         {message.followUpSuggestion ? (
                           <p className="mt-3 text-xs font-medium text-zinc-500">
-                            अगला सवाल: {message.followUpSuggestion}
+                            {nextQuestionLabel}: {message.followUpSuggestion}
                           </p>
                         ) : null}
 
@@ -460,7 +489,7 @@ export default function AiChatMessages({
                                     linkItem.url ||
                                     `/main/article/${encodeURIComponent(linkItem.id)}`
                                   }
-                                  className="line-clamp-2 text-xs font-semibold underline underline-offset-2 text-red-500 hover:text-red-600"
+                                  className="line-clamp-2 text-xs font-semibold underline underline-offset-2 text-red-500 hover:text-red-400"
                                 >
                                   {linkItem.title}
                                 </Link>
@@ -470,6 +499,7 @@ export default function AiChatMessages({
                         ) : null}
 
                         <ResponseActions
+                          language={language}
                           message={message}
                           onRetrySearch={onRetrySearch}
                           isLight={isLight}
@@ -477,20 +507,20 @@ export default function AiChatMessages({
 
                         {shouldShowCategorySuggestions ? (
                           <CategorySuggestionSection
+                            language={language}
                             categorySuggestions={categorySuggestions}
                             isLoading={isLoadingCategorySuggestions}
                             onQuickSearch={onQuickSearch}
                             isLight={isLight}
                           />
                         ) : null}
-
                       </div>
 
                       {message.content ? (
                         <AiChatContentCards content={message.content} isLight={isLight} />
                       ) : null}
 
-                      <ExploreMoreRow isLight={isLight} />
+                      <ExploreMoreRow language={language} isLight={isLight} />
                     </div>
                   </div>
                 )}
@@ -513,7 +543,7 @@ export default function AiChatMessages({
           ) : null}
 
           {errorText && visibleMessages.length === 0 ? (
-            <p className="text-xs text-red-500 dark:text-red-400">
+            <p className="text-xs text-red-500 dark:text-red-300">
               {errorText || (language === 'hi' ? 'कुछ गलत हो गया।' : 'Something went wrong.')}
             </p>
           ) : null}

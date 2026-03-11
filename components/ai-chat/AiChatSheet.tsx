@@ -38,6 +38,7 @@ export default function AiChatSheet({
   theme,
 }: AiChatSheetProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const onCloseRef = useRef(onClose);
   const [viewportMode, setViewportMode] = useState<ViewportMode>(() => {
     if (typeof window === 'undefined') {
       return 'desktop';
@@ -50,6 +51,10 @@ export default function AiChatSheet({
   );
 
   const isLight = theme === 'light';
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     const syncViewport = () => {
@@ -77,7 +82,7 @@ export default function AiChatSheet({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -108,7 +113,7 @@ export default function AiChatSheet({
       document.removeEventListener('keydown', onKeyDown);
       previousActive?.focus();
     };
-  }, [onClose, open]);
+  }, [open]);
 
   useEffect(() => {
     if (!open || viewportMode !== 'mobile') return;
@@ -126,6 +131,10 @@ export default function AiChatSheet({
     (activeTab === 'summary'
       ? Boolean(chat.draft.trim() || chat.currentArticleId)
       : Boolean(chat.draft.trim()));
+
+  const neonShellClassName = isLight
+    ? 'border-red-300/75 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(255,247,247,0.98))] shadow-[0_18px_48px_rgba(127,29,29,0.18)]'
+    : 'border-red-500/30 bg-[linear-gradient(180deg,rgba(9,9,11,0.98),rgba(18,18,24,0.98))] shadow-[0_28px_80px_rgba(0,0,0,0.6),0_0_0_1px_rgba(239,68,68,0.08)]';
 
   const handleSuggestionSelect = useCallback(
     (value: string) => {
@@ -170,18 +179,18 @@ export default function AiChatSheet({
 
   const panelClassName =
     viewportMode === 'mobile'
-      ? `${isLight ? 'bg-white' : 'bg-zinc-950'} pointer-events-auto fixed inset-0 z-50 flex flex-col pb-16`
+      ? `pointer-events-auto fixed inset-x-2 top-[max(0.5rem,env(safe-area-inset-top))] bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+0.65rem)] z-[61] flex flex-col overflow-hidden rounded-[1.55rem] border backdrop-blur ${neonShellClassName}`
       : viewportMode === 'tablet'
-        ? `${isLight ? 'bg-white border-zinc-200 shadow-black/10' : 'bg-zinc-900 border-zinc-700/50 shadow-black/50'} pointer-events-auto fixed bottom-24 right-4 z-50 flex h-[min(75vh,42rem)] max-h-[calc(100vh-7rem)] w-[min(380px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-3xl border shadow-2xl`
-        : `${isLight ? 'bg-white border-zinc-200 shadow-black/10' : 'bg-zinc-900 border-zinc-700/50 shadow-black/60'} pointer-events-auto fixed bottom-8 right-6 z-50 flex h-[min(600px,calc(100vh-4rem))] max-h-[calc(100vh-4rem)] w-[min(440px,calc(100vw-3rem))] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-3xl border shadow-2xl`;
+        ? `pointer-events-auto fixed bottom-24 right-4 z-[61] flex h-[min(76vh,43rem)] max-h-[calc(100vh-7rem)] w-[min(400px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-[1.8rem] border backdrop-blur ${neonShellClassName}`
+        : `pointer-events-auto fixed bottom-8 right-6 z-[61] flex h-[min(620px,calc(100vh-4rem))] max-h-[calc(100vh-4rem)] w-[min(455px,calc(100vw-3rem))] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-[1.9rem] border backdrop-blur ${neonShellClassName}`;
 
   const panelAnimation =
     viewportMode === 'mobile'
       ? {
-          initial: { x: '100%', opacity: 0 },
-          animate: { x: 0, opacity: 1 },
-          exit: { x: '100%', opacity: 0 },
-          transition: { type: 'spring', damping: 28, stiffness: 280 },
+          initial: { y: 32, opacity: 0 },
+          animate: { y: 0, opacity: 1 },
+          exit: { y: 22, opacity: 0 },
+          transition: { duration: 0.26, ease: 'easeOut' },
         }
       : {
           initial: { opacity: 0, scale: 0.92, x: 0, y: 24 },
@@ -191,18 +200,20 @@ export default function AiChatSheet({
         };
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-50">
-      {viewportMode !== 'mobile' ? (
-        <motion.button
-          type="button"
-          aria-label="Close AI chat backdrop"
-          onClick={onClose}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className={`pointer-events-auto fixed inset-0 ${isLight ? 'bg-black/10' : 'bg-black/30'}`}
-        />
-      ) : null}
+    <div className="pointer-events-none fixed inset-0 z-[60]">
+      <motion.button
+        type="button"
+        aria-label="Close AI chat backdrop"
+        onClick={onClose}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className={`pointer-events-auto fixed inset-0 ${
+          isLight
+            ? 'bg-[radial-gradient(circle_at_80%_80%,rgba(239,68,68,0.06),rgba(17,24,39,0.08))]'
+            : 'bg-[radial-gradient(circle_at_80%_80%,rgba(239,68,68,0.1),rgba(2,6,23,0.42))]'
+        }`}
+      />
 
       <motion.div
         ref={panelRef}
@@ -216,9 +227,14 @@ export default function AiChatSheet({
         transition={panelAnimation.transition}
         className={panelClassName}
       >
+        <span className="pointer-events-none absolute inset-x-0 top-0 z-0 h-px bg-gradient-to-r from-transparent via-red-400/85 to-transparent" />
+        <span className="pointer-events-none absolute -left-16 top-16 z-0 h-24 w-24 rounded-full bg-red-500/20 blur-2xl" />
+        <span className="pointer-events-none absolute -right-20 bottom-24 z-0 h-32 w-32 rounded-full bg-orange-500/16 blur-3xl" />
+
         <div className="flex h-full flex-col">
           <AiChatHeader
             viewportMode={viewportMode}
+            language={chat.language}
             isLight={isLight}
             onMinimize={onClose}
             onClose={onClose}
@@ -226,6 +242,7 @@ export default function AiChatSheet({
 
           <AiChatActionChips
             activeTab={activeTab}
+            language={chat.language}
             onTabChange={handleTabChange}
             isLight={isLight}
           />

@@ -151,6 +151,127 @@ function tokenize(value: string) {
   return normalizeText(value).match(/[\p{L}\p{N}]+/gu) || [];
 }
 
+const QUERY_STOP_WORDS = new Set([
+  'news',
+  'khabar',
+  'khabarein',
+  'khabren',
+  'update',
+  'updates',
+  'latest',
+  'today',
+  'aaj',
+  'ki',
+  'ka',
+  'ke',
+  'mere',
+  'mera',
+  'meri',
+  'me',
+  'mein',
+  'in',
+  'local',
+  'city',
+  'shehar',
+  'top',
+  'breaking',
+  'headline',
+  'headlines',
+  'show',
+  'open',
+  'please',
+  'kholen',
+]);
+
+const NON_LOCATION_HINTS = new Set([
+  'politics',
+  'sports',
+  'business',
+  'entertainment',
+  'tech',
+  'world',
+  'national',
+  'international',
+  'regional',
+  'market',
+  'stock',
+  'economy',
+  'ipl',
+  'cricket',
+  'video',
+  'epaper',
+]);
+
+function toTitleCase(value: string) {
+  return value.replace(/\b([a-z])/g, (char) => char.toUpperCase());
+}
+
+function cleanLocationLabel(value: string) {
+  const tokens = value
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .filter((token) => !QUERY_STOP_WORDS.has(normalizeText(token)));
+
+  if (!tokens.length) {
+    return '';
+  }
+
+  const collapsed = tokens.join(' ');
+
+  if (/^[a-z][a-z\s-]*$/i.test(collapsed)) {
+    return toTitleCase(collapsed.toLowerCase());
+  }
+
+  return collapsed;
+}
+
+function isLikelyLocationLabel(value: string) {
+  const tokens = tokenize(value);
+  if (!tokens.length || tokens.length > 3) {
+    return false;
+  }
+
+  return !tokens.some((token) => NON_LOCATION_HINTS.has(token));
+}
+
+function extractLocationHint(query: string): string | null {
+  if (!query.trim()) {
+    return null;
+  }
+
+  const beforeNewsMatch = query.match(
+    /([\p{L}][\p{L}\s-]{1,40})\s+(?:news|updates?|khabar(?:e|ein)?)/iu
+  );
+  const prepositionMatch = query.match(
+    /(?:in|from|near|around|of|mein|me)\s+([\p{L}][\p{L}\s-]{1,40})/iu
+  );
+
+  const patternCandidate = cleanLocationLabel(
+    beforeNewsMatch?.[1] || prepositionMatch?.[1] || ''
+  );
+  if (patternCandidate && isLikelyLocationLabel(patternCandidate)) {
+    return patternCandidate;
+  }
+
+  const candidateTokens = tokenize(query)
+    .filter((token) => !QUERY_STOP_WORDS.has(token))
+    .filter((token) => !NON_LOCATION_HINTS.has(token));
+
+  if (candidateTokens.length === 1) {
+    const single = cleanLocationLabel(candidateTokens[0]);
+    return single && isLikelyLocationLabel(single) ? single : null;
+  }
+
+  if (candidateTokens.length === 2) {
+    const joined = cleanLocationLabel(candidateTokens.join(' '));
+    return joined && isLikelyLocationLabel(joined) ? joined : null;
+  }
+
+  return null;
+}
+
 function normalizeAnswerSource(value: unknown): AnswerSource | null {
   if (typeof value !== 'string') return null;
 
@@ -631,6 +752,42 @@ function buildRelatedCoverageResponse(params: {
   );
   const categoryLabel = getCategoryDisplayName(preferredCategory, params.language);
   const leadText = params.leadText ? `${params.leadText.trim()} ` : '';
+  const locationLabel = extractLocationHint(params.query);
+
+  if (locationLabel) {
+    const answer =
+      params.mode === 'category_redirect'
+        ? params.language === 'hi'
+          ? `${leadText}${locationLabel} ki khabrein hum lagatar track kar rahe hain. Abhi ke liye yahan related updates hain, aur nayi local khabar aate hi woh yahin dikh jayegi.`
+          : `${leadText}We are actively tracking updates from ${locationLabel}. For now, here is closely related coverage, and fresh local stories will appear here as soon as they are published.`
+        : params.language === 'hi'
+          ? `${leadText}${locationLabel} ki taza khabron par hamari team nazar banaye hue hai. Is beech aap ye related updates dekh sakte hain. Nayi local update milte hi yahan jud jayegi.`
+          : `${leadText}Our newsroom is watching ${locationLabel} closely. Meanwhile, you can explore these related updates, and new local coverage will be added here shortly.`;
+
+    const followUpSuggestion =
+      params.language === 'hi'
+        ? `${locationLabel} se judi aur updates dikhaie`
+        : `Show me more updates from ${locationLabel}.`;
+
+    const primaryAction: SearchPrimaryAction = {
+      label:
+        params.language === 'hi'
+          ? `${locationLabel} search karein ->`
+          : `Search ${locationLabel} ->`,
+      url: `/main/search?q=${encodeURIComponent(`${locationLabel} news`)}`,
+    };
+
+    return createSearchResponse({
+      answer,
+      answerSource: params.mode,
+      groupedContent,
+      confidence: 'medium',
+      followUpSuggestion,
+      query: params.query,
+      primaryAction,
+      mode: params.mode,
+    });
+  }
 
   const answer =
     params.mode === 'category_redirect'
