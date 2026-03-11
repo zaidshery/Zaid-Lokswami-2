@@ -1,6 +1,7 @@
 'use client';
 
 import { ArrowLeft, ChevronDown, X } from 'lucide-react';
+import AiChatBrandMark from './AiChatBrandMark';
 
 type ViewportMode = 'mobile' | 'tablet' | 'desktop';
 
@@ -19,7 +20,9 @@ export default function AiChatHeader({
 }: AiChatHeaderProps) {
   const isMobile = viewportMode === 'mobile';
   const headerClassName = `${
-    isLight ? 'bg-white border-zinc-200' : 'bg-zinc-900 border-zinc-800'
+    isLight
+      ? 'border-zinc-200 bg-[linear-gradient(180deg,rgba(239,68,68,0.08),rgba(255,255,255,0.98))]'
+      : 'border-zinc-800 bg-[linear-gradient(180deg,rgba(185,28,28,0.2),rgba(9,9,11,0.98))]'
   } flex h-16 flex-shrink-0 items-center justify-between border-b px-4 ${
     isMobile ? '' : 'rounded-t-3xl'
   }`;
@@ -48,18 +51,22 @@ export default function AiChatHeader({
           </button>
         ) : null}
 
-        <span className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(135deg,#e63946,#c1121f)] text-xs font-black text-white shadow-md shadow-red-500/30">
-          लो
-        </span>
+        <AiChatBrandMark compact />
 
         <div className="min-w-0">
-          <p className={`truncate text-sm font-bold ${isLight ? 'text-zinc-900' : 'text-zinc-100'}`}>
-            लोकस्वामी AI
+          <p
+            className={`truncate text-sm font-bold ${
+              isLight ? 'text-zinc-900' : 'text-zinc-100'
+            }`}
+          >
+            Lokswami AI
           </p>
 
           <div className="mt-1 flex items-center gap-1.5">
-            <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-            <span className="text-xs text-emerald-400">Online</span>
+            <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-red-400" />
+            <span className={`text-xs ${isLight ? 'text-red-600' : 'text-red-300'}`}>
+              Live news assistant
+            </span>
           </div>
         </div>
       </div>

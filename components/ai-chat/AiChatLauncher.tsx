@@ -1,10 +1,10 @@
 'use client';
 
-import Image from 'next/image';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Sparkles, X } from 'lucide-react';
+import { Bot, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import AiChatBrandMark from './AiChatBrandMark';
 import AiChatSheet from './AiChatSheet';
 import { useAiChat } from './useAiChat';
 import { useAppStore } from '@/lib/store/appStore';
@@ -46,50 +46,58 @@ export default function AiChatLauncher() {
     setSheetOpen(false);
   };
 
+  const buttonClassName = sheetOpen
+    ? `${isLight ? 'border border-zinc-200 bg-white text-zinc-900 shadow-black/10' : 'bg-zinc-800 text-white shadow-black/35'} bottom-[88px] h-14 w-14 rounded-2xl shadow-xl md:bottom-24 md:h-12 md:w-12 xl:bottom-8 xl:right-6`
+    : `${isLight ? 'border border-red-300/70 bg-[linear-gradient(145deg,#ef4444,#b91c1c_72%,#881337)] text-white shadow-[0_20px_40px_rgba(153,27,27,0.28)]' : 'border border-red-500/28 bg-[linear-gradient(145deg,#ef4444,#b91c1c_72%,#7f1d1d)] text-white shadow-[0_22px_42px_rgba(127,29,29,0.45)]'} bottom-[88px] h-14 w-14 rounded-full md:bottom-24 md:h-14 md:w-14 xl:bottom-8 xl:right-6 xl:h-[3.75rem] xl:w-auto xl:min-w-[10.75rem] xl:rounded-full xl:border-red-500/18 xl:bg-zinc-950/96 xl:shadow-[0_20px_48px_rgba(0,0,0,0.35)] xl:px-3`;
+
   return (
     <ChatPortal>
       <motion.button
         type="button"
         onClick={handleToggle}
         aria-label={sheetOpen ? 'Close Lokswami AI chat' : 'Open Lokswami AI chat'}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        className={`fixed right-4 z-50 inline-flex items-center justify-center overflow-hidden rounded-2xl transition-transform md:bottom-24 md:right-4 xl:bottom-8 xl:right-6 ${
-          sheetOpen
-            ? 'bottom-[88px] h-14 w-14 bg-zinc-700 text-white shadow-lg shadow-black/30 md:h-12 md:w-12'
-            : 'bottom-[88px] h-14 w-14 bg-[linear-gradient(135deg,#e63946,#c1121f)] text-white shadow-lg shadow-red-500/40 md:h-12 md:w-12 xl:w-auto xl:px-5'
-        } ${isLight && sheetOpen ? 'border border-zinc-300' : ''}`}
+        whileHover={{ scale: 1.03 }}
+        whileTap={{ scale: 0.97 }}
+        className={`fixed right-4 z-50 inline-flex items-center justify-center overflow-hidden transition-transform ${buttonClassName}`}
       >
-        {!sheetOpen ? (
-          <span className="pointer-events-none absolute inset-0 animate-ping rounded-2xl bg-red-500/30" />
-        ) : null}
+        {sheetOpen ? (
+          <X className="h-5 w-5" />
+        ) : (
+          <>
+            <span
+              className={`pointer-events-none absolute inset-0 ${
+                isLight
+                  ? 'bg-[linear-gradient(180deg,rgba(255,255,255,0.18),rgba(255,255,255,0))]'
+                  : 'bg-[linear-gradient(180deg,rgba(255,255,255,0.12),rgba(255,255,255,0.02))]'
+              }`}
+            />
+            <span className="pointer-events-none absolute inset-[1px] rounded-[inherit] bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.01))]" />
 
-        <span className="pointer-events-none absolute inset-[1px] rounded-[15px] bg-white/5" />
+            <span className="relative flex items-center justify-center xl:hidden">
+              <Bot className="h-5 w-5 drop-shadow-[0_2px_10px_rgba(0,0,0,0.22)]" />
+            </span>
 
-        <span className="relative flex items-center justify-center">
-          {sheetOpen ? (
-            <X className="h-5 w-5" />
-          ) : (
-            <>
-              <span className="flex items-center justify-center xl:hidden">
-                <span className="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-xl">
-                  <Image
-                    src="/logo-icon-final.png"
-                    alt="Lokswami AI"
-                    fill
-                    sizes="32px"
-                    className="object-cover"
-                  />
+            <span className="relative hidden items-center gap-3 xl:flex">
+              <AiChatBrandMark compact />
+              <span className="min-w-0 text-left">
+                <span
+                  className={`block text-[11px] font-semibold uppercase tracking-[0.24em] ${
+                    isLight ? 'text-red-600' : 'text-red-300'
+                  }`}
+                >
+                  Lokswami
+                </span>
+                <span
+                  className={`block text-sm font-semibold ${
+                    isLight ? 'text-zinc-950' : 'text-white'
+                  }`}
+                >
+                  AI Desk
                 </span>
               </span>
-
-              <span className="hidden items-center gap-2 xl:inline-flex">
-                <Sparkles className="h-4 w-4" />
-                <span className="font-bold text-white">लो AI</span>
-              </span>
-            </>
-          )}
-        </span>
+            </span>
+          </>
+        )}
       </motion.button>
 
       <AnimatePresence>

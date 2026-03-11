@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -160,6 +159,51 @@ function isAwarenessResult(value: unknown): value is AwarenessResult {
 
 function toSpeakableText(value: string) {
   return value.replace(/\s+/g, ' ').trim().slice(0, 3200);
+}
+
+function AiIdentityMark({
+  compact = false,
+  status = 'online',
+}: {
+  compact?: boolean;
+  status?: 'online' | 'busy';
+}) {
+  const isBusy = status === 'busy';
+
+  if (compact) {
+    return (
+      <span className="relative inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-gradient-to-br from-red-500 via-red-600 to-orange-500 shadow-[0_10px_24px_rgba(220,38,38,0.34)]">
+        <Sparkles className="h-[18px] w-[18px] text-white" />
+        <span
+          className={`absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-zinc-950 ${
+            isBusy ? 'bg-amber-300' : 'bg-emerald-300'
+          }`}
+        />
+      </span>
+    );
+  }
+
+  return (
+    <span className="relative block">
+      <span className="absolute inset-0 rounded-[1.4rem] bg-red-500/25 blur-md transition-transform duration-300 group-hover:scale-110" />
+      <span className="relative flex items-center gap-2 rounded-[1.2rem] border border-white/10 bg-zinc-950/92 px-3 py-2 text-white shadow-[0_18px_40px_rgba(15,23,42,0.38)] backdrop-blur">
+        <span className="relative inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-red-500 via-red-600 to-orange-500 shadow-[0_10px_24px_rgba(220,38,38,0.34)]">
+          <Sparkles className="h-[18px] w-[18px] text-white" />
+          <span
+            className={`absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-zinc-950 ${
+              isBusy ? 'bg-amber-300' : 'bg-emerald-300'
+            }`}
+          />
+        </span>
+        <span className="flex flex-col items-start leading-none">
+          <span className="text-[9px] font-semibold uppercase tracking-[0.24em] text-white/55">
+            Lokswami
+          </span>
+          <span className="text-sm font-black tracking-[0.08em]">AI</span>
+        </span>
+      </span>
+    </span>
+  );
 }
 
 export default function LokswamiAIBot() {
@@ -608,33 +652,17 @@ export default function LokswamiAIBot() {
       <button
         type="button"
         onClick={() => (isOpen ? handleClose() : setIsOpen(true))}
-        className="fixed bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+0.75rem)] right-3 z-[96] inline-flex h-12 w-12 items-center justify-center rounded-full border border-red-200 bg-white shadow-lg transition hover:scale-[1.03] hover:bg-red-50 dark:border-red-900/60 dark:bg-zinc-900 dark:hover:bg-zinc-800 xl:bottom-6 xl:right-6"
+        className="group fixed bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+0.75rem)] right-3 z-[96] transition hover:scale-[1.03] xl:bottom-6 xl:right-6"
         aria-label="Open Lokswami AI chat"
       >
-        <span className="relative h-8 w-8 overflow-hidden rounded-full">
-          <Image
-            src="/logo-icon-final.png"
-            alt="Lokswami"
-            fill
-            sizes="32px"
-            className="object-cover"
-          />
-        </span>
+        <AiIdentityMark status={isWorking ? 'busy' : 'online'} />
       </button>
 
       {isOpen ? (
         <section className="fixed bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+4.5rem)] right-2 z-[96] flex h-[min(76vh,40rem)] w-[min(97vw,25rem)] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 xl:bottom-20 xl:right-6">
           <header className="flex items-center justify-between border-b border-zinc-200 bg-gradient-to-r from-zinc-950 to-zinc-900 px-3.5 py-3 text-white dark:border-zinc-800">
             <div className="flex min-w-0 items-center gap-2">
-              <span className="relative h-8 w-8 overflow-hidden rounded-full border border-white/25">
-                <Image
-                  src="/logo-icon-final.png"
-                  alt="Lokswami logo"
-                  fill
-                  sizes="32px"
-                  className="object-cover"
-                />
-              </span>
+              <AiIdentityMark compact status={isWorking ? 'busy' : 'online'} />
               <div className="min-w-0">
                 <p className="truncate text-sm font-bold">Lokswami AI Chat</p>
                 <p className="truncate text-[11px] text-white/70">
