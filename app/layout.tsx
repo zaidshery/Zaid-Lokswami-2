@@ -3,6 +3,7 @@ import './globals.css';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import AuthSync from '@/components/providers/AuthSync';
 import AuthSessionProvider from '@/components/providers/SessionProvider';
+import InstallAppPrompt from '@/components/ui/InstallAppPrompt';
 
 const THEME_INIT_SCRIPT = `
 (() => {
@@ -83,6 +84,7 @@ export default function RootLayout({
           <ThemeProvider>
             <AuthSync />
             {children}
+            <InstallAppPrompt />
           </ThemeProvider>
         </AuthSessionProvider>
       </body>
