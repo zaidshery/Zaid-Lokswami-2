@@ -1,6 +1,7 @@
 'use client';
 
 import { ArrowLeft, ChevronDown, X } from 'lucide-react';
+import { useAppStore } from '@/lib/store/appStore';
 import AiChatBrandMark from './AiChatBrandMark';
 
 type ViewportMode = 'mobile' | 'tablet' | 'desktop';
@@ -20,6 +21,7 @@ export default function AiChatHeader({
   onMinimize,
   onClose,
 }: AiChatHeaderProps) {
+  const { setLanguage } = useAppStore();
   const isMobile = viewportMode === 'mobile';
   const title = 'Lokswami AI Desk';
   const statusLabel =
@@ -44,6 +46,11 @@ export default function AiChatHeader({
       ? 'border border-zinc-300 bg-white text-zinc-700 hover:border-red-300 hover:text-red-700'
       : 'border border-zinc-700 bg-zinc-900 text-zinc-200 hover:border-red-500/45 hover:text-red-200'
   } inline-flex h-8 w-8 items-center justify-center rounded-xl transition`;
+  const languageSelectClassName = `${
+    isLight
+      ? 'border-zinc-300 bg-white text-zinc-800 hover:border-red-300'
+      : 'border-zinc-700 bg-zinc-900 text-zinc-100 hover:border-red-500/45'
+  } h-9 w-[4.5rem] cursor-pointer appearance-none rounded-xl border px-3 pr-8 text-xs font-bold tracking-[0.14em] transition focus:border-red-500/60 focus:outline-none`;
 
   return (
     <header className={headerClassName}>
@@ -77,8 +84,22 @@ export default function AiChatHeader({
         </div>
       </div>
 
-      {!isMobile ? (
-        <div className="flex items-center gap-2">
+      <div className="flex flex-shrink-0 items-center gap-2">
+        <div className="relative">
+          <select
+            value={language}
+            onChange={(event) => setLanguage(event.target.value as 'hi' | 'en')}
+            aria-label="Select chat language"
+            className={languageSelectClassName}
+          >
+            <option value="en">EN</option>
+            <option value="hi">HI</option>
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-current opacity-70" />
+        </div>
+
+        {!isMobile ? (
+          <>
           <button
             type="button"
             onClick={onMinimize}
@@ -96,8 +117,9 @@ export default function AiChatHeader({
           >
             <X className="h-4 w-4" />
           </button>
-        </div>
-      ) : null}
+          </>
+        ) : null}
+      </div>
     </header>
   );
 }

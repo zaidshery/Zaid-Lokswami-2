@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { Flame, MapPin, Newspaper, Send, X } from 'lucide-react';
+import { Send, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import AiChatBrandMark from './AiChatBrandMark';
@@ -45,51 +45,6 @@ export default function AiChatLauncher() {
       inputHint: isHindi
         ? '\u0938\u092e\u093e\u091a\u093e\u0930 \u0938\u0947 \u091c\u0941\u095c\u093e \u092a\u094d\u0930\u0936\u094d\u0928 \u0932\u093f\u0916\u0947\u0902...'
         : 'Ask a news question...',
-      prompts: isHindi
-        ? [
-            {
-              id: 'latest',
-              label: '\u0906\u091c \u0915\u0940 \u092e\u0941\u0916\u094d\u092f \u0916\u092c\u0930\u0947\u0902',
-              value:
-                '\u0906\u091c \u0915\u0940 \u092e\u0941\u0916\u094d\u092f \u0916\u092c\u0930\u0947\u0902 \u092c\u0924\u093e\u0907\u090f\u0964',
-              Icon: Flame,
-            },
-            {
-              id: 'city',
-              label:
-                '\u092e\u0947\u0930\u0947 \u0936\u0939\u0930 \u0915\u0940 \u0916\u092c\u0930\u0947\u0902',
-              value:
-                '\u092e\u0947\u0930\u0947 \u0936\u0939\u0930 \u0915\u0940 \u0924\u093e\u091c\u093e \u0916\u092c\u0930\u0947\u0902 \u092c\u0924\u093e\u0907\u090f\u0964',
-              Icon: MapPin,
-            },
-            {
-              id: 'epaper',
-              label: '\u0906\u091c \u0915\u093e \u0908-\u092a\u0947\u092a\u0930',
-              value:
-                '\u0906\u091c \u0915\u093e \u0908-\u092a\u0947\u092a\u0930 \u0916\u094b\u0932\u093f\u090f\u0964',
-              Icon: Newspaper,
-            },
-          ]
-        : [
-            {
-              id: 'latest',
-              label: "Today's headlines",
-              value: "Show me today's main headlines",
-              Icon: Flame,
-            },
-            {
-              id: 'city',
-              label: 'My local coverage',
-              value: 'Show me the latest news from my city',
-              Icon: MapPin,
-            },
-            {
-              id: 'epaper',
-              label: "Open today's e-paper",
-              value: "Open today's e-paper",
-              Icon: Newspaper,
-            },
-          ],
     }),
     [isHindi]
   );
@@ -176,24 +131,6 @@ export default function AiChatLauncher() {
               <p className={`text-sm font-semibold ${isLight ? 'text-zinc-800' : 'text-zinc-100'}`}>
                 {content.intro}
               </p>
-
-              <div className="mt-3 grid grid-cols-1 gap-2">
-                {content.prompts.map(({ id, label, value, Icon }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => handleOpenWithDraft(value)}
-                    className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-left text-xs font-medium transition ${
-                      isLight
-                        ? 'border-zinc-300 bg-white text-zinc-700 hover:border-red-300 hover:text-red-700'
-                        : 'border-zinc-700 bg-zinc-900/80 text-zinc-200 hover:border-red-500/45 hover:text-zinc-100'
-                    }`}
-                  >
-                    <Icon className="h-3.5 w-3.5 flex-shrink-0" />
-                    <span className="truncate">{label}</span>
-                  </button>
-                ))}
-              </div>
 
               <button
                 type="button"

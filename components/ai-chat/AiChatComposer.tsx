@@ -69,7 +69,7 @@ export default function AiChatComposer({
   isLight,
 }: AiChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const { language, setLanguage } = useAppStore();
+  const { language } = useAppStore();
   const isHindi = language === 'hi';
 
   useEffect(() => {
@@ -109,16 +109,6 @@ export default function AiChatComposer({
         }}
       >
         <div className="flex items-end gap-2">
-          <select
-            value={language}
-            onChange={(event) => setLanguage(event.target.value as 'hi' | 'en')}
-            aria-label="Select chat language"
-            className={`w-14 cursor-pointer rounded-xl border px-2 py-2 text-xs font-bold transition ${selectClassName}`}
-          >
-            <option value="hi">HI</option>
-            <option value="en">EN</option>
-          </select>
-
           <textarea
             ref={textareaRef}
             value={draft}
