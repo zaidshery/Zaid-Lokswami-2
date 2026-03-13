@@ -1,5 +1,5 @@
-const CACHE_NAME = 'lokswami-app-shell-v1';
-const APP_SHELL_URLS = ['/', '/manifest.webmanifest', '/logo-icon-final.png'];
+const CACHE_NAME = 'lokswami-app-shell-v2';
+const APP_SHELL_URLS = ['/', '/main', '/manifest.webmanifest', '/logo-icon-final.png'];
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -19,7 +19,12 @@ self.addEventListener('activate', (event) => {
             .map((key) => caches.delete(key))
         )
       )
-      .then(() => self.clients.claim())
+      .then(async () => {
+        if ('navigationPreload' in self.registration) {
+          await self.registration.navigationPreload.enable().catch(() => undefined);
+        }
+        await self.clients.claim();
+      })
   );
 });
 
@@ -34,10 +39,19 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(async () => {
-        const cachedShell = await caches.match('/');
-        return cachedShell || Response.error();
-      })
+      (async () => {
+        try {
+          const preloadResponse = await event.preloadResponse;
+          if (preloadResponse) {
+            return preloadResponse;
+          }
+
+          return await fetch(request);
+        } catch {
+          const cachedShell = await caches.match('/main');
+          return cachedShell || (await caches.match('/')) || Response.error();
+        }
+      })()
     );
     return;
   }

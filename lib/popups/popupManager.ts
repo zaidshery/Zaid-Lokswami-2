@@ -1,3 +1,5 @@
+import { resolveNotificationCapability } from '@/lib/pwa/client';
+
 export type PopupType = 'state' | 'notification' | 'personalization';
 
 type PopupStorageState = {
@@ -19,7 +21,10 @@ type PopupStorageState = {
 
 export type PopupUserState = {
   isAuthenticated: boolean;
-  notificationPermission: NotificationPermission | 'unsupported';
+  notificationPermission:
+    | NotificationPermission
+    | 'unsupported'
+    | 'requires-install';
 };
 
 const POPUP_STORAGE_KEY = 'lokswami_popup_manager_state_v1';
@@ -241,11 +246,7 @@ export function savePreferredCategories(values: string[]) {
 }
 
 export function resolveNotificationPermission() {
-  if (typeof Notification === 'undefined') {
-    return 'unsupported' as const;
-  }
-
-  return Notification.permission;
+  return resolveNotificationCapability().state;
 }
 
 /**
@@ -271,7 +272,8 @@ export function getNextPopup(userState: PopupUserState): PopupType | null {
   const notificationHandled =
     userState.notificationPermission === 'granted' ||
     userState.notificationPermission === 'denied' ||
-    userState.notificationPermission === 'unsupported';
+    userState.notificationPermission === 'unsupported' ||
+    userState.notificationPermission === 'requires-install';
 
   const shouldShowNotificationPrompt =
     !notificationHandled &&

@@ -1,10 +1,14 @@
-﻿'use client';
+'use client';
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { BellRing, Newspaper, X } from 'lucide-react';
+import { BellRing, Newspaper, Smartphone, X } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useAppStore } from '@/lib/store/appStore';
+import {
+  requestInstallPrompt,
+  resolveNotificationCapability,
+} from '@/lib/pwa/client';
 
 type LatestPaper = {
   title: string;
@@ -31,6 +35,7 @@ export default function DailyEpaperAlert() {
 
   const today = useMemo(() => localDateKey(new Date()), []);
   const isSignedIn = status === 'authenticated' && Boolean(session?.user?.email);
+  const notificationCapability = resolveNotificationCapability();
 
   useEffect(() => {
     let active = true;
@@ -62,16 +67,25 @@ export default function DailyEpaperAlert() {
         setShowBanner(true);
         localStorage.setItem(DAILY_ALERT_STORAGE_KEY, today);
 
-        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        if (
+          typeof Notification !== 'undefined' &&
+          Notification.permission === 'granted' &&
+          document.visibilityState === 'visible'
+        ) {
           const body =
             language === 'hi'
               ? `${paper.city} \u0915\u093e \u0928\u092f\u093e \u0908-\u092a\u0947\u092a\u0930 \u0906 \u0917\u092f\u093e \u0939\u0948\u0964`
               : `Today's ${paper.city} e-paper is now available.`;
-          new Notification(language === 'hi' ? '\u0906\u091c \u0915\u093e \u0908-\u092a\u0947\u092a\u0930 \u0906 \u0917\u092f\u093e!' : "Today's E-paper has arrived!", {
-            body,
-            icon: '/logo-icon-final.png',
-            tag: `epaper-${today}`,
-          });
+          new Notification(
+            language === 'hi'
+              ? '\u0906\u091c \u0915\u093e \u0908-\u092a\u0947\u092a\u0930 \u0906 \u0917\u092f\u093e!'
+              : "Today's E-paper has arrived!",
+            {
+              body,
+              icon: '/logo-icon-final.png',
+              tag: `epaper-${today}`,
+            }
+          );
         }
       } catch {
         // Silent fail: notifications should never block primary browsing.
@@ -85,7 +99,37 @@ export default function DailyEpaperAlert() {
   }, [language, today]);
 
   const requestNotificationPermission = async () => {
-    if (typeof Notification === 'undefined' || Notification.permission !== 'default') {
+    const capability = resolveNotificationCapability();
+
+    if (capability.requiresAppInstall) {
+      requestInstallPrompt();
+      setNotice(
+        language === 'hi'
+          ? 'iPhone \u092a\u0930 \u0905\u0932\u0930\u094d\u091f \u091a\u093e\u0932\u0942 \u0915\u0930\u0928\u0947 \u0915\u0947 \u0932\u093f\u090f \u092a\u0939\u0932\u0947 \u090f\u092a \u0907\u0902\u0938\u094d\u091f\u0949\u0932 \u0915\u0930\u0947\u0902\u0964'
+          : 'Install the app first on iPhone to turn on alerts.'
+      );
+      return;
+    }
+
+    if (!capability.isSupported) {
+      setNotice(
+        language === 'hi'
+          ? '\u0907\u0938 \u092c\u094d\u0930\u093e\u0909\u091c\u093c\u0930 \u092e\u0947\u0902 \u0905\u0932\u0930\u094d\u091f \u0938\u092a\u094b\u0930\u094d\u091f \u0928\u0939\u0940\u0902 \u0939\u0948\u0902\u0964'
+          : 'Alerts are not supported in this browser.'
+      );
+      return;
+    }
+
+    if (capability.permission === 'denied') {
+      setNotice(
+        language === 'hi'
+          ? '\u0905\u0932\u0930\u094d\u091f \u092b\u093f\u0930 \u0938\u0947 \u091a\u093e\u0932\u0942 \u0915\u0930\u0928\u0947 \u0915\u0947 \u0932\u093f\u090f browser site settings \u092e\u0947\u0902 Notifications \u0905\u0928\u0941\u092e\u0924\u093f \u091a\u093e\u0932\u0942 \u0915\u0930\u0947\u0902\u0964'
+          : 'Alerts are blocked. Re-enable them from your browser site settings.'
+      );
+      return;
+    }
+
+    if (!capability.canPrompt) {
       return;
     }
 
@@ -100,10 +144,15 @@ export default function DailyEpaperAlert() {
             language === 'hi'
               ? `${latestPaper.city} \u0915\u093e \u0928\u092f\u093e \u0908-\u092a\u0947\u092a\u0930 \u0909\u092a\u0932\u092c\u094d\u0927 \u0939\u0948\u0964`
               : `Today's ${latestPaper.city} e-paper is available now.`;
-          new Notification(language === 'hi' ? '\u0905\u0932\u0930\u094d\u091f \u0938\u0915\u094d\u0937\u092e \u0939\u094b \u0917\u092f\u093e' : 'Alerts enabled', {
-            body,
-            icon: '/logo-icon-final.png',
-          });
+          new Notification(
+            language === 'hi'
+              ? '\u0905\u0932\u0930\u094d\u091f \u0938\u0915\u094d\u0937\u092e \u0939\u094b \u0917\u092f\u093e'
+              : 'Alerts enabled',
+            {
+              body,
+              icon: '/logo-icon-final.png',
+            }
+          );
         }
         setNotice(
           language === 'hi'
@@ -114,8 +163,18 @@ export default function DailyEpaperAlert() {
               ? 'Alerts enabled for this account on this device'
               : 'Alerts enabled on this device'
         );
+      } else if (permission === 'denied') {
+        setNotice(
+          language === 'hi'
+            ? '\u0905\u0928\u0941\u092e\u0924\u093f \u0928\u0939\u0940\u0902 \u092e\u093f\u0932\u0940\u0964 browser site settings \u092e\u0947\u0902 Notifications \u091a\u093e\u0932\u0942 \u0915\u0930\u0915\u0947 \u092b\u093f\u0930 \u0915\u094b\u0936\u093f\u0936 \u0915\u0930\u0947\u0902\u0964'
+            : 'Permission was denied. Turn notifications back on from browser site settings.'
+        );
       } else {
-        setNotice(language === 'hi' ? '\u0928\u094b\u091f\u093f\u092b\u093f\u0915\u0947\u0936\u0928 \u0905\u0928\u0941\u092e\u0924\u093f \u0928\u0939\u0940\u0902 \u092e\u093f\u0932\u0940' : 'Notification permission denied');
+        setNotice(
+          language === 'hi'
+            ? '\u0906\u092a \u091a\u093e\u0939\u0947\u0902 \u0924\u094b \u092c\u093e\u0926 \u092e\u0947\u0902 \u092d\u0940 \u0905\u0932\u0930\u094d\u091f \u091a\u093e\u0932\u0942 \u0915\u0930 \u0938\u0915\u0924\u0947 \u0939\u0948\u0902\u0964'
+            : 'You can turn alerts on later.'
+        );
       }
     } finally {
       setEnableState('idle');
@@ -124,20 +183,23 @@ export default function DailyEpaperAlert() {
 
   if (!showBanner || !latestPaper) return null;
 
-  const canEnableBrowserNotifications =
-    typeof Notification !== 'undefined' && Notification.permission === 'default';
+  const canPromptForAlerts = notificationCapability.canPrompt;
+  const shouldShowInstallForAlerts = notificationCapability.requiresAppInstall;
 
   return (
     <div className="pointer-events-none fixed bottom-20 right-3 z-[95] w-[min(92vw,24rem)] sm:bottom-6 sm:right-5">
-      <div className="pointer-events-auto rounded-2xl border border-zinc-200 bg-white/95 p-3.5 shadow-2xl backdrop-blur-md dark:border-zinc-700 dark:bg-zinc-900/95">
+      <div className="pointer-events-auto relative overflow-hidden rounded-2xl border border-primary-200/70 bg-white/95 p-3.5 shadow-[0_22px_52px_rgba(199,29,36,0.16)] backdrop-blur-md dark:border-primary-900/40 dark:bg-zinc-900/95">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,#8b141a_0%,#e72129_55%,#c61d24_100%)]" />
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="flex items-start gap-2">
-            <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-50 text-red-600 dark:bg-red-500/20 dark:text-red-300">
+            <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-primary-50 text-primary-700 dark:bg-primary-500/20 dark:text-primary-300">
               <BellRing className="h-4 w-4" />
             </span>
             <div>
               <p className="text-sm font-black text-zinc-900 dark:text-zinc-100">
-                {language === 'hi' ? '\u0906\u091c \u0915\u093e \u0908-\u092a\u0947\u092a\u0930 \u0906 \u0917\u092f\u093e!' : "Today's E-paper has arrived!"}
+                {language === 'hi'
+                  ? '\u0906\u091c \u0915\u093e \u0908-\u092a\u0947\u092a\u0930 \u0906 \u0917\u092f\u093e!'
+                  : "Today's E-paper has arrived!"}
               </p>
               <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
                 {latestPaper.city}: {latestPaper.title}
@@ -158,23 +220,34 @@ export default function DailyEpaperAlert() {
           <Link
             href="/main/epaper"
             onClick={() => setShowBanner(false)}
-            className="attention-pulsate-bck inline-flex h-8 items-center gap-1.5 rounded-full border border-zinc-300 bg-zinc-100 px-3 text-xs font-semibold text-zinc-700 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 dark:border-zinc-700 dark:bg-zinc-900/65 dark:text-zinc-100 dark:hover:border-orange-500/50 dark:hover:bg-orange-900/20 dark:hover:text-orange-300"
+            className="attention-pulsate-bck inline-flex h-8 items-center gap-1.5 rounded-full border border-primary-200 bg-primary-50 px-3 text-xs font-semibold text-primary-700 transition hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300 dark:hover:bg-primary-950/45"
           >
-            <Newspaper className="h-3.5 w-3.5 text-orange-500 dark:text-orange-400" />
-            {language === 'hi' ? '\u0908-\u092a\u0947\u092a\u0930 \u092a\u0922\u093c\u0947\u0902' : 'Read E-Paper'}
+            <Newspaper className="h-3.5 w-3.5 text-primary-600 dark:text-primary-300" />
+            {language === 'hi'
+              ? '\u0908-\u092a\u0947\u092a\u0930 \u092a\u0922\u093c\u0947\u0902'
+              : 'Read E-Paper'}
           </Link>
 
-          {canEnableBrowserNotifications ? (
+          {canPromptForAlerts || shouldShowInstallForAlerts ? (
             <button
               type="button"
               onClick={() => void requestNotificationPermission()}
               disabled={enableState === 'working'}
-              className="inline-flex h-8 items-center rounded-full border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-primary-600 bg-primary-600 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-primary-500 dark:bg-primary-600 dark:hover:bg-primary-500"
             >
-                {enableState === 'working'
+              {shouldShowInstallForAlerts ? (
+                <Smartphone className="h-3.5 w-3.5" />
+              ) : (
+                <BellRing className="h-3.5 w-3.5" />
+              )}
+              {enableState === 'working'
+                ? language === 'hi'
+                  ? '\u0938\u0915\u094d\u0937\u092e \u0939\u094b \u0930\u0939\u093e \u0939\u0948...'
+                  : 'Enabling...'
+                : shouldShowInstallForAlerts
                   ? language === 'hi'
-                    ? '\u0938\u0915\u094d\u0937\u092e \u0939\u094b \u0930\u0939\u093e \u0939\u0948...'
-                    : 'Enabling...'
+                    ? '\u0905\u0932\u0930\u094d\u091f \u0915\u0947 \u0932\u093f\u090f \u090f\u092a \u0907\u0902\u0938\u094d\u091f\u0949\u0932 \u0915\u0930\u0947\u0902'
+                    : 'Install App for Alerts'
                   : language === 'hi'
                     ? '\u0905\u0932\u0930\u094d\u091f \u0938\u0915\u094d\u0937\u092e \u0915\u0930\u0947\u0902'
                     : 'Enable Alerts'}
@@ -183,10 +256,14 @@ export default function DailyEpaperAlert() {
         </div>
 
         {notice ? (
-          <p className="mt-2 text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">{notice}</p>
+          <p
+            aria-live="polite"
+            className="mt-2 text-[11px] font-semibold text-zinc-600 dark:text-zinc-300"
+          >
+            {notice}
+          </p>
         ) : null}
       </div>
     </div>
   );
 }
-
