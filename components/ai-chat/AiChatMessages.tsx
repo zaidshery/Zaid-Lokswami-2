@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
+import { FileText, Newspaper, PlayCircle, Video } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { RefObject } from 'react';
 import AiChatBrandMark from './AiChatBrandMark';
@@ -32,14 +33,18 @@ const MESSAGE_ANIMATION = {
 
 function getGreetingSeed(language: 'hi' | 'en') {
   return language === 'hi'
-    ? 'नमस्ते, मैं लोकस्वामी AI हूं। आप खबर खोज सकते हैं, सारांश पा सकते हैं, या सुन सकते हैं।'
-    : 'Hello, I am Lokswami AI. You can search news, get summaries, or listen here.';
+    ? '\u0928\u092e\u0938\u094d\u0915\u093e\u0930, \u092e\u0948\u0902 Lokswami AI Desk \u0939\u0942\u0901\u0964 \u092e\u0948\u0902 \u0906\u092a\u0915\u094b \u0938\u0941\u0930\u094d\u0916\u093f\u092f\u093e\u0901, \u091c\u093f\u0932\u093e \u0915\u0935\u0930\u0947\u091c, \u0908-\u092a\u0947\u092a\u0930 \u0914\u0930 \u0938\u093e\u0930\u093e\u0902\u0936 \u092e\u0947\u0902 \u092e\u0926\u0926 \u0915\u0930 \u0938\u0915\u0924\u093e \u0939\u0942\u0901\u0964'
+    : 'Hello, this is Lokswami AI Desk. I can help with headlines, local coverage, e-paper access, summaries, and read-aloud support.';
 }
 
 function getEmptyStateSuggestions(language: 'hi' | 'en') {
   return language === 'hi'
-    ? ['आज की बड़ी खबरें', 'IPL 2026 अपडेट', 'दिल्ली मौसम अपडेट']
-    : ['Top stories today', 'IPL 2026 updates', 'Delhi weather update'];
+    ? [
+        '\u0906\u091c \u0915\u0940 \u092e\u0941\u0916\u094d\u092f \u0916\u092c\u0930\u0947\u0902',
+        '\u092e\u0947\u0930\u0947 \u091c\u093f\u0932\u0947 \u0915\u0940 \u0916\u092c\u0930\u0947\u0902',
+        '\u0906\u091c \u0915\u093e \u0908-\u092a\u0947\u092a\u0930',
+      ]
+    : ["Today's headlines", 'News from my district', "Open today's e-paper"];
 }
 
 function formatDuration(seconds?: number) {
@@ -57,8 +62,8 @@ function AssistantAvatar() {
 
 function TypingIndicator({ isLight }: { isLight: boolean }) {
   const bubbleClassName = isLight
-    ? 'border border-red-200 bg-red-50/80 text-zinc-800'
-    : 'border border-red-500/25 bg-zinc-900/90 text-zinc-100';
+    ? 'border border-zinc-200 bg-white text-zinc-800'
+    : 'border border-zinc-800 bg-zinc-900/90 text-zinc-100';
 
   return (
     <div className={`rounded-2xl rounded-tl-sm px-4 py-3 ${bubbleClassName}`}>
@@ -66,7 +71,7 @@ function TypingIndicator({ isLight }: { isLight: boolean }) {
         {[0, 0.2, 0.4].map((delay) => (
           <motion.span
             key={delay}
-            className="h-2 w-2 rounded-full bg-red-400"
+            className="h-2 w-2 rounded-full bg-red-500"
             animate={{ scale: [1, 1.45, 1] }}
             transition={{ repeat: Infinity, duration: 1, delay }}
           />
@@ -84,13 +89,17 @@ function ExploreMoreRow({
   isLight: boolean;
 }) {
   const pillClassName = isLight
-    ? 'rounded-full border border-red-200 bg-white px-3 py-1 text-xs text-zinc-700 transition hover:border-red-500 hover:text-red-600'
-    : 'rounded-full border border-red-500/25 bg-zinc-900 px-3 py-1 text-xs text-zinc-300 transition hover:border-red-500/55 hover:text-red-200';
+    ? 'rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs text-zinc-700 transition hover:border-red-400 hover:text-red-700'
+    : 'rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs text-zinc-300 transition hover:border-red-500/55 hover:text-red-200';
 
   const labels =
     language === 'hi'
-      ? { news: 'और खबरें', videos: 'वीडियो', epaper: 'ई-पेपर' }
-      : { news: 'More news', videos: 'Videos', epaper: 'E-Paper' };
+      ? {
+          news: '\u0914\u0930 \u0915\u0935\u0930\u0947\u091c',
+          videos: '\u0935\u0940\u0921\u093f\u092f\u094b',
+          epaper: '\u0908-\u092a\u0947\u092a\u0930',
+        }
+      : { news: 'More coverage', videos: 'Videos', epaper: 'E-Paper' };
 
   return (
     <div className="mt-3 flex flex-wrap gap-2">
@@ -105,6 +114,19 @@ function ExploreMoreRow({
       </Link>
     </div>
   );
+}
+
+function getCardIcon(type: 'epaper' | 'video' | 'story' | 'article') {
+  if (type === 'epaper') {
+    return <Newspaper className="h-5 w-5" />;
+  }
+  if (type === 'video') {
+    return <Video className="h-5 w-5" />;
+  }
+  if (type === 'story') {
+    return <PlayCircle className="h-5 w-5" />;
+  }
+  return <FileText className="h-5 w-5" />;
 }
 
 function SuggestionsRail({
@@ -133,7 +155,7 @@ function SuggestionsRail({
             <div
               key={index}
               className={`h-24 w-[220px] flex-shrink-0 animate-pulse rounded-2xl border ${
-                isLight ? 'border-red-100 bg-red-50/70' : 'border-zinc-800 bg-zinc-900'
+                isLight ? 'border-zinc-200 bg-zinc-100/80' : 'border-zinc-800 bg-zinc-900'
               }`}
             />
           ))}
@@ -153,92 +175,79 @@ function SuggestionsRail({
           isLight ? 'text-zinc-600' : 'text-zinc-400'
         }`}
       >
-        {language === 'hi' ? 'आज के सुझाव' : 'Live suggestions'}
+        {language === 'hi'
+          ? '\u0905\u092d\u0940 \u0915\u0947 \u0938\u0941\u091d\u093e\u0935'
+          : 'Recommended now'}
       </p>
 
       <div className="overflow-x-auto scrollbar-hide">
         <div className="flex gap-3 pb-1">
-          {cards.map((card) => {
-            const cardClassName =
-              card.type === 'epaper'
-                ? isLight
-                  ? 'border-amber-300 bg-amber-50'
-                  : 'border-amber-500/30 bg-amber-500/10'
-                : card.type === 'video'
-                  ? isLight
-                    ? 'border-sky-300 bg-sky-50'
-                    : 'border-sky-500/30 bg-sky-500/10'
-                  : card.type === 'story'
-                    ? isLight
-                      ? 'border-fuchsia-300 bg-fuchsia-50'
-                      : 'border-fuchsia-500/25 bg-fuchsia-500/10'
-                    : isLight
-                      ? 'border-red-200 bg-white'
-                      : 'border-red-500/25 bg-zinc-900';
+          {cards.map((card) => (
+            <Link
+              key={`${card.type}-${card.title}`}
+              href={card.url}
+              className={`flex h-24 w-[220px] flex-shrink-0 gap-3 rounded-2xl border p-3 text-left transition hover:scale-[1.02] ${
+                isLight
+                  ? 'border-zinc-200 bg-white hover:border-red-300'
+                  : 'border-zinc-800 bg-zinc-950/90 hover:border-red-500/35'
+              }`}
+            >
+              {card.thumbnail ? (
+                <div
+                  className={`relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl ${
+                    card.type === 'story' ? 'aspect-square' : ''
+                  }`}
+                >
+                  <Image
+                    src={card.thumbnail}
+                    alt={card.title}
+                    fill
+                    sizes="64px"
+                    className="object-cover"
+                  />
 
-            return (
-              <Link
-                key={`${card.type}-${card.title}`}
-                href={card.url}
-                className={`flex h-24 w-[220px] flex-shrink-0 gap-3 rounded-2xl border p-3 text-left transition hover:scale-[1.02] ${cardClassName}`}
-              >
-                {card.thumbnail ? (
-                  <div
-                    className={`relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl ${
-                      card.type === 'story' ? 'aspect-square' : ''
-                    }`}
-                  >
-                    <Image
-                      src={card.thumbnail}
-                      alt={card.title}
-                      fill
-                      sizes="64px"
-                      className="object-cover"
-                    />
-
-                    {card.type === 'story' ? (
-                      <>
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <span className="inline-flex rounded-full bg-red-500 p-2 text-white shadow-md shadow-red-500/30">
-                            <span className="text-[10px] leading-none">▶</span>
-                          </span>
-                        </div>
-                        {card.durationSeconds ? (
-                          <span className="absolute bottom-1.5 right-1.5 rounded bg-black/80 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                            {formatDuration(card.durationSeconds)}
-                          </span>
-                        ) : null}
-                      </>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-xl bg-white/10 text-2xl">
-                    {card.type === 'epaper' ? '📰' : card.type === 'article' ? '📢' : '⚡'}
-                  </div>
-                )}
-
-                <div className="min-w-0 flex-1">
-                  <p
-                    className={`text-[11px] font-semibold ${
-                      card.type === 'story' ? 'text-fuchsia-400' : 'text-red-400'
-                    }`}
-                  >
-                    {card.subtitle}
-                  </p>
-                  <p
-                    className={`mt-1 line-clamp-2 text-sm font-semibold ${
-                      isLight ? 'text-zinc-900' : 'text-zinc-100'
-                    }`}
-                  >
-                    {card.title}
-                  </p>
-                  {card.date ? (
-                    <p className="mt-2 text-[11px] text-zinc-500">{card.date.slice(0, 10)}</p>
+                  {card.type === 'story' ? (
+                    <>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="inline-flex rounded-full bg-black/70 p-1.5 text-white">
+                          <PlayCircle className="h-4 w-4" />
+                        </span>
+                      </div>
+                      {card.durationSeconds ? (
+                        <span className="absolute bottom-1.5 right-1.5 rounded bg-black/80 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                          {formatDuration(card.durationSeconds)}
+                        </span>
+                      ) : null}
+                    </>
                   ) : null}
                 </div>
-              </Link>
-            );
-          })}
+              ) : (
+                <div
+                  className={`flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-xl ${
+                    isLight ? 'bg-red-50 text-red-700' : 'bg-zinc-900 text-red-300'
+                  }`}
+                >
+                  {getCardIcon(card.type)}
+                </div>
+              )}
+
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold text-red-600 dark:text-red-300">
+                  {card.subtitle}
+                </p>
+                <p
+                  className={`mt-1 line-clamp-2 text-sm font-semibold ${
+                    isLight ? 'text-zinc-900' : 'text-zinc-100'
+                  }`}
+                >
+                  {card.title}
+                </p>
+                {card.date ? (
+                  <p className="mt-2 text-[11px] text-zinc-500">{card.date.slice(0, 10)}</p>
+                ) : null}
+              </div>
+            </Link>
+          ))}
         </div>
       </div>
     </div>
@@ -280,7 +289,9 @@ function CategorySuggestionSection({
   return (
     <div className="mt-3">
       <p className={`text-xs font-semibold ${isLight ? 'text-zinc-600' : 'text-zinc-400'}`}>
-        {language === 'hi' ? 'आप ये भी पूछ सकते हैं' : 'Try these related topics'}
+        {language === 'hi'
+          ? '\u0906\u092a \u092f\u0939 \u092d\u0940 \u092a\u0942\u091b \u0938\u0915\u0924\u0947 \u0939\u0948\u0902'
+          : 'You can also ask'}
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
         {categorySuggestions.map((item) => (
@@ -290,14 +301,108 @@ function CategorySuggestionSection({
             onClick={() => onQuickSearch(item.query)}
             className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
               isLight
-                ? 'border-red-200 bg-white text-zinc-700 hover:border-red-500 hover:text-red-600'
-                : 'border-red-500/25 bg-zinc-900 text-zinc-300 hover:border-red-500/55 hover:text-red-200'
+                ? 'border-zinc-300 bg-white text-zinc-700 hover:border-red-400 hover:text-red-700'
+                : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-red-500/55 hover:text-red-200'
             }`}
           >
             {item.label}
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function StructuredAnswerBlock({
+  language,
+  message,
+  onQuickSearch,
+  isLight,
+}: {
+  language: 'hi' | 'en';
+  message: ChatMessage;
+  onQuickSearch: (value: string) => void;
+  isLight: boolean;
+}) {
+  const answer = message.structuredAnswer;
+  if (!answer) {
+    return <p className="whitespace-pre-line break-words">{message.text}</p>;
+  }
+
+  const sectionTitleClassName = `text-[11px] font-semibold uppercase tracking-[0.14em] ${
+    isLight ? 'text-zinc-500' : 'text-zinc-400'
+  }`;
+  const questionButtonClassName = `rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+    isLight
+      ? 'border-zinc-300 bg-white text-zinc-700 hover:border-red-400 hover:text-red-700'
+      : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-red-500/55 hover:text-red-200'
+  }`;
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className={`text-base font-semibold ${isLight ? 'text-zinc-950' : 'text-white'}`}>
+          {answer.headline}
+        </p>
+        <p className="mt-2 whitespace-pre-line break-words">{answer.summary}</p>
+      </div>
+
+      {answer.keyPoints.length ? (
+        <div>
+          <p className={sectionTitleClassName}>
+            {language === 'hi' ? 'मुख्य बिंदु' : 'Key Points'}
+          </p>
+          <ul className="mt-2 space-y-2">
+            {answer.keyPoints.map((point) => (
+              <li key={point} className="flex items-start gap-2">
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-red-600" />
+                <span className="flex-1 break-words">{point}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {answer.whyItMatters ? (
+        <div>
+          <p className={sectionTitleClassName}>
+            {language === 'hi' ? 'क्यों महत्वपूर्ण है' : 'Why It Matters'}
+          </p>
+          <p className="mt-2 break-words">{answer.whyItMatters}</p>
+        </div>
+      ) : null}
+
+      {answer.fallbackNote ? (
+        <div
+          className={`rounded-xl border px-3 py-2 text-xs ${
+            isLight
+              ? 'border-amber-200 bg-amber-50 text-amber-800'
+              : 'border-amber-500/25 bg-amber-500/10 text-amber-100'
+          }`}
+        >
+          {answer.fallbackNote}
+        </div>
+      ) : null}
+
+      {answer.relatedQuestions.length ? (
+        <div>
+          <p className={sectionTitleClassName}>
+            {language === 'hi' ? 'संबंधित सवाल' : 'Related Questions'}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {answer.relatedQuestions.map((question) => (
+              <button
+                key={question}
+                type="button"
+                onClick={() => onQuickSearch(question)}
+                className={questionButtonClassName}
+              >
+                {question}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -329,14 +434,16 @@ function ResponseActions({
               : 'border border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700'
           }`}
         >
-          {language === 'hi' ? 'फिर कोशिश करें' : 'Try again'}
+          {language === 'hi'
+            ? '\u092b\u093f\u0930 \u0915\u094b\u0936\u093f\u0936 \u0915\u0930\u0947\u0902'
+            : 'Try again'}
         </button>
       ) : null}
 
       {message.primaryAction ? (
         <Link
           href={message.primaryAction.url}
-          className="rounded-xl border border-red-400/60 bg-[linear-gradient(135deg,#fb7185,#dc2626_56%,#991b1b)] px-3 py-2 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(127,29,29,0.35)]"
+          className="rounded-xl border border-red-700 bg-red-700 px-3 py-2 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(127,29,29,0.24)]"
         >
           {message.primaryAction.label}
         </Link>
@@ -373,22 +480,27 @@ export default function AiChatMessages({
   );
 
   const areaClassName = isLight
-    ? 'bg-[linear-gradient(180deg,#fff,#fff8f8)]'
+    ? 'bg-[linear-gradient(180deg,#fff,#fff9f9)]'
     : 'bg-[linear-gradient(180deg,rgba(9,9,11,0.96),rgba(24,24,27,0.98))]';
   const aiBubbleClassName = isLight
-    ? 'border border-red-200/85 bg-white text-zinc-800'
-    : 'border border-red-500/25 bg-zinc-900/90 text-zinc-100';
+    ? 'border border-zinc-200 bg-white text-zinc-800'
+    : 'border border-zinc-800 bg-zinc-900/90 text-zinc-100';
   const suggestionClassName = isLight
-    ? 'border-red-200 bg-white text-zinc-700 hover:border-red-500 hover:bg-red-50 hover:text-red-600'
-    : 'border-red-500/25 bg-zinc-900/80 text-zinc-300 hover:border-red-500/55 hover:bg-red-500/8 hover:text-red-200';
+    ? 'border-zinc-300 bg-white text-zinc-700 hover:border-red-400 hover:bg-red-50 hover:text-red-700'
+    : 'border-zinc-700 bg-zinc-900/80 text-zinc-300 hover:border-red-500/55 hover:bg-red-500/8 hover:text-red-200';
 
   const emptyTitle =
-    language === 'hi' ? 'नमस्ते! मैं Lokswami AI हूं।' : 'Namaste! I am Lokswami AI.';
+    language === 'hi'
+      ? 'Lokswami AI Desk \u0938\u0947 \u092a\u0942\u091b\u0947\u0902'
+      : 'Ask Lokswami AI Desk';
   const emptyBody =
     language === 'hi'
-      ? 'सर्च, सारांश और लाइव खबरों में मदद के लिए तैयार।'
-      : 'Ready to help with search, summaries, and live updates.';
-  const nextQuestionLabel = language === 'hi' ? 'अगला सवाल' : 'Next question';
+      ? '\u092e\u0948\u0902 \u0906\u092a\u0915\u094b \u0938\u0941\u0930\u094d\u0916\u093f\u092f\u093e\u0901, \u091c\u093f\u0932\u093e \u0915\u0935\u0930\u0947\u091c, \u0908-\u092a\u0947\u092a\u0930 \u0914\u0930 \u0924\u094d\u0935\u0930\u093f\u0924 \u0938\u093e\u0930\u093e\u0902\u0936 \u0926\u0947 \u0938\u0915\u0924\u093e \u0939\u0942\u0901\u0964'
+      : 'I can help with headlines, district coverage, e-paper access, quick summaries, and read-aloud support.';
+  const nextQuestionLabel =
+    language === 'hi'
+      ? '\u0905\u0917\u0932\u093e \u0938\u0941\u091d\u093e\u0935'
+      : 'Suggested follow-up';
 
   return (
     <div
@@ -396,15 +508,15 @@ export default function AiChatMessages({
     >
       {visibleMessages.length === 0 && !isWorking ? (
         <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-          <motion.div
-            className="mb-4"
-            animate={{ y: [0, -8, 0] }}
-            transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+          <div
+            className={`mb-4 inline-flex rounded-full border p-4 ${
+              isLight
+                ? 'border-red-200 bg-white text-red-700 shadow-[0_16px_40px_rgba(24,24,27,0.08)]'
+                : 'border-zinc-700 bg-zinc-900 text-red-300 shadow-[0_16px_40px_rgba(0,0,0,0.35)]'
+            }`}
           >
-            <div className="inline-flex rounded-full border border-red-400/55 bg-[radial-gradient(circle_at_25%_15%,#f87171_0%,#dc2626_42%,#7f1d1d_74%,#09090b_100%)] p-4 text-white shadow-[0_16px_40px_rgba(127,29,29,0.5)]">
-              <AiChatBrandMark />
-            </div>
-          </motion.div>
+            <AiChatBrandMark />
+          </div>
 
           <h3 className={`text-lg font-bold ${isLight ? 'text-zinc-900' : 'text-zinc-100'}`}>
             {emptyTitle}
@@ -457,7 +569,7 @@ export default function AiChatMessages({
                 className={isUser ? 'flex justify-end' : 'flex'}
               >
                 {isUser ? (
-                  <div className="max-w-[84%] rounded-2xl rounded-tr-sm border border-red-400/65 bg-[linear-gradient(135deg,#fb7185,#dc2626_56%,#991b1b)] px-4 py-3 text-sm leading-relaxed text-white shadow-[0_12px_24px_rgba(127,29,29,0.42)]">
+                  <div className="max-w-[84%] rounded-2xl rounded-tr-sm border border-red-700 bg-red-700 px-4 py-3 text-sm leading-relaxed text-white shadow-[0_12px_24px_rgba(127,29,29,0.24)]">
                     <p className="whitespace-pre-line break-words">{message.text}</p>
                   </div>
                 ) : (
@@ -468,9 +580,14 @@ export default function AiChatMessages({
                       <div
                         className={`max-w-[92%] rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed ${aiBubbleClassName}`}
                       >
-                        <p className="whitespace-pre-line break-words">{message.text}</p>
+                        <StructuredAnswerBlock
+                          language={language}
+                          message={message}
+                          onQuickSearch={onQuickSearch}
+                          isLight={isLight}
+                        />
 
-                        {message.followUpSuggestion ? (
+                        {message.followUpSuggestion && !message.structuredAnswer ? (
                           <p className="mt-3 text-xs font-medium text-zinc-500">
                             {nextQuestionLabel}: {message.followUpSuggestion}
                           </p>
@@ -489,7 +606,7 @@ export default function AiChatMessages({
                                     linkItem.url ||
                                     `/main/article/${encodeURIComponent(linkItem.id)}`
                                   }
-                                  className="line-clamp-2 text-xs font-semibold underline underline-offset-2 text-red-500 hover:text-red-400"
+                                  className="line-clamp-2 text-xs font-semibold underline underline-offset-2 text-red-700 hover:text-red-500"
                                 >
                                   {linkItem.title}
                                 </Link>
@@ -544,7 +661,10 @@ export default function AiChatMessages({
 
           {errorText && visibleMessages.length === 0 ? (
             <p className="text-xs text-red-500 dark:text-red-300">
-              {errorText || (language === 'hi' ? 'कुछ गलत हो गया।' : 'Something went wrong.')}
+              {errorText ||
+                (language === 'hi'
+                  ? '\u0915\u0941\u091b \u0917\u0932\u0924 \u0939\u094b \u0917\u092f\u093e\u0964'
+                  : 'Something went wrong.')}
             </p>
           ) : null}
         </div>

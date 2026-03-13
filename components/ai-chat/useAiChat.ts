@@ -13,6 +13,7 @@ import type {
   AiContentItem,
   AiContentType,
   AiPrimaryAction,
+  AiStructuredAnswer,
   ChatMessage,
   ChatRole,
   UseAiChatOptions,
@@ -35,6 +36,7 @@ type AwarenessResponse = {
   confidence?: 'high' | 'medium' | 'low';
   followUpSuggestion?: string;
   primaryAction?: AiPrimaryAction | null;
+  structuredAnswer?: AiStructuredAnswer;
   data?: {
     answer?: string;
     answerSource?: AiAnswerSource;
@@ -42,6 +44,25 @@ type AwarenessResponse = {
     content?: AiContentGroups;
     followUpSuggestion?: string;
     primaryAction?: AiPrimaryAction | null;
+    structuredAnswer?: AiStructuredAnswer;
+  };
+  error?: string;
+};
+
+type AiActionResponse = {
+  success?: boolean;
+  action?: 'explain' | 'translate' | 'top_news' | 'trending_topics';
+  answer?: string;
+  followUpSuggestion?: string;
+  primaryAction?: AiPrimaryAction | null;
+  content?: AiContentGroups;
+  structuredAnswer?: AiStructuredAnswer;
+  data?: {
+    answer?: string;
+    followUpSuggestion?: string;
+    primaryAction?: AiPrimaryAction | null;
+    content?: AiContentGroups;
+    structuredAnswer?: AiStructuredAnswer;
   };
   error?: string;
 };
@@ -131,6 +152,54 @@ function createMessage(
     text,
     ...extras,
   };
+}
+
+function isStructuredAnswer(value: unknown): value is AiStructuredAnswer {
+  if (!value || typeof value !== 'object') return false;
+  const source = value as Partial<AiStructuredAnswer>;
+  return (
+    typeof source.headline === 'string' &&
+    typeof source.summary === 'string' &&
+    Array.isArray(source.keyPoints) &&
+    Array.isArray(source.relatedQuestions) &&
+    typeof source.whyItMatters === 'string'
+  );
+}
+
+function normalizeStructuredAnswer(value: unknown): AiStructuredAnswer | undefined {
+  if (!isStructuredAnswer(value)) return undefined;
+
+  const keyPoints = value.keyPoints
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .slice(0, 5);
+  const relatedQuestions = value.relatedQuestions
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .slice(0, 3);
+
+  if (!keyPoints.length || !relatedQuestions.length) {
+    return undefined;
+  }
+
+  return {
+    headline: value.headline.trim(),
+    summary: value.summary.trim(),
+    keyPoints,
+    whyItMatters: value.whyItMatters.trim(),
+    relatedQuestions,
+    fallbackNote:
+      typeof value.fallbackNote === 'string' && value.fallbackNote.trim()
+        ? value.fallbackNote.trim()
+      : undefined,
+  };
+}
+
+function hasUsableAssistantSource(messages: ChatMessage[], greeting: string) {
+  return messages.some(
+    (message) =>
+      message.role === 'assistant' &&
+      message.text.trim() &&
+      message.text !== greeting
+  );
 }
 
 function normalizeLangCode(value: string) {
@@ -295,8 +364,7 @@ function buildSuggestions(
         ? {
             type: 'epaper',
             title: payload.latestEpaper.title,
-            subtitle:
-              language === 'hi' ? '📄 आज का अखबार पढ़ें' : '📄 Read today’s e-paper',
+            subtitle: language === 'hi' ? 'आज का ई-पेपर' : "Today's e-paper",
             url: payload.latestEpaper.url,
             date:
               typeof payload.latestEpaper.date === 'string'
@@ -311,8 +379,7 @@ function buildSuggestions(
         ? {
             type: 'video',
             title: payload.trendingVideo.title,
-            subtitle:
-              language === 'hi' ? '🎬 आज का वायरल वीडियो' : '🎬 Trending video today',
+            subtitle: language === 'hi' ? 'लोकप्रिय वीडियो' : 'Trending video',
             url: payload.trendingVideo.url,
             thumbnail:
               typeof payload.trendingVideo.thumbnail === 'string'
@@ -327,8 +394,7 @@ function buildSuggestions(
         ? {
             type: 'story',
             title: payload.topStory.title,
-            subtitle:
-              language === 'hi' ? '⚡ आज का Mojo देखें' : '⚡ Watch today’s Mojo',
+            subtitle: language === 'hi' ? 'आज का Mojo' : "Today's Mojo",
             url: payload.topStory.url,
             thumbnail:
               typeof payload.topStory.thumbnail === 'string'
@@ -347,10 +413,7 @@ function buildSuggestions(
         ? {
             type: 'article',
             title: payload.breakingArticle.title,
-            subtitle:
-              language === 'hi'
-                ? '📰 ब्रेकिंग खबर पढ़ें'
-                : '📰 Read breaking coverage',
+            subtitle: language === 'hi' ? 'ताज़ा कवरेज' : 'Breaking coverage',
             url: payload.breakingArticle.url,
           }
         : null,
@@ -382,10 +445,7 @@ function buildCategorySuggestions(
       name,
       hindi,
       count: typeof item.count === 'number' ? item.count : 0,
-      label:
-        language === 'hi'
-          ? `${icon} ${hindi} की खबरें`
-          : `${icon} ${name} news`,
+      label: language === 'hi' ? `${icon} ${hindi} की खबरें` : `${icon} ${name} news`,
       query: language === 'hi' ? `${hindi} की खबरें` : `${name} news`,
     };
   });
@@ -398,13 +458,19 @@ function buildTechnicalFallbackMessage(
   return createMessage(
     'assistant',
     language === 'hi'
-      ? 'थोड़ी तकनीकी परेशानी है, एक पल में दोबारा कोशिश करें! 🔄'
-      : 'There is a brief technical hiccup. Please try again in a moment! 🔄',
+      ? 'अभी थोड़ी तकनीकी दिक्कत है। कृपया एक पल बाद फिर कोशिश करें।'
+      : 'There is a brief technical issue right now. Please try again in a moment.',
     {
       answerSource: 'error_fallback',
       retryQuery: query,
     }
   );
+}
+
+function getGreetingMessage(language: 'hi' | 'en') {
+  return language === 'hi'
+    ? 'नमस्कार, मैं Lokswami AI Desk हूँ। मैं आपको सुर्खियाँ, जिला कवरेज, ई-पेपर और सारांश में मदद कर सकता हूँ।'
+    : 'Hello, this is Lokswami AI Desk. I can help with headlines, local coverage, e-paper access, summaries, and read-aloud support.';
 }
 
 export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
@@ -460,9 +526,10 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
     );
     if (filtered.length) return filtered;
 
-    const hindi = BHASHINI_LANGUAGE_OPTIONS.find((item) => item.code === 'hi-IN');
-    return hindi ? [hindi] : BHASHINI_LANGUAGE_OPTIONS.slice(0, 1);
-  }, [browserVoiceLangCodes, isBhashiniConfigured]);
+    const preferredCode = getPreferredListenLanguageCode(language);
+    const preferred = BHASHINI_LANGUAGE_OPTIONS.find((item) => item.code === preferredCode);
+    return preferred ? [preferred] : BHASHINI_LANGUAGE_OPTIONS.slice(0, 1);
+  }, [browserVoiceLangCodes, isBhashiniConfigured, language]);
 
   const searchRouteHref = draft.trim()
     ? `/main/search?q=${encodeURIComponent(draft.trim())}`
@@ -492,11 +559,7 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
     if (!isOpen) return;
     if (messages.length) return;
 
-    const greeting =
-      language === 'hi'
-        ? 'नमस्ते, मैं लोकस्वामी AI हूं। आप खबर खोज सकते हैं, सारांश पा सकते हैं, या सुन सकते हैं।'
-        : 'Hello, I am Lokswami AI. You can search news, get summaries, or listen here.';
-    setMessages([createMessage('assistant', greeting)]);
+    setMessages([createMessage('assistant', getGreetingMessage(language))]);
   }, [isOpen, language, messages.length]);
 
   useEffect(() => {
@@ -575,7 +638,6 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
 
   useEffect(() => {
     if (!listenLanguageOptions.length) return;
-    if (listenLanguageCode === 'en-US') return;
     const exists = listenLanguageOptions.some((item) => item.code === listenLanguageCode);
     if (!exists) {
       setListenLanguageCode(listenLanguageOptions[0].code);
@@ -644,6 +706,7 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
       if (!cleanQuery) return;
 
       setErrorText('');
+      setListenError('');
       setIsWorking(true);
       appendMessage(createMessage('user', cleanQuery));
 
@@ -666,6 +729,9 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
           return;
         }
 
+        const structuredAnswer = normalizeStructuredAnswer(
+          payload.data?.structuredAnswer || payload.structuredAnswer
+        );
         const answer =
           typeof payload.data?.answer === 'string' && payload.data.answer.trim()
             ? payload.data.answer.trim()
@@ -705,6 +771,7 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
                 ? articleLinks
                 : undefined,
             content: hasContentGroups(normalizedGroups) ? normalizedGroups : undefined,
+            structuredAnswer,
             followUpSuggestion:
               typeof payload.data?.followUpSuggestion === 'string'
                 ? payload.data.followUpSuggestion
@@ -725,6 +792,73 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
     [appendMessage, language]
   );
 
+  const appendActionResponse = useCallback(
+    (payload: AiActionResponse, fallbackAnswer: string) => {
+      const normalizedGroups = normalizeContentGroups(payload.data?.content || payload.content);
+      const structuredAnswer = normalizeStructuredAnswer(
+        payload.data?.structuredAnswer || payload.structuredAnswer
+      );
+      const primaryAction =
+        payload.data?.primaryAction && typeof payload.data.primaryAction.url === 'string'
+          ? payload.data.primaryAction
+          : payload.primaryAction && typeof payload.primaryAction.url === 'string'
+            ? payload.primaryAction
+            : null;
+      const answer =
+        typeof payload.data?.answer === 'string' && payload.data.answer.trim()
+          ? payload.data.answer.trim()
+          : typeof payload.answer === 'string' && payload.answer.trim()
+            ? payload.answer.trim()
+            : fallbackAnswer;
+
+      appendMessage(
+        createMessage('assistant', answer, {
+          content: hasContentGroups(normalizedGroups) ? normalizedGroups : undefined,
+          structuredAnswer,
+          followUpSuggestion:
+            typeof payload.data?.followUpSuggestion === 'string'
+              ? payload.data.followUpSuggestion
+              : typeof payload.followUpSuggestion === 'string'
+                ? payload.followUpSuggestion
+                : '',
+          primaryAction,
+        })
+      );
+    },
+    [appendMessage]
+  );
+
+  const runAiAction = useCallback(
+    async (
+      action: 'explain' | 'translate' | 'top_news' | 'trending_topics',
+      source: { text?: string; articleId?: string },
+      fallbackAnswer: string
+    ) => {
+      const response = await fetch('/api/ai/actions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action,
+          text: source.text,
+          articleId: source.articleId,
+          language,
+          targetLanguage: language,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as AiActionResponse;
+
+      if (!response.ok || !payload.success) {
+        appendMessage(buildTechnicalFallbackMessage(action === 'translate' ? 'translate' : 'news', language));
+        return;
+      }
+
+      appendActionResponse(payload, fallbackAnswer);
+    },
+    [appendActionResponse, appendMessage, language]
+  );
+
   const runSummary = async (mode: 'article' | 'text') => {
     const trimmedText = draft.trim();
     const useArticle = mode === 'article' && Boolean(currentArticleId);
@@ -735,7 +869,7 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
         createMessage(
           'assistant',
           language === 'hi'
-            ? 'टेक्स्ट भेजें या कोई खबर खोलें, मैं उसका आसान सारांश तुरंत दूँगा!'
+            ? 'टेक्स्ट भेजें या कोई खबर खोलें, मैं उसका आसान सारांश तुरंत दूँगा।'
             : 'Share some text or open an article, and I will summarize it right away.'
         )
       );
@@ -743,6 +877,7 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
     }
 
     setErrorText('');
+    setListenError('');
     setIsWorking(true);
 
     if (useText) {
@@ -752,7 +887,7 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
       appendMessage(
         createMessage(
           'user',
-          language === 'hi' ? 'इस लेख का TL;DR दीजिए।' : 'Summarize this article.'
+          language === 'hi' ? 'इस लेख का संक्षिप्त सारांश दीजिए।' : 'Summarize this article.'
         )
       );
     }
@@ -782,8 +917,8 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
           createMessage(
             'assistant',
             language === 'hi'
-              ? 'सारांश तैयार करते समय थोड़ी तकनीकी परेशानी है, एक पल बाद फिर कोशिश करें! 🔄'
-              : 'There is a brief technical issue while creating the summary. Please try again in a moment! 🔄'
+              ? 'सारांश तैयार करते समय थोड़ी तकनीकी दिक्कत आई। कृपया थोड़ी देर में फिर कोशिश करें।'
+              : 'There was a brief technical issue while creating the summary. Please try again shortly.'
           )
         );
         return;
@@ -800,8 +935,8 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
           createMessage(
             'assistant',
             language === 'hi'
-              ? 'सारांश के मुख्य बिंदु तैयार हो रहे हैं। थोड़ी देर में फिर कोशिश करें!'
-              : 'The summary highlights are being prepared. Please try again shortly.'
+              ? 'सारांश के मुख्य बिंदु अभी तैयार नहीं हो पाए। कृपया थोड़ी देर में फिर कोशिश करें।'
+              : 'The summary highlights are not ready yet. Please try again shortly.'
           )
         );
         return;
@@ -814,8 +949,8 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
         createMessage(
           'assistant',
           language === 'hi'
-            ? 'सारांश तैयार करते समय थोड़ी तकनीकी परेशानी है, एक पल बाद फिर कोशिश करें! 🔄'
-            : 'There is a brief technical issue while creating the summary. Please try again in a moment! 🔄'
+            ? 'सारांश तैयार करते समय थोड़ी तकनीकी दिक्कत आई। कृपया थोड़ी देर में फिर कोशिश करें।'
+            : 'There was a brief technical issue while creating the summary. Please try again shortly.'
         )
       );
     } finally {
@@ -828,7 +963,7 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
       setListenError(
         language === 'hi'
           ? 'यह ब्राउज़र सुनने की सुविधा सपोर्ट नहीं करता।'
-          : 'Listen feature is unavailable in this browser.'
+          : 'Read-aloud is unavailable in this browser.'
       );
       return;
     }
@@ -865,27 +1000,24 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
       setListenError(
         language === 'hi'
           ? 'सुनने के लिए पहले AI जवाब या टेक्स्ट चाहिए।'
-          : 'Need AI response or text before using Listen.'
+          : 'Need an AI response or some text before using read-aloud.'
       );
       return;
     }
 
     setListenError('');
+    setErrorText('');
     setIsPreparingListen(true);
     stopListening();
 
     const friendlyVoiceMessage =
       language === 'hi'
-        ? 'चुनी गई voice उपलब्ध नहीं है। हिंदी या English voice चुनें, या Bhashini connect करें।'
+        ? 'चुनी गई आवाज उपलब्ध नहीं है। हिंदी या English voice चुनें, या server TTS connect करें।'
         : 'The selected voice is unavailable. Try a Hindi or English voice, or connect server TTS.';
-    const resolvedFriendlyVoiceMessage =
-      language === 'hi'
-        ? 'Chosen voice unavailable hai. Hindi ya English voice try karein, ya server TTS connect karein.'
-        : friendlyVoiceMessage;
 
     try {
       if (!isBhashiniConfigured) {
-        await speakWithBrowserFallback(sourceText, resolvedFriendlyVoiceMessage);
+        await speakWithBrowserFallback(sourceText, friendlyVoiceMessage);
         return;
       }
 
@@ -925,13 +1057,17 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
       };
       audio.onerror = () => {
         setIsPlayingAudio(false);
-        setListenError('Unable to play generated audio.');
+        setListenError(
+          language === 'hi'
+            ? 'ऑडियो चलाने में समस्या आई।'
+            : 'Unable to play the generated audio.'
+        );
       };
 
       await audio.play();
       setIsPlayingAudio(true);
     } catch {
-      await speakWithBrowserFallback(sourceText, resolvedFriendlyVoiceMessage);
+      await speakWithBrowserFallback(sourceText, friendlyVoiceMessage);
     } finally {
       setIsPreparingListen(false);
     }
@@ -973,11 +1109,170 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
     void runSummary('text');
   };
 
+  const runExplainAction = () => {
+    if (isWorking) return;
+
+    const greeting = getGreetingMessage(language);
+    const cleanDraft = draft.trim();
+    const canUseAssistantText = hasUsableAssistantSource(messages, greeting);
+    const sourceText = cleanDraft || (!currentArticleId && canUseAssistantText ? latestAssistantText : '');
+
+    if (!currentArticleId && !sourceText) {
+      appendMessage(
+        createMessage(
+          'assistant',
+          language === 'hi'
+            ? 'सरल व्याख्या के लिए टेक्स्ट लिखें, कोई लेख खोलें, या पहले किसी खबर पर जवाब मुझसे लें।'
+            : 'Add some news text, open an article, or ask me about a story first so I can explain it simply.'
+        )
+      );
+      return;
+    }
+
+    setErrorText('');
+    setListenError('');
+    setIsWorking(true);
+
+    if (cleanDraft) {
+      appendMessage(createMessage('user', cleanDraft));
+      setDraft('');
+    } else {
+      appendMessage(
+        createMessage(
+          'user',
+          language === 'hi' ? 'इसे सरल भाषा में समझाइए।' : 'Explain this simply.'
+        )
+      );
+    }
+
+    void runAiAction(
+      'explain',
+      {
+        text: cleanDraft ? cleanDraft : !currentArticleId ? sourceText : undefined,
+        articleId: !cleanDraft && currentArticleId ? currentArticleId : undefined,
+      },
+      language === 'hi'
+        ? 'यह खबर सरल रूप में समझाई गई है।'
+        : 'Here is a simpler explanation of this news.'
+    ).finally(() => {
+      setIsWorking(false);
+    });
+  };
+
+  const runTranslateAction = () => {
+    if (isWorking) return;
+
+    const greeting = getGreetingMessage(language);
+    const cleanDraft = draft.trim();
+    const canUseAssistantText = hasUsableAssistantSource(messages, greeting);
+    const sourceText = cleanDraft || (!currentArticleId && canUseAssistantText ? latestAssistantText : '');
+
+    if (!currentArticleId && !sourceText) {
+      appendMessage(
+        createMessage(
+          'assistant',
+          language === 'hi'
+            ? 'अनुवाद के लिए टेक्स्ट लिखें, कोई लेख खोलें, या पहले किसी खबर पर जवाब मुझसे लें।'
+            : 'Add some news text, open an article, or ask me about a story first so I can translate it.'
+        )
+      );
+      return;
+    }
+
+    setErrorText('');
+    setListenError('');
+    setIsWorking(true);
+
+    if (cleanDraft) {
+      appendMessage(createMessage('user', cleanDraft));
+      setDraft('');
+    } else {
+      appendMessage(
+        createMessage(
+          'user',
+          language === 'hi' ? 'इसे हिंदी में अनुवाद कीजिए।' : 'Translate this into English.'
+        )
+      );
+    }
+
+    void runAiAction(
+      'translate',
+      {
+        text: cleanDraft ? cleanDraft : !currentArticleId ? sourceText : undefined,
+        articleId: !cleanDraft && currentArticleId ? currentArticleId : undefined,
+      },
+      language === 'hi' ? 'यह रहा हिंदी अनुवाद।' : 'Here is the English translation.'
+    ).finally(() => {
+      setIsWorking(false);
+    });
+  };
+
   const runTopHeadlines = () => {
     if (isWorking) return;
-    const query =
-      language === 'hi' ? 'आज की टॉप हेडलाइंस क्या हैं?' : 'Top headlines today in India';
-    void runAwarenessSearch(query);
+
+    const cleanDraft = draft.trim();
+    if (cleanDraft) {
+      setDraft('');
+      void runAwarenessSearch(
+        language === 'hi'
+          ? `${cleanDraft} की आज की मुख्य खबरें बताइए।`
+          : `Show me today's top ${cleanDraft} news`
+      );
+      return;
+    }
+
+    setErrorText('');
+    setListenError('');
+    setIsWorking(true);
+    appendMessage(
+      createMessage(
+        'user',
+        language === 'hi' ? 'आज की मुख्य खबरें बताइए।' : "Show me today's top news."
+      )
+    );
+
+    void runAiAction(
+      'top_news',
+      {},
+      language === 'hi' ? 'यह रही आज की मुख्य खबरें।' : "Here is today's top news."
+    ).finally(() => {
+      setIsWorking(false);
+    });
+  };
+
+  const runTrendingTopics = () => {
+    if (isWorking) return;
+
+    const cleanDraft = draft.trim();
+    if (cleanDraft) {
+      setDraft('');
+      void runAwarenessSearch(
+        language === 'hi'
+          ? `${cleanDraft} से जुड़े आज के ट्रेंडिंग विषय क्या हैं?`
+          : `What are today's trending topics related to ${cleanDraft}?`
+      );
+      return;
+    }
+
+    setErrorText('');
+    setListenError('');
+    setIsWorking(true);
+    appendMessage(
+      createMessage(
+        'user',
+        language === 'hi' ? 'आज के ट्रेंडिंग विषय बताइए।' : "Show me today's trending topics."
+      )
+    );
+
+    void runAiAction(
+      'trending_topics',
+      {},
+      language === 'hi'
+        ? 'यह रहे आज के ट्रेंडिंग विषय।'
+        : "Here are today's trending topics."
+    ).finally(() => {
+      setIsWorking(false);
+    });
   };
 
   return {
@@ -1003,7 +1298,10 @@ export function useAiChat(options: UseAiChatOptions): UseAiChatResult {
     sendMessage,
     runDraftSearch,
     runSummaryAction,
+    runExplainAction,
+    runTranslateAction,
     runTopHeadlines,
+    runTrendingTopics,
     runSuggestedQuery,
     retrySearch,
     handleListen,

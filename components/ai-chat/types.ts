@@ -2,7 +2,14 @@ import type { RefObject } from 'react';
 
 export type ChatRole = 'assistant' | 'user';
 export type AiContentType = 'article' | 'epaper' | 'video' | 'story';
-export type AiChatActionTab = 'search' | 'summary' | 'listen' | 'headlines';
+export type AiChatActionTab =
+  | 'search'
+  | 'summary'
+  | 'explain'
+  | 'translate'
+  | 'listen'
+  | 'headlines'
+  | 'trending';
 export type AiAnswerSource =
   | 'cms_articles'
   | 'general_knowledge'
@@ -63,12 +70,22 @@ export type AiPrimaryAction = {
   url: string;
 };
 
+export type AiStructuredAnswer = {
+  headline: string;
+  summary: string;
+  keyPoints: string[];
+  whyItMatters: string;
+  relatedQuestions: string[];
+  fallbackNote?: string;
+};
+
 export type ChatMessage = {
   id: string;
   role: ChatRole;
   text: string;
   links?: Array<{ id: string; title: string; type?: AiContentType; url?: string }>;
   content?: AiContentGroups;
+  structuredAnswer?: AiStructuredAnswer;
   followUpSuggestion?: string;
   answerSource?: AiAnswerSource;
   retryQuery?: string;
@@ -102,7 +119,10 @@ export type UseAiChatResult = {
   sendMessage: () => void;
   runDraftSearch: () => void;
   runSummaryAction: () => void;
+  runExplainAction: () => void;
+  runTranslateAction: () => void;
   runTopHeadlines: () => void;
+  runTrendingTopics: () => void;
   runSuggestedQuery: (query: string) => void;
   retrySearch: (query: string) => void;
   handleListen: () => Promise<void>;

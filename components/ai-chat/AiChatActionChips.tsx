@@ -11,16 +11,22 @@ type AiChatActionChipsProps = {
 
 const CHAT_TABS: Record<'hi' | 'en', Array<{ id: AiChatActionTab; label: string }>> = {
   hi: [
-    { id: 'search', label: 'खोजें' },
-    { id: 'summary', label: 'सारांश' },
-    { id: 'listen', label: 'सुनें' },
-    { id: 'headlines', label: 'हेडलाइंस' },
+    { id: 'search', label: '\u0916\u094b\u091c' },
+    { id: 'summary', label: '\u0938\u093e\u0930\u093e\u0902\u0936' },
+    { id: 'explain', label: '\u0938\u0930\u0932 \u0938\u092e\u091d\u093e\u090f\u0902' },
+    { id: 'translate', label: '\u0905\u0928\u0941\u0935\u093e\u0926' },
+    { id: 'listen', label: '\u0938\u0941\u0928\u0947\u0902' },
+    { id: 'headlines', label: '\u092e\u0941\u0916\u094d\u092f \u0916\u092c\u0930\u0947\u0902' },
+    { id: 'trending', label: '\u091f\u094d\u0930\u0947\u0902\u0921\u093f\u0902\u0917' },
   ],
   en: [
     { id: 'search', label: 'Search' },
     { id: 'summary', label: 'Summary' },
+    { id: 'explain', label: 'Explain' },
+    { id: 'translate', label: 'Translate' },
     { id: 'listen', label: 'Listen' },
     { id: 'headlines', label: 'Headlines' },
+    { id: 'trending', label: 'Trending' },
   ],
 };
 
@@ -35,9 +41,7 @@ export default function AiChatActionChips({
   return (
     <div
       className={`relative z-10 flex-shrink-0 border-b ${
-        isLight
-          ? 'border-red-200/80 bg-[linear-gradient(180deg,#fff,#fff7f7)]'
-          : 'border-red-500/25 bg-[linear-gradient(180deg,rgba(17,24,39,0.88),rgba(9,9,11,0.98))]'
+        isLight ? 'border-zinc-200 bg-white' : 'border-zinc-800 bg-zinc-950'
       }`}
     >
       <div className="scrollbar-hide overflow-x-auto">
@@ -52,10 +56,10 @@ export default function AiChatActionChips({
                 onClick={() => onTabChange(tab.id)}
                 className={`flex-shrink-0 whitespace-nowrap rounded-full border px-4 py-1.5 text-xs font-semibold transition-all duration-200 ${
                   isActive
-                    ? 'border-red-400/70 bg-[linear-gradient(135deg,#fb7185,#dc2626_56%,#991b1b)] text-white shadow-[0_10px_20px_rgba(127,29,29,0.45)]'
+                    ? 'border-red-700 bg-red-700 text-white shadow-[0_10px_20px_rgba(127,29,29,0.24)]'
                     : isLight
-                      ? 'border-red-100 bg-white text-zinc-700 hover:border-red-300 hover:text-red-600'
-                      : 'border-zinc-700/70 bg-zinc-900/80 text-zinc-300 hover:border-red-500/40 hover:text-red-200'
+                      ? 'border-zinc-300 bg-white text-zinc-700 hover:border-red-300 hover:text-red-700'
+                      : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-red-500/40 hover:text-zinc-100'
                 }`}
               >
                 {tab.label}

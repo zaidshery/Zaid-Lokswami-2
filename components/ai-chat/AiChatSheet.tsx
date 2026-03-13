@@ -130,11 +130,13 @@ export default function AiChatSheet({
     !chat.isWorking &&
     (activeTab === 'summary'
       ? Boolean(chat.draft.trim() || chat.currentArticleId)
-      : Boolean(chat.draft.trim()));
+      : activeTab === 'headlines' || activeTab === 'trending'
+        ? true
+        : Boolean(chat.draft.trim() || chat.currentArticleId));
 
-  const neonShellClassName = isLight
-    ? 'border-red-300/75 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(255,247,247,0.98))] shadow-[0_18px_48px_rgba(127,29,29,0.18)]'
-    : 'border-red-500/30 bg-[linear-gradient(180deg,rgba(9,9,11,0.98),rgba(18,18,24,0.98))] shadow-[0_28px_80px_rgba(0,0,0,0.6),0_0_0_1px_rgba(239,68,68,0.08)]';
+  const panelSurfaceClassName = isLight
+    ? 'border-zinc-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(255,250,250,0.98))] shadow-[0_18px_48px_rgba(24,24,27,0.12)]'
+    : 'border-zinc-800 bg-[linear-gradient(180deg,rgba(9,9,11,0.98),rgba(24,24,27,0.98))] shadow-[0_28px_80px_rgba(0,0,0,0.58)]';
 
   const handleSuggestionSelect = useCallback(
     (value: string) => {
@@ -156,6 +158,16 @@ export default function AiChatSheet({
         return;
       }
 
+      if (
+        tab === 'trending' &&
+        activeTab === 'trending' &&
+        !chat.draft.trim() &&
+        !chat.isWorking
+      ) {
+        chat.runTrendingTopics();
+        return;
+      }
+
       setActiveTab(tab);
     },
     [activeTab, chat]
@@ -169,8 +181,28 @@ export default function AiChatSheet({
       return;
     }
 
+    if (activeTab === 'explain') {
+      chat.runExplainAction();
+      return;
+    }
+
+    if (activeTab === 'translate') {
+      chat.runTranslateAction();
+      return;
+    }
+
     if (activeTab === 'listen') {
       void chat.handleListen();
+      return;
+    }
+
+    if (activeTab === 'headlines') {
+      chat.runTopHeadlines();
+      return;
+    }
+
+    if (activeTab === 'trending') {
+      chat.runTrendingTopics();
       return;
     }
 
@@ -179,10 +211,10 @@ export default function AiChatSheet({
 
   const panelClassName =
     viewportMode === 'mobile'
-      ? `pointer-events-auto fixed inset-x-2 top-[max(0.5rem,env(safe-area-inset-top))] bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+0.65rem)] z-[61] flex flex-col overflow-hidden rounded-[1.55rem] border backdrop-blur ${neonShellClassName}`
+      ? `pointer-events-auto fixed inset-x-2 top-[max(0.5rem,env(safe-area-inset-top))] bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+0.65rem)] z-[61] flex flex-col overflow-hidden rounded-[1.55rem] border backdrop-blur ${panelSurfaceClassName}`
       : viewportMode === 'tablet'
-        ? `pointer-events-auto fixed bottom-24 right-4 z-[61] flex h-[min(76vh,43rem)] max-h-[calc(100vh-7rem)] w-[min(400px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-[1.8rem] border backdrop-blur ${neonShellClassName}`
-        : `pointer-events-auto fixed bottom-8 right-6 z-[61] flex h-[min(620px,calc(100vh-4rem))] max-h-[calc(100vh-4rem)] w-[min(455px,calc(100vw-3rem))] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-[1.9rem] border backdrop-blur ${neonShellClassName}`;
+        ? `pointer-events-auto fixed bottom-24 right-4 z-[61] flex h-[min(76vh,43rem)] max-h-[calc(100vh-7rem)] w-[min(400px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-[1.8rem] border backdrop-blur ${panelSurfaceClassName}`
+        : `pointer-events-auto fixed bottom-8 right-6 z-[61] flex h-[min(620px,calc(100vh-4rem))] max-h-[calc(100vh-4rem)] w-[min(455px,calc(100vw-3rem))] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-[1.9rem] border backdrop-blur ${panelSurfaceClassName}`;
 
   const panelAnimation =
     viewportMode === 'mobile'
@@ -210,8 +242,8 @@ export default function AiChatSheet({
         exit={{ opacity: 0 }}
         className={`pointer-events-auto fixed inset-0 ${
           isLight
-            ? 'bg-[radial-gradient(circle_at_80%_80%,rgba(239,68,68,0.06),rgba(17,24,39,0.08))]'
-            : 'bg-[radial-gradient(circle_at_80%_80%,rgba(239,68,68,0.1),rgba(2,6,23,0.42))]'
+            ? 'bg-[radial-gradient(circle_at_80%_80%,rgba(239,68,68,0.05),rgba(17,24,39,0.08))]'
+            : 'bg-[radial-gradient(circle_at_80%_80%,rgba(239,68,68,0.08),rgba(2,6,23,0.44))]'
         }`}
       />
 
@@ -227,9 +259,9 @@ export default function AiChatSheet({
         transition={panelAnimation.transition}
         className={panelClassName}
       >
-        <span className="pointer-events-none absolute inset-x-0 top-0 z-0 h-px bg-gradient-to-r from-transparent via-red-400/85 to-transparent" />
-        <span className="pointer-events-none absolute -left-16 top-16 z-0 h-24 w-24 rounded-full bg-red-500/20 blur-2xl" />
-        <span className="pointer-events-none absolute -right-20 bottom-24 z-0 h-32 w-32 rounded-full bg-orange-500/16 blur-3xl" />
+        <span className="pointer-events-none absolute inset-x-0 top-0 z-0 h-px bg-gradient-to-r from-transparent via-red-500/70 to-transparent" />
+        <span className="pointer-events-none absolute -left-16 top-16 z-0 h-24 w-24 rounded-full bg-red-500/12 blur-2xl" />
+        <span className="pointer-events-none absolute -right-20 bottom-24 z-0 h-32 w-32 rounded-full bg-zinc-500/10 blur-3xl" />
 
         <div className="flex h-full flex-col">
           <AiChatHeader

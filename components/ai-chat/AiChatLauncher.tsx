@@ -35,50 +35,58 @@ export default function AiChatLauncher() {
 
   const content = useMemo(
     () => ({
-      title: 'Lokswami AI Assistant',
-      subtitle: isHindi ? 'लाइव न्यूज़ अपडेट्स' : 'Live news updates',
+      title: 'Lokswami AI Desk',
+      subtitle: isHindi
+        ? '\u0938\u092e\u093e\u091a\u093e\u0930 \u0938\u0939\u093e\u092f\u0924\u093e \u0914\u0930 \u0932\u093e\u0907\u0935 \u0905\u092a\u0921\u0947\u091f'
+        : 'News guidance and live updates',
       intro: isHindi
-        ? 'नमस्ते! मैं आपकी खबरों में मदद कर सकती हूं।'
-        : "Namaste! I can help with today's news.",
-      inputHint: isHindi ? 'अपने सवाल टाइप करें...' : 'Type your question...',
+        ? '\u0906\u091c \u0915\u0940 \u0938\u0941\u0930\u094d\u0916\u093f\u092f\u093e\u0901, \u0906\u092a\u0915\u0947 \u0936\u0939\u0930 \u0915\u0940 \u0916\u092c\u0930\u0947\u0902, \u0908-\u092a\u0947\u092a\u0930 \u0914\u0930 \u0924\u094d\u0935\u0930\u093f\u0924 \u0938\u093e\u0930\u093e\u0902\u0936 \u092a\u0942\u091b\u0947\u0902\u0964'
+        : 'Ask for top stories, local coverage, e-paper access, or quick summaries.',
+      inputHint: isHindi
+        ? '\u0938\u092e\u093e\u091a\u093e\u0930 \u0938\u0947 \u091c\u0941\u095c\u093e \u092a\u094d\u0930\u0936\u094d\u0928 \u0932\u093f\u0916\u0947\u0902...'
+        : 'Ask a news question...',
       prompts: isHindi
         ? [
             {
               id: 'latest',
-              label: 'आज की ताज़ा खबरें',
-              value: 'आज की ताज़ा खबरें बताइए',
+              label: '\u0906\u091c \u0915\u0940 \u092e\u0941\u0916\u094d\u092f \u0916\u092c\u0930\u0947\u0902',
+              value:
+                '\u0906\u091c \u0915\u0940 \u092e\u0941\u0916\u094d\u092f \u0916\u092c\u0930\u0947\u0902 \u092c\u0924\u093e\u0907\u090f\u0964',
               Icon: Flame,
             },
             {
               id: 'city',
-              label: 'मेरे शहर की खबर',
-              value: 'मेरे शहर की खबरें बताइए',
+              label:
+                '\u092e\u0947\u0930\u0947 \u0936\u0939\u0930 \u0915\u0940 \u0916\u092c\u0930\u0947\u0902',
+              value:
+                '\u092e\u0947\u0930\u0947 \u0936\u0939\u0930 \u0915\u0940 \u0924\u093e\u091c\u093e \u0916\u092c\u0930\u0947\u0902 \u092c\u0924\u093e\u0907\u090f\u0964',
               Icon: MapPin,
             },
             {
               id: 'epaper',
-              label: 'ई-पेपर खोलें',
-              value: 'आज का ई-पेपर खोलो',
+              label: '\u0906\u091c \u0915\u093e \u0908-\u092a\u0947\u092a\u0930',
+              value:
+                '\u0906\u091c \u0915\u093e \u0908-\u092a\u0947\u092a\u0930 \u0916\u094b\u0932\u093f\u090f\u0964',
               Icon: Newspaper,
             },
           ]
         : [
             {
               id: 'latest',
-              label: 'Today top stories',
-              value: 'Show me today top news',
+              label: "Today's headlines",
+              value: "Show me today's main headlines",
               Icon: Flame,
             },
             {
               id: 'city',
-              label: 'My city updates',
-              value: 'Show me news from my city',
+              label: 'My local coverage',
+              value: 'Show me the latest news from my city',
               Icon: MapPin,
             },
             {
               id: 'epaper',
-              label: 'Open e-paper',
-              value: 'Open today e-paper',
+              label: "Open today's e-paper",
+              value: "Open today's e-paper",
               Icon: Newspaper,
             },
           ],
@@ -109,12 +117,12 @@ export default function AiChatLauncher() {
   };
 
   const floatingButtonClassName = sheetOpen
-    ? `${isLight ? 'border border-zinc-200 bg-white text-zinc-900' : 'border border-red-500/30 bg-zinc-900 text-zinc-100'} h-14 w-14 rounded-2xl xl:h-12 xl:w-12 xl:px-0`
-    : 'h-14 w-14 rounded-2xl bg-gradient-to-br from-[#e63946] to-[#c1121f] text-white shadow-[0_16px_34px_rgba(230,57,70,0.42)] xl:h-12 xl:w-auto xl:px-5';
+    ? `${isLight ? 'border border-zinc-200 bg-white text-zinc-900' : 'border border-zinc-700 bg-zinc-900 text-zinc-100'} h-14 w-14 rounded-2xl xl:h-12 xl:w-12 xl:px-0`
+    : 'h-14 w-14 rounded-2xl bg-[linear-gradient(135deg,#dc2626,#991b1b)] text-white shadow-[0_14px_30px_rgba(127,29,29,0.28)] xl:h-12 xl:w-auto xl:px-5';
 
   const previewSurfaceClassName = isLight
-    ? 'border-red-200/80 bg-[linear-gradient(165deg,rgba(255,255,255,0.96),rgba(254,242,242,0.95))] text-zinc-900 shadow-[0_18px_48px_rgba(127,29,29,0.16)]'
-    : 'border-red-500/30 bg-[linear-gradient(165deg,rgba(9,9,11,0.94),rgba(24,24,27,0.96))] text-zinc-100 shadow-[0_22px_56px_rgba(0,0,0,0.55),0_0_24px_rgba(239,68,68,0.22)]';
+    ? 'border-zinc-200 bg-[linear-gradient(165deg,rgba(255,255,255,0.97),rgba(255,248,248,0.95))] text-zinc-900 shadow-[0_18px_48px_rgba(24,24,27,0.12)]'
+    : 'border-zinc-800 bg-[linear-gradient(165deg,rgba(9,9,11,0.95),rgba(24,24,27,0.97))] text-zinc-100 shadow-[0_22px_56px_rgba(0,0,0,0.55)]';
 
   return (
     <ChatPortal>
@@ -127,19 +135,23 @@ export default function AiChatLauncher() {
             transition={{ duration: 0.26, ease: 'easeOut' }}
             className={`fixed bottom-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom)+4.3rem)] right-2 z-50 w-[calc(100vw-1rem)] max-w-[23.5rem] overflow-hidden rounded-[1.4rem] border backdrop-blur xl:bottom-[7.2rem] xl:right-6 xl:max-w-[27rem] ${previewSurfaceClassName}`}
           >
-            <span className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-red-400/80 to-transparent" />
-            <span className="pointer-events-none absolute -left-16 bottom-6 h-24 w-24 rounded-full bg-red-500/18 blur-2xl" />
-            <span className="pointer-events-none absolute -right-16 top-8 h-24 w-24 rounded-full bg-orange-500/16 blur-2xl" />
+            <span className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-red-500/70 to-transparent" />
+            <span className="pointer-events-none absolute -left-16 bottom-6 h-24 w-24 rounded-full bg-red-500/12 blur-2xl" />
+            <span className="pointer-events-none absolute -right-16 top-8 h-24 w-24 rounded-full bg-zinc-500/10 blur-2xl" />
 
             <div className="relative px-4 pb-4 pt-3">
               <button
                 type="button"
                 onClick={() => setPreviewDismissed(true)}
-                aria-label={isHindi ? 'AI प्रीव्यू बंद करें' : 'Close AI preview'}
+                aria-label={
+                  isHindi
+                    ? 'AI \u092a\u094d\u0930\u0940\u0935\u094d\u092f\u0942 \u092c\u0902\u0926 \u0915\u0930\u0947\u0902'
+                    : 'Close AI preview'
+                }
                 className={`absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-full border transition ${
                   isLight
-                    ? 'border-zinc-300 bg-white text-zinc-600 hover:border-red-400 hover:text-red-600'
-                    : 'border-red-500/45 bg-zinc-950/90 text-zinc-300 hover:border-red-400 hover:text-red-200'
+                    ? 'border-zinc-300 bg-white text-zinc-600 hover:border-red-300 hover:text-red-700'
+                    : 'border-zinc-700 bg-zinc-950/90 text-zinc-300 hover:border-red-500/45 hover:text-red-200'
                 }`}
               >
                 <X className="h-4 w-4" />
@@ -155,7 +167,7 @@ export default function AiChatLauncher() {
                 />
                 <div className="min-w-0">
                   <p className="truncate text-[13px] font-semibold">{content.title}</p>
-                  <p className={isLight ? 'text-[11px] text-red-600' : 'text-[11px] text-red-300'}>
+                  <p className={isLight ? 'text-[11px] text-zinc-600' : 'text-[11px] text-zinc-400'}>
                     {content.subtitle}
                   </p>
                 </div>
@@ -173,8 +185,8 @@ export default function AiChatLauncher() {
                     onClick={() => handleOpenWithDraft(value)}
                     className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-left text-xs font-medium transition ${
                       isLight
-                        ? 'border-red-200 bg-white/90 text-zinc-700 hover:border-red-400 hover:text-red-600'
-                        : 'border-red-500/35 bg-zinc-900/80 text-zinc-200 hover:border-red-400/60 hover:text-red-200'
+                        ? 'border-zinc-300 bg-white text-zinc-700 hover:border-red-300 hover:text-red-700'
+                        : 'border-zinc-700 bg-zinc-900/80 text-zinc-200 hover:border-red-500/45 hover:text-zinc-100'
                     }`}
                   >
                     <Icon className="h-3.5 w-3.5 flex-shrink-0" />
@@ -188,12 +200,12 @@ export default function AiChatLauncher() {
                 onClick={() => handleOpenWithDraft()}
                 className={`mt-3 flex w-full items-center justify-between rounded-full border px-4 py-2.5 text-left text-sm transition ${
                   isLight
-                    ? 'border-red-300 bg-white text-zinc-500 hover:border-red-500'
-                    : 'border-red-500/45 bg-zinc-950/90 text-zinc-400 hover:border-red-400'
+                    ? 'border-zinc-300 bg-white text-zinc-500 hover:border-red-400'
+                    : 'border-zinc-700 bg-zinc-950/90 text-zinc-400 hover:border-red-500/45'
                 }`}
               >
                 <span className="truncate">{content.inputHint}</span>
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white shadow-[0_8px_18px_rgba(185,28,28,0.44)]">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-700 text-white shadow-[0_8px_18px_rgba(127,29,29,0.24)]">
                   <Send className="h-3.5 w-3.5" />
                 </span>
               </button>
@@ -222,7 +234,7 @@ export default function AiChatLauncher() {
               imagePosition="50% 40%"
             />
             <span className="hidden whitespace-nowrap text-sm font-semibold tracking-wide text-white xl:inline">
-              ✦ लो AI
+              AI Desk
             </span>
           </>
         )}
