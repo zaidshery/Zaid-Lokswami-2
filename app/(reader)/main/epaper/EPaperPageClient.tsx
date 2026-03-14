@@ -624,6 +624,18 @@ export default function EPaperPageClient({
     [activePaper]
   );
 
+  const zoomPreviewOut = useCallback(() => {
+    setPreviewZoom((current) =>
+      Math.max(MIN_PREVIEW_ZOOM, Number((current - PREVIEW_ZOOM_STEP).toFixed(2)))
+    );
+  }, []);
+
+  const zoomPreviewIn = useCallback(() => {
+    setPreviewZoom((current) =>
+      Math.min(MAX_PREVIEW_ZOOM, Number((current + PREVIEW_ZOOM_STEP).toFixed(2)))
+    );
+  }, []);
+
   useEffect(() => {
     if (!activePaper || !pendingStorySlug) return;
 
@@ -1237,11 +1249,7 @@ export default function EPaperPageClient({
                   <div className="hidden items-center gap-1 rounded-md border border-gray-300 px-1 py-0.5 md:flex dark:border-zinc-700">
                     <button
                       type="button"
-                      onClick={() =>
-                        setPreviewZoom((current) =>
-                          Math.max(MIN_PREVIEW_ZOOM, Number((current - PREVIEW_ZOOM_STEP).toFixed(2)))
-                        )
-                      }
+                      onClick={zoomPreviewOut}
                       aria-label={t.zoomOut}
                       disabled={previewZoom <= MIN_PREVIEW_ZOOM}
                       className="inline-flex h-6 w-6 items-center justify-center rounded text-sm font-bold text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -1253,11 +1261,7 @@ export default function EPaperPageClient({
                     </span>
                     <button
                       type="button"
-                      onClick={() =>
-                        setPreviewZoom((current) =>
-                          Math.min(MAX_PREVIEW_ZOOM, Number((current + PREVIEW_ZOOM_STEP).toFixed(2)))
-                        )
-                      }
+                      onClick={zoomPreviewIn}
                       aria-label={t.zoomIn}
                       disabled={previewZoom >= MAX_PREVIEW_ZOOM}
                       className="inline-flex h-6 w-6 items-center justify-center rounded text-sm font-bold text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -1347,6 +1351,32 @@ export default function EPaperPageClient({
                       >
                         <ChevronRight className="h-5 w-5" />
                       </button>
+
+                      {isCoarsePointer ? (
+                        <div className="absolute bottom-3 right-3 z-20 inline-flex items-center gap-1 rounded-full border border-white/75 bg-black/60 px-1.5 py-1 text-white shadow-lg backdrop-blur-md sm:bottom-4 sm:right-4">
+                          <button
+                            type="button"
+                            onClick={zoomPreviewOut}
+                            aria-label={t.zoomOut}
+                            disabled={previewZoom <= MIN_PREVIEW_ZOOM}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+                          >
+                            <Minus className="h-4 w-4" />
+                          </button>
+                          <span className="min-w-[44px] text-center text-[11px] font-semibold">
+                            {Math.round(previewZoom * 100)}%
+                          </span>
+                          <button
+                            type="button"
+                            onClick={zoomPreviewIn}
+                            aria-label={t.zoomIn}
+                            disabled={previewZoom >= MAX_PREVIEW_ZOOM}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : null}
 
                       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-[0_24px_60px_-30px_rgba(15,23,42,0.55)] dark:border-zinc-800 dark:bg-zinc-900">
                         <AnimatePresence initial={false} custom={pageTurnDirection} mode="wait">
@@ -1492,7 +1522,13 @@ export default function EPaperPageClient({
       ) : null}
 
       {activeArticle ? (
-        <div className="fixed inset-0 z-[100] bg-black/65 p-2 sm:p-4">
+        <div
+          className="fixed inset-0 z-[100] bg-black/65 p-2 sm:p-4"
+          onClick={(event) => {
+            if (event.target !== event.currentTarget) return;
+            setActiveArticle(null);
+          }}
+        >
           <div
             role="dialog"
             aria-modal="true"
