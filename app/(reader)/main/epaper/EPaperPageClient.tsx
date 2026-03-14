@@ -1,13 +1,23 @@
 'use client';
 
 import Image from 'next/image';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type TouchEvent as ReactTouchEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
   Loader2,
+  Minus,
   Newspaper,
+  Plus,
   Share2,
   X,
 } from 'lucide-react';
@@ -17,6 +27,10 @@ import {
   type EPaperCitySlug,
 } from '@/lib/constants/epaperCities';
 import { useAppStore } from '@/lib/store/appStore';
+import {
+  buildArticleWhatsAppShareUrl,
+  toAbsoluteShareUrl,
+} from '@/lib/utils/articleShare';
 import { formatUiDate } from '@/lib/utils/dateFormat';
 import { renderPdfPagePreviewFromUrl } from '@/lib/utils/pdfThumbnailClient';
 import type { EPaperArticleRecord, EPaperRecord } from '@/lib/types/epaper';
@@ -76,14 +90,20 @@ const COPY = {
     noPaper: 'No published e-paper for this city yet.',
     openPdf: 'Open PDF',
     shareWhatsApp: 'Share',
+    shareStory: 'Share story',
+    whatsApp: 'WhatsApp',
+    pinchToZoom: 'Pinch or double-tap to zoom',
     pageMissingPrefix: 'Page image missing: rendering fallback from PDF for page',
     noPreview: 'No preview available for this page.',
     noArticle: 'No article content available.',
     story: 'Story',
+    storyImage: 'Story image',
     previous: 'Previous page',
     next: 'Next page',
     zoomOut: 'Zoom out',
     zoomIn: 'Zoom in',
+    imageZoomOut: 'Zoom out image',
+    imageZoomIn: 'Zoom in image',
     close: 'Close viewer',
     storiesOnPage: 'Stories on this page',
     noStories: 'No mapped stories on this page.',
@@ -103,6 +123,9 @@ const COPY = {
       '\u0907\u0938 \u0936\u0939\u0930 \u0915\u0947 \u0932\u093f\u090f \u0905\u092d\u0940 \u0915\u094b\u0908 \u092a\u094d\u0930\u0915\u093e\u0936\u093f\u0924 \u0908-\u092a\u0947\u092a\u0930 \u0928\u0939\u0940\u0902 \u0939\u0948\u0964',
     openPdf: 'PDF \u0916\u094b\u0932\u0947\u0902',
     shareWhatsApp: '\u0936\u0947\u092f\u0930',
+    shareStory: '\u0938\u094d\u091f\u094b\u0930\u0940 \u0936\u0947\u092f\u0930 \u0915\u0930\u0947\u0902',
+    whatsApp: 'WhatsApp',
+    pinchToZoom: '\u091a\u0941\u091f\u0915\u0940 \u092f\u093e \u0921\u092c\u0932-\u091f\u0948\u092a \u0938\u0947 \u091c\u0942\u092e \u0915\u0930\u0947\u0902',
     pageMissingPrefix:
       '\u092a\u0947\u091c \u0907\u092e\u0947\u091c \u092e\u093f\u0938\u093f\u0902\u0917 \u0939\u0948: \u092a\u0947\u091c \u0915\u0947 \u0932\u093f\u090f PDF \u092b\u0949\u0932\u092c\u0948\u0915 \u0930\u0947\u0902\u0921\u0930 \u0939\u094b \u0930\u0939\u093e \u0939\u0948',
     noPreview:
@@ -110,10 +133,13 @@ const COPY = {
     noArticle:
       '\u0907\u0938 \u0938\u094d\u091f\u094b\u0930\u0940 \u0915\u0940 \u0938\u093e\u092e\u0917\u094d\u0930\u0940 \u0909\u092a\u0932\u092c\u094d\u0927 \u0928\u0939\u0940\u0902 \u0939\u0948\u0964',
     story: '\u0938\u094d\u091f\u094b\u0930\u0940',
+    storyImage: '\u0938\u094d\u091f\u094b\u0930\u0940 \u0907\u092e\u0947\u091c',
     previous: 'Previous page',
     next: 'Next page',
     zoomOut: 'Zoom out',
     zoomIn: 'Zoom in',
+    imageZoomOut: '\u0907\u092e\u0947\u091c \u091c\u0942\u092e \u0918\u091f\u093e\u090f\u0902',
+    imageZoomIn: '\u0907\u092e\u0947\u091c \u091c\u0942\u092e \u092c\u0922\u093c\u093e\u090f\u0902',
     close: 'Close viewer',
     storiesOnPage: 'Stories on this page',
     noStories: 'No mapped stories on this page.',
@@ -125,9 +151,54 @@ const EPAPER_LAST_PAGE_STORAGE_KEY = 'lokswami_epaper_last_page_v1';
 const MIN_PREVIEW_ZOOM = 1;
 const MAX_PREVIEW_ZOOM = 2.2;
 const PREVIEW_ZOOM_STEP = 0.2;
+const MIN_ARTICLE_IMAGE_ZOOM = 1;
+const MAX_ARTICLE_IMAGE_ZOOM = 3;
+const ARTICLE_IMAGE_ZOOM_STEP = 0.25;
+const ARTICLE_DOUBLE_TAP_ZOOM = 2;
+const ARTICLE_DOUBLE_TAP_DELAY_MS = 280;
+const ARTICLE_DOUBLE_TAP_MOVE_PX = 28;
+const PAGE_SWIPE_TRIGGER_PX = 72;
+const PAGE_SWIPE_VERTICAL_LIMIT_PX = 64;
+
+type ArticlePinchState = {
+  startDistance: number;
+  startZoom: number;
+  isPinching: boolean;
+};
+
+type ArticleTapState = {
+  lastTapAt: number;
+  lastTapX: number;
+  lastTapY: number;
+};
+
+type TouchPointLike = {
+  clientX: number;
+  clientY: number;
+};
+
+type TouchListLike = {
+  length: number;
+  [index: number]: TouchPointLike;
+};
+
+type PageSwipeState = {
+  startX: number;
+  startY: number;
+  tracking: boolean;
+};
 
 function clampPage(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function getTouchDistance(touches: TouchListLike) {
+  if (touches.length < 2) return 0;
+  const first = touches[0];
+  const second = touches[1];
+  const dx = first.clientX - second.clientX;
+  const dy = first.clientY - second.clientY;
+  return Math.hypot(dx, dy);
 }
 
 function toErrorMessage(error: unknown, fallback: string) {
@@ -208,6 +279,19 @@ function mergeUniquePapers(
   return merged;
 }
 
+function WhatsAppIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 32 32"
+      aria-hidden="true"
+      className={className}
+      fill="currentColor"
+    >
+      <path d="M16.04 3C8.82 3 2.99 8.82 3 16.02c0 2.3.6 4.55 1.74 6.53L3 29l6.63-1.72a12.95 12.95 0 0 0 6.4 1.63H16c7.2 0 13.03-5.82 13.04-13.02A13.01 13.01 0 0 0 16.04 3zm0 23.72h-.01a10.84 10.84 0 0 1-5.52-1.5l-.4-.24-3.94 1.02 1.05-3.84-.26-.4a10.86 10.86 0 1 1 9.08 4.96zm5.95-8.12c-.33-.17-1.95-.96-2.25-1.07-.3-.11-.52-.17-.74.17-.22.33-.85 1.07-1.05 1.29-.19.22-.39.25-.72.08-.33-.17-1.38-.51-2.64-1.62-.98-.88-1.64-1.97-1.84-2.3-.19-.33-.02-.51.15-.68.15-.15.33-.39.5-.58.17-.19.22-.33.33-.55.11-.22.06-.41-.03-.58-.08-.17-.74-1.79-1.01-2.45-.26-.64-.53-.55-.74-.56h-.63c-.22 0-.58.08-.88.41-.3.33-1.16 1.13-1.16 2.75 0 1.62 1.19 3.19 1.35 3.41.17.22 2.34 3.57 5.68 5 .79.34 1.41.54 1.89.69.79.25 1.5.22 2.07.13.63-.09 1.95-.8 2.23-1.57.27-.77.27-1.43.19-1.57-.08-.14-.3-.22-.63-.38z" />
+    </svg>
+  );
+}
+
 export default function EPaperPageClient({
   initialItems,
   initialLimit,
@@ -217,6 +301,7 @@ export default function EPaperPageClient({
   initialPublishDate,
 }: EPaperPageClientProps) {
   const language = useAppStore((state) => state.language);
+  const prefersReducedMotion = useReducedMotion();
   const t = COPY[language];
   const [selectedCity, setSelectedCity] = useState<EPaperCitySlug>(initialCity);
   const [selectedPublishDate, setSelectedPublishDate] = useState(initialPublishDate);
@@ -236,20 +321,40 @@ export default function EPaperPageClient({
   const [activePaper, setActivePaper] = useState<(EPaperRecord & { articles: EPaperArticleRecord[] }) | null>(null);
   const [activePage, setActivePage] = useState(1);
   const [activeArticle, setActiveArticle] = useState<EPaperArticleRecord | null>(null);
+  const [pendingStorySlug, setPendingStorySlug] = useState('');
 
   const [pdfFallbackPreview, setPdfFallbackPreview] = useState('');
   const [loadingFallback, setLoadingFallback] = useState(false);
   const [fallbackError, setFallbackError] = useState('');
   const [previewZoom, setPreviewZoom] = useState(1);
+  const [articleImageZoom, setArticleImageZoom] = useState(1);
+  const [pageTurnDirection, setPageTurnDirection] = useState(0);
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
 
   const [pendingPaperId, setPendingPaperId] = useState('');
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const loadMoreLockRef = useRef(false);
+  const articlePinchStateRef = useRef<ArticlePinchState>({
+    startDistance: 0,
+    startZoom: 1,
+    isPinching: false,
+  });
+  const articleTapStateRef = useRef<ArticleTapState>({
+    lastTapAt: 0,
+    lastTapX: 0,
+    lastTapY: 0,
+  });
+  const pageSwipeStateRef = useRef<PageSwipeState>({
+    startX: 0,
+    startY: 0,
+    tracking: false,
+  });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const paper = (params.get('paper') || '').trim();
     const page = Number.parseInt(params.get('page') || '', 10);
+    const story = (params.get('story') || '').trim();
 
     if (paper) {
       setPendingPaperId(paper);
@@ -258,6 +363,26 @@ export default function EPaperPageClient({
     if (Number.isFinite(page) && page > 0) {
       setActivePage(Math.floor(page));
     }
+
+    if (story) {
+      setPendingStorySlug(story);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+
+    const mediaQuery = window.matchMedia('(pointer: coarse)');
+    const updatePointerMode = () => setIsCoarsePointer(mediaQuery.matches);
+    updatePointerMode();
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', updatePointerMode);
+      return () => mediaQuery.removeEventListener('change', updatePointerMode);
+    }
+
+    mediaQuery.addListener(updatePointerMode);
+    return () => mediaQuery.removeListener(updatePointerMode);
   }, []);
 
   useEffect(() => {
@@ -412,6 +537,7 @@ export default function EPaperPageClient({
       const pageToOpen = explicitInitialPage || savedPage || 1;
 
       setActivePaper(payload.data);
+      setPageTurnDirection(0);
       setActivePage(
         clampPage(pageToOpen, 1, Math.max(1, Number(payload.data.pageCount || 1)))
       );
@@ -444,6 +570,15 @@ export default function EPaperPageClient({
     saveLastPageForPaper(activePaper._id, clampPage(activePage, 1, maxPages));
   }, [activePaper, activePage]);
 
+  useEffect(() => {
+    setArticleImageZoom(1);
+    articleTapStateRef.current = {
+      lastTapAt: 0,
+      lastTapX: 0,
+      lastTapY: 0,
+    };
+  }, [activeArticle?._id]);
+
   const activePageImage = useMemo(() => {
     if (!activePaper) return '';
     const page = activePaper.pages.find((item) => item.pageNumber === activePage);
@@ -454,6 +589,54 @@ export default function EPaperPageClient({
     if (!activePaper) return [];
     return activePaper.articles.filter((item) => item.pageNumber === activePage);
   }, [activePaper, activePage]);
+
+  const goToRelativePage = useCallback(
+    (delta: number) => {
+      if (!activePaper || !delta) return;
+      const maxPages = Math.max(1, Number(activePaper.pageCount || 1));
+
+      setActivePage((current) => {
+        const nextPage = clampPage(current + delta, 1, maxPages);
+        if (nextPage !== current) {
+          setPageTurnDirection(delta > 0 ? 1 : -1);
+          setActiveArticle(null);
+        }
+        return nextPage;
+      });
+    },
+    [activePaper]
+  );
+
+  const navigateToPage = useCallback(
+    (nextPage: number) => {
+      if (!activePaper) return;
+      const maxPages = Math.max(1, Number(activePaper.pageCount || 1));
+
+      setActivePage((current) => {
+        const resolvedPage = clampPage(nextPage, 1, maxPages);
+        if (resolvedPage !== current) {
+          setPageTurnDirection(resolvedPage > current ? 1 : -1);
+          setActiveArticle(null);
+        }
+        return resolvedPage;
+      });
+    },
+    [activePaper]
+  );
+
+  useEffect(() => {
+    if (!activePaper || !pendingStorySlug) return;
+
+    const matchedArticle = activePaper.articles.find(
+      (item) => item.slug === pendingStorySlug || item._id === pendingStorySlug
+    );
+
+    if (!matchedArticle) return;
+
+    navigateToPage(matchedArticle.pageNumber);
+    setActiveArticle(matchedArticle);
+    setPendingStorySlug('');
+  }, [activePaper, pendingStorySlug, navigateToPage]);
 
   const activePageMeta = useMemo(() => {
     if (!activePaper) return null;
@@ -518,11 +701,11 @@ export default function EPaperPageClient({
       }
 
       if (event.key === 'ArrowLeft') {
-        setActivePage((current) => clampPage(current - 1, 1, Math.max(1, activePaper.pageCount)));
+        goToRelativePage(-1);
       }
 
       if (event.key === 'ArrowRight') {
-        setActivePage((current) => clampPage(current + 1, 1, Math.max(1, activePaper.pageCount)));
+        goToRelativePage(1);
       }
     };
 
@@ -534,7 +717,7 @@ export default function EPaperPageClient({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', handleKeydown);
     };
-  }, [activePaper]);
+  }, [activePaper, goToRelativePage]);
 
   const openPdfInNewTab = () => {
     if (!pdfUrlForOpen) return;
@@ -577,6 +760,270 @@ export default function EPaperPageClient({
     if (!opened) {
       window.location.href = whatsappUrl;
     }
+  };
+
+  const buildActiveArticleShareUrl = () => {
+    if (!activePaper || !activeArticle) return '';
+
+    const params = new URLSearchParams({
+      paper: activePaper._id,
+      city: activePaper.citySlug,
+      page: String(activeArticle.pageNumber || activePage),
+    });
+    if (activePaper.publishDate) {
+      params.set('date', activePaper.publishDate);
+    }
+
+    const storyToken = String(activeArticle.slug || activeArticle._id || '').trim();
+    if (storyToken) {
+      params.set('story', storyToken);
+    }
+
+    return `${window.location.origin}/main/epaper?${params.toString()}`;
+  };
+
+  const shareActiveArticleOnWhatsApp = async () => {
+    if (!activePaper || !activeArticle) return;
+
+    const shareUrl = buildActiveArticleShareUrl();
+    const imageUrl = activeArticle.coverImagePath
+      ? toAbsoluteShareUrl(activeArticle.coverImagePath, window.location.origin)
+      : '';
+    const whatsappUrl = buildArticleWhatsAppShareUrl({
+      title: activeArticle.title || activePaper.title,
+      articleUrl: shareUrl,
+      imageUrl,
+    });
+
+    const opened = window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      window.location.href = whatsappUrl;
+    }
+  };
+
+  const shareActiveArticle = async () => {
+    if (!activePaper || !activeArticle) return;
+
+    const shareUrl = buildActiveArticleShareUrl();
+    const shareText = activeArticle.title || activePaper.title;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: activeArticle.title || activePaper.title,
+          text: shareText,
+          url: shareUrl || undefined,
+        });
+        return;
+      } catch (error: unknown) {
+        if (isAbortError(error)) return;
+      }
+    }
+
+    await shareActiveArticleOnWhatsApp();
+  };
+
+  const activeArticleHasImage = Boolean(activeArticle?.coverImagePath?.trim());
+  const activeArticleHasContent = Boolean(activeArticle?.contentHtml?.trim());
+  const activeArticleHasExcerpt = Boolean(activeArticle?.excerpt?.trim());
+  const shouldShowNoArticleState =
+    Boolean(activeArticle) &&
+    !activeArticleHasImage &&
+    !activeArticleHasContent &&
+    !activeArticleHasExcerpt;
+
+  const pageTurnVariants = useMemo(
+    () => ({
+      enter: (direction: number) =>
+        prefersReducedMotion
+          ? { opacity: 0 }
+          : {
+              opacity: 0,
+              x: direction >= 0 ? 72 : -72,
+              scale: 0.985,
+              rotateY: direction >= 0 ? -8 : 8,
+              filter: 'blur(4px)',
+            },
+      center: prefersReducedMotion
+        ? {
+            opacity: 1,
+            transition: { duration: 0.16 },
+          }
+        : {
+            opacity: 1,
+            x: 0,
+            scale: 1,
+            rotateY: 0,
+            filter: 'blur(0px)',
+            transition: {
+              type: 'spring',
+              stiffness: 220,
+              damping: 28,
+              mass: 0.9,
+            },
+          },
+      exit: (direction: number) =>
+        prefersReducedMotion
+          ? { opacity: 0 }
+          : {
+              opacity: 0,
+              x: direction >= 0 ? -52 : 52,
+              scale: 0.99,
+              rotateY: direction >= 0 ? 6 : -6,
+              filter: 'blur(3px)',
+              transition: {
+                duration: 0.18,
+                ease: [0.22, 1, 0.36, 1],
+              },
+            },
+    }),
+    [prefersReducedMotion]
+  );
+
+  const toggleArticleImageZoom = () => {
+    setArticleImageZoom((current) =>
+      current > MIN_ARTICLE_IMAGE_ZOOM + 0.05
+        ? MIN_ARTICLE_IMAGE_ZOOM
+        : Math.min(MAX_ARTICLE_IMAGE_ZOOM, ARTICLE_DOUBLE_TAP_ZOOM)
+    );
+  };
+
+  const onArticleImageTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (event.touches.length !== 2) return;
+    const distance = getTouchDistance(event.touches);
+    if (!distance) return;
+
+    articlePinchStateRef.current = {
+      startDistance: distance,
+      startZoom: articleImageZoom,
+      isPinching: true,
+    };
+  };
+
+  const onArticleImageTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (event.touches.length !== 2 || !articlePinchStateRef.current.isPinching) return;
+
+    const distance = getTouchDistance(event.touches);
+    if (!distance || articlePinchStateRef.current.startDistance <= 0) return;
+
+    event.preventDefault();
+
+    const nextZoom = Math.min(
+      MAX_ARTICLE_IMAGE_ZOOM,
+      Math.max(
+        MIN_ARTICLE_IMAGE_ZOOM,
+        Number(
+          (
+            articlePinchStateRef.current.startZoom *
+            (distance / articlePinchStateRef.current.startDistance)
+          ).toFixed(2)
+        )
+      )
+    );
+
+    setArticleImageZoom(nextZoom);
+  };
+
+  const onArticleImageTouchEnd = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (!event.changedTouches.length) {
+      articlePinchStateRef.current = {
+        startDistance: 0,
+        startZoom: articleImageZoom,
+        isPinching: false,
+      };
+      return;
+    }
+
+    if (articlePinchStateRef.current.isPinching) {
+      articlePinchStateRef.current = {
+        startDistance: 0,
+        startZoom: articleImageZoom,
+        isPinching: false,
+      };
+      articleTapStateRef.current = {
+        lastTapAt: 0,
+        lastTapX: 0,
+        lastTapY: 0,
+      };
+      return;
+    }
+
+    if (event.changedTouches.length === 1) {
+      const touch = event.changedTouches[0];
+      const now = Date.now();
+      const deltaTime = now - articleTapStateRef.current.lastTapAt;
+      const deltaX = touch.clientX - articleTapStateRef.current.lastTapX;
+      const deltaY = touch.clientY - articleTapStateRef.current.lastTapY;
+      const moveDistance = Math.hypot(deltaX, deltaY);
+
+      if (
+        deltaTime > 0 &&
+        deltaTime <= ARTICLE_DOUBLE_TAP_DELAY_MS &&
+        moveDistance <= ARTICLE_DOUBLE_TAP_MOVE_PX
+      ) {
+        event.preventDefault();
+        toggleArticleImageZoom();
+        articleTapStateRef.current = {
+          lastTapAt: 0,
+          lastTapX: 0,
+          lastTapY: 0,
+        };
+      } else {
+        articleTapStateRef.current = {
+          lastTapAt: now,
+          lastTapX: touch.clientX,
+          lastTapY: touch.clientY,
+        };
+      }
+    }
+
+    articlePinchStateRef.current = {
+      startDistance: 0,
+      startZoom: articleImageZoom,
+      isPinching: false,
+    };
+  };
+
+  const onPreviewTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (!isCoarsePointer || activeArticle || event.touches.length !== 1) return;
+
+    const touch = event.touches[0];
+    pageSwipeStateRef.current = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      tracking: true,
+    };
+  };
+
+  const onPreviewTouchEnd = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (!pageSwipeStateRef.current.tracking || event.changedTouches.length !== 1) {
+      pageSwipeStateRef.current.tracking = false;
+      return;
+    }
+
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - pageSwipeStateRef.current.startX;
+    const deltaY = touch.clientY - pageSwipeStateRef.current.startY;
+
+    pageSwipeStateRef.current.tracking = false;
+
+    if (
+      Math.abs(deltaX) < PAGE_SWIPE_TRIGGER_PX ||
+      Math.abs(deltaY) > PAGE_SWIPE_VERTICAL_LIMIT_PX
+    ) {
+      return;
+    }
+
+    if (deltaX < 0) {
+      goToRelativePage(1);
+      return;
+    }
+
+    goToRelativePage(-1);
+  };
+
+  const onPreviewTouchCancel = () => {
+    pageSwipeStateRef.current.tracking = false;
   };
 
   return (
@@ -765,11 +1212,7 @@ export default function EPaperPageClient({
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                   <button
                     type="button"
-                    onClick={() =>
-                      setActivePage((current) =>
-                        clampPage(current - 1, 1, Math.max(1, activePaper.pageCount))
-                      )
-                    }
+                    onClick={() => goToRelativePage(-1)}
                     aria-label={t.previous}
                     disabled={activePage <= 1}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -783,11 +1226,7 @@ export default function EPaperPageClient({
 
                   <button
                     type="button"
-                    onClick={() =>
-                      setActivePage((current) =>
-                        clampPage(current + 1, 1, Math.max(1, activePaper.pageCount))
-                      )
-                    }
+                    onClick={() => goToRelativePage(1)}
                     aria-label={t.next}
                     disabled={activePage >= activePaper.pageCount}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -883,49 +1322,89 @@ export default function EPaperPageClient({
                   </div>
                 ) : activePageImage || pdfFallbackPreview ? (
                   <div className="mx-auto flex min-h-full w-full max-w-[980px] items-start justify-center">
-                    <div className="w-fit rounded-xl border border-gray-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                      <div className="relative mx-auto w-fit">
-                        {previewIsDataUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={previewSrc}
-                            alt={`Page ${activePage}`}
-                            style={{
-                              maxHeight: `calc((100dvh - 210px) * ${previewZoom})`,
-                            }}
-                            className="block h-auto w-auto object-contain"
-                          />
-                        ) : (
-                          <Image
-                            src={previewSrc}
-                            alt={`Page ${activePage}`}
-                            width={previewWidth}
-                            height={previewHeight}
-                            unoptimized
-                            style={{
-                              maxHeight: `calc((100dvh - 210px) * ${previewZoom})`,
-                            }}
-                            className="block h-auto w-auto object-contain"
-                          />
-                        )}
+                    <div
+                      className="relative w-fit"
+                      onTouchStart={onPreviewTouchStart}
+                      onTouchEnd={onPreviewTouchEnd}
+                      onTouchCancel={onPreviewTouchCancel}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => goToRelativePage(-1)}
+                        aria-label={t.previous}
+                        disabled={activePage <= 1}
+                        className="absolute left-2 top-1/2 z-20 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-black/55 text-white shadow-lg backdrop-blur-md transition hover:bg-black/70 disabled:pointer-events-none disabled:opacity-30 sm:left-3 sm:h-12 sm:w-12"
+                      >
+                        <ChevronLeft className="h-5 w-5" />
+                      </button>
 
-                        {pageArticles.map((article, index) => (
-                          <button
-                            key={article._id}
-                            type="button"
-                            onClick={() => setActiveArticle(article)}
-                            className="absolute rounded-[2px] border border-primary-700 bg-primary-500/20 transition hover:bg-primary-500/30"
-                            style={{
-                              left: `${article.hotspot.x * 100}%`,
-                              top: `${article.hotspot.y * 100}%`,
-                              width: `${article.hotspot.w * 100}%`,
-                              height: `${article.hotspot.h * 100}%`,
-                            }}
-                            title={article.title || `${t.story} ${index + 1}`}
+                      <button
+                        type="button"
+                        onClick={() => goToRelativePage(1)}
+                        aria-label={t.next}
+                        disabled={activePage >= activePaper.pageCount}
+                        className="absolute right-2 top-1/2 z-20 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-black/55 text-white shadow-lg backdrop-blur-md transition hover:bg-black/70 disabled:pointer-events-none disabled:opacity-30 sm:right-3 sm:h-12 sm:w-12"
+                      >
+                        <ChevronRight className="h-5 w-5" />
+                      </button>
+
+                      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-[0_24px_60px_-30px_rgba(15,23,42,0.55)] dark:border-zinc-800 dark:bg-zinc-900">
+                        <AnimatePresence initial={false} custom={pageTurnDirection} mode="wait">
+                          <motion.div
+                            key={`epaper-page-${activePaper._id}-${activePage}-${previewSrc}`}
+                            custom={pageTurnDirection}
+                            variants={pageTurnVariants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            className="relative mx-auto w-fit"
+                            style={{ transformOrigin: pageTurnDirection >= 0 ? 'left center' : 'right center' }}
                           >
-                            <span className="sr-only">{article.title || `${t.story} ${index + 1}`}</span>
-                          </button>
-                        ))}
+                            {previewIsDataUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={previewSrc}
+                                alt={`Page ${activePage}`}
+                                style={{
+                                  maxHeight: `calc((100dvh - 210px) * ${previewZoom})`,
+                                }}
+                                className="block h-auto w-auto object-contain"
+                                draggable={false}
+                              />
+                            ) : (
+                              <Image
+                                src={previewSrc}
+                                alt={`Page ${activePage}`}
+                                width={previewWidth}
+                                height={previewHeight}
+                                unoptimized
+                                style={{
+                                  maxHeight: `calc((100dvh - 210px) * ${previewZoom})`,
+                                }}
+                                className="block h-auto w-auto object-contain"
+                                draggable={false}
+                              />
+                            )}
+
+                            {pageArticles.map((article, index) => (
+                              <button
+                                key={article._id}
+                                type="button"
+                                onClick={() => setActiveArticle(article)}
+                                className="absolute rounded-[2px] bg-transparent outline-none transition focus-visible:ring-2 focus-visible:ring-white/90 focus-visible:ring-offset-2 focus-visible:ring-offset-black/60"
+                                style={{
+                                  left: `${article.hotspot.x * 100}%`,
+                                  top: `${article.hotspot.y * 100}%`,
+                                  width: `${article.hotspot.w * 100}%`,
+                                  height: `${article.hotspot.h * 100}%`,
+                                }}
+                                title={article.title || `${t.story} ${index + 1}`}
+                              >
+                                <span className="sr-only">{article.title || `${t.story} ${index + 1}`}</span>
+                              </button>
+                            ))}
+                          </motion.div>
+                        </AnimatePresence>
                       </div>
                     </div>
                   </div>
@@ -1013,42 +1492,143 @@ export default function EPaperPageClient({
       ) : null}
 
       {activeArticle ? (
-        <div className="fixed inset-0 z-[100] bg-black/45 p-3">
-          <div className="mx-auto max-h-[95vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-gray-200 bg-white p-3 shadow-xl sm:p-4 md:p-5 dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <h3 className="text-xl font-bold text-gray-900 dark:text-zinc-100">{activeArticle.title}</h3>
+        <div className="fixed inset-0 z-[100] bg-black/65 p-2 sm:p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={activeArticle.title || t.story}
+            className="mx-auto flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
+          >
+            <h3 className="sr-only">{activeArticle.title}</h3>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 px-3 py-3 dark:border-zinc-800 sm:px-4">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void shareActiveArticleOnWhatsApp();
+                  }}
+                  className="inline-flex h-9 items-center gap-2 rounded-full border border-emerald-300 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 dark:border-emerald-800 dark:bg-zinc-950 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
+                >
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#25D366] text-white">
+                    <WhatsAppIcon className="h-3.5 w-3.5" />
+                  </span>
+                  <span>{t.whatsApp}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    void shareActiveArticle();
+                  }}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-full border border-primary-200 bg-primary-50 px-3 text-xs font-semibold text-primary-700 transition hover:bg-primary-100 dark:border-primary-800 dark:bg-primary-950/40 dark:text-primary-300 dark:hover:bg-primary-900/40"
+                >
+                  <Share2 className="h-3.5 w-3.5" />
+                  <span>{t.shareStory}</span>
+                </button>
+
+                {activeArticleHasImage && !isCoarsePointer ? (
+                  <div className="inline-flex h-9 items-center gap-1 rounded-full border border-gray-200 bg-white px-1 text-xs font-semibold text-gray-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setArticleImageZoom((current) =>
+                          Math.max(
+                            MIN_ARTICLE_IMAGE_ZOOM,
+                            Number((current - ARTICLE_IMAGE_ZOOM_STEP).toFixed(2))
+                          )
+                        )
+                      }
+                      aria-label={t.imageZoomOut}
+                      disabled={articleImageZoom <= MIN_ARTICLE_IMAGE_ZOOM}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-full transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-zinc-800"
+                    >
+                      <Minus className="h-3.5 w-3.5" />
+                    </button>
+                    <span className="min-w-[46px] text-center text-[11px]">
+                      {Math.round(articleImageZoom * 100)}%
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setArticleImageZoom((current) =>
+                          Math.min(
+                            MAX_ARTICLE_IMAGE_ZOOM,
+                            Number((current + ARTICLE_IMAGE_ZOOM_STEP).toFixed(2))
+                          )
+                        )
+                      }
+                      aria-label={t.imageZoomIn}
+                      disabled={articleImageZoom >= MAX_ARTICLE_IMAGE_ZOOM}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-full transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-zinc-800"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : null}
+
+                {activeArticleHasImage && isCoarsePointer ? (
+                  <div className="inline-flex h-9 items-center rounded-full border border-zinc-200 bg-zinc-50 px-3 text-[11px] font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
+                    {t.pinchToZoom}
+                  </div>
+                ) : null}
+              </div>
+
               <button
                 type="button"
                 onClick={() => setActiveArticle(null)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-300 text-gray-700 transition hover:bg-gray-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            {activeArticle.coverImagePath ? (
-              <div className="mb-3 overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-zinc-800 dark:bg-zinc-950">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={activeArticle.coverImagePath}
-                  alt={activeArticle.title}
-                  className="h-auto max-h-80 w-full object-cover"
-                />
+            <div className="flex-1 overflow-auto bg-white dark:bg-zinc-900">
+              <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-3 sm:p-4 md:p-5">
+                {activeArticleHasImage ? (
+                  <div
+                    className="overflow-auto rounded-2xl border border-gray-200 bg-zinc-100 shadow-sm dark:border-zinc-800 dark:bg-black"
+                    onTouchStart={onArticleImageTouchStart}
+                    onTouchMove={onArticleImageTouchMove}
+                    onTouchEnd={onArticleImageTouchEnd}
+                    onTouchCancel={onArticleImageTouchEnd}
+                  >
+                    <div
+                      className="mx-auto min-w-full"
+                      style={{
+                        width: `${Math.max(100, Math.round(articleImageZoom * 100))}%`,
+                        touchAction: 'pan-x pan-y',
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={activeArticle.coverImagePath}
+                        alt={activeArticle.title || t.storyImage}
+                        className="block h-auto w-full max-w-none select-none object-contain"
+                        draggable={false}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                {activeArticleHasExcerpt && (!activeArticleHasImage || activeArticleHasContent) ? (
+                  <p className="text-sm font-medium leading-6 text-gray-700 dark:text-zinc-300">
+                    {activeArticle.excerpt}
+                  </p>
+                ) : null}
+
+                {activeArticleHasContent ? (
+                  <article
+                    className="prose prose-sm max-w-none text-gray-800 dark:prose-invert dark:text-zinc-200 sm:prose-base"
+                    dangerouslySetInnerHTML={{ __html: activeArticle.contentHtml || '' }}
+                  />
+                ) : null}
+
+                {shouldShowNoArticleState ? (
+                  <p className="text-sm text-gray-600 dark:text-zinc-400">{t.noArticle}</p>
+                ) : null}
               </div>
-            ) : null}
-
-            {activeArticle.excerpt ? (
-              <p className="mb-3 text-sm font-medium text-gray-700 dark:text-zinc-300">{activeArticle.excerpt}</p>
-            ) : null}
-
-            {activeArticle.contentHtml ? (
-              <article
-                className="prose prose-sm max-w-none text-gray-800 dark:prose-invert dark:text-zinc-200"
-                dangerouslySetInnerHTML={{ __html: activeArticle.contentHtml }}
-              />
-            ) : (
-              <p className="text-sm text-gray-600 dark:text-zinc-400">{t.noArticle}</p>
-            )}
+            </div>
           </div>
         </div>
       ) : null}
