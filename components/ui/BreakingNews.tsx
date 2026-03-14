@@ -141,12 +141,21 @@ function getUiLang(): 'hi' | 'en' | 'unknown' {
 }
 
 function getTtsLang(text: string): 'hi-IN' | 'en-IN' {
+  const devanagariCount = (text.match(/[\u0900-\u097F]/g) || []).length;
+  const latinCount = (text.match(/[A-Za-z]/g) || []).length;
+
+  if (devanagariCount > 0 && devanagariCount >= Math.max(1, Math.floor(latinCount / 2))) {
+    return 'hi-IN';
+  }
+
+  if (latinCount > 0 && latinCount > devanagariCount) {
+    return 'en-IN';
+  }
+
   const uiLang = getUiLang();
   if (uiLang === 'hi') return 'hi-IN';
   if (uiLang === 'en') return 'en-IN';
-
-  const hasDevanagari = /[\u0900-\u097F]/.test(text);
-  return hasDevanagari ? 'hi-IN' : 'en-IN';
+  return 'en-IN';
 }
 
 export default function BreakingNews({
@@ -167,6 +176,8 @@ export default function BreakingNews({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const measureRef = useRef<HTMLDivElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const speechAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
   const topItemIdRef = useRef<string>('');
   const hasEnabledSoundRef = useRef(false);
   const userActivatedRef = useRef(false);
@@ -175,6 +186,7 @@ export default function BreakingNews({
   const speechIndexRef = useRef(0);
   const speechSessionRef = useRef(0);
   const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
+  const serverTtsAvailableRef = useRef(false);
 
   const externalProvided = items !== undefined || news !== undefined;
   const externalItems = useMemo(
@@ -214,6 +226,47 @@ export default function BreakingNews({
   const playBeep = useCallback(async () => {
     if (typeof window === 'undefined') return false;
 
+    const playFallbackBeep = async () => {
+      const AudioContextCtor =
+        window.AudioContext ||
+        (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextCtor) return false;
+
+      try {
+        const context =
+          audioContextRef.current && audioContextRef.current.state !== 'closed'
+            ? audioContextRef.current
+            : new AudioContextCtor();
+        audioContextRef.current = context;
+
+        if (context.state === 'suspended') {
+          await context.resume();
+        }
+
+        const now = context.currentTime;
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+
+        oscillator.type = 'triangle';
+        oscillator.frequency.setValueAtTime(880, now);
+        oscillator.frequency.exponentialRampToValueAtTime(660, now + 0.18);
+
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.14, now + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
+
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+
+        oscillator.start(now);
+        oscillator.stop(now + 0.22);
+        return true;
+      } catch (error) {
+        console.warn('Ticker fallback beep failed:', error);
+        return false;
+      }
+    };
+
     if (!audioRef.current) {
       const audio = new Audio('/sounds/breaking.mp3');
       audio.preload = 'auto';
@@ -228,7 +281,7 @@ export default function BreakingNews({
       return true;
     } catch (error) {
       console.warn('Ticker sound play failed:', error);
-      return false;
+      return playFallbackBeep();
     }
   }, []);
 
@@ -244,6 +297,12 @@ export default function BreakingNews({
     speechSessionRef.current += 1;
     speechQueueRef.current = [];
     speechIndexRef.current = 0;
+
+    if (speechAudioRef.current) {
+      speechAudioRef.current.pause();
+      speechAudioRef.current.currentTime = 0;
+      speechAudioRef.current = null;
+    }
 
     if (!canUseSpeech()) return;
     try {
@@ -314,16 +373,108 @@ export default function BreakingNews({
     return ranked[0]?.voice || null;
   }, [canUseSpeech]);
 
+  const playServerSpeech = useCallback(
+    async (text: string, languageCode: string, sessionId: number) => {
+      if (!serverTtsAvailableRef.current) return false;
+
+      try {
+        const response = await fetch('/api/ai/tts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            text,
+            languageCode,
+          }),
+        });
+
+        const payload = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          data?: {
+            audioUrl?: string;
+            audioBase64?: string;
+            mimeType?: string;
+          };
+        };
+
+        if (!response.ok || !payload.success || !payload.data) {
+          return false;
+        }
+
+        if (sessionId !== speechSessionRef.current || !soundOnRef.current) {
+          return true;
+        }
+
+        const audioUrl =
+          typeof payload.data.audioUrl === 'string' ? payload.data.audioUrl.trim() : '';
+        const audioBase64 =
+          typeof payload.data.audioBase64 === 'string' ? payload.data.audioBase64.trim() : '';
+        const mimeType =
+          typeof payload.data.mimeType === 'string' && payload.data.mimeType.trim()
+            ? payload.data.mimeType.trim()
+            : 'audio/mpeg';
+        const src = audioUrl || (audioBase64 ? `data:${mimeType};base64,${audioBase64}` : '');
+        if (!src) return false;
+
+        return await new Promise<boolean>((resolve) => {
+          const audio = new Audio(src);
+          speechAudioRef.current = audio;
+
+          const cleanup = () => {
+            if (speechAudioRef.current === audio) {
+              speechAudioRef.current = null;
+            }
+          };
+
+          audio.onended = () => {
+            cleanup();
+            resolve(true);
+          };
+          audio.onerror = () => {
+            cleanup();
+            resolve(false);
+          };
+
+          audio
+            .play()
+            .then(() => {
+              // Playback continues until onended resolves the promise.
+            })
+            .catch(() => {
+              cleanup();
+              resolve(false);
+            });
+        });
+      } catch {
+        return false;
+      }
+    },
+    []
+  );
+
   const speakNextInQueue = useCallback(
-    (sessionId: number) => {
-      if (!soundOnRef.current || !canUseSpeech()) return;
+    async (sessionId: number) => {
+      if (!soundOnRef.current) return;
       if (sessionId !== speechSessionRef.current) return;
 
       const text = speechQueueRef.current[speechIndexRef.current];
       if (!text) return;
 
-      const synth = window.speechSynthesis;
       const targetLang = getTtsLang(text);
+      if (targetLang === 'hi-IN') {
+        const playedWithServer = await playServerSpeech(text, targetLang, sessionId);
+        if (playedWithServer) {
+          if (sessionId !== speechSessionRef.current) return;
+          speechIndexRef.current += 1;
+          void speakNextInQueue(sessionId);
+          return;
+        }
+      }
+
+      if (!canUseSpeech()) return;
+
+      const synth = window.speechSynthesis;
 
       const utterance = new window.SpeechSynthesisUtterance(text);
       utterance.lang = targetLang;
@@ -336,13 +487,13 @@ export default function BreakingNews({
       utterance.onend = () => {
         if (sessionId !== speechSessionRef.current) return;
         speechIndexRef.current += 1;
-        speakNextInQueue(sessionId);
+        void speakNextInQueue(sessionId);
       };
 
       utterance.onerror = () => {
         if (sessionId !== speechSessionRef.current) return;
         speechIndexRef.current += 1;
-        speakNextInQueue(sessionId);
+        void speakNextInQueue(sessionId);
       };
 
       try {
@@ -351,25 +502,27 @@ export default function BreakingNews({
         console.warn('Ticker speech failed:', error);
       }
     },
-    [canUseSpeech, pickPreferredVoice]
+    [canUseSpeech, pickPreferredVoice, playServerSpeech]
   );
 
   const startSpeechQueue = useCallback(
     (itemsToRead: BreakingNewsItem[]) => {
-      if (!soundOnRef.current || !userActivatedRef.current || !canUseSpeech()) return;
+      if (!soundOnRef.current || !userActivatedRef.current) return;
 
       const queue = itemsToRead
         .map((item) => buildSpokenHeadline(item))
         .filter((value) => value.length > 0);
       if (!queue.length) return;
 
-      const synth = window.speechSynthesis;
-      synth.cancel();
+      if (canUseSpeech()) {
+        const synth = window.speechSynthesis;
+        synth.cancel();
+      }
 
       speechQueueRef.current = queue;
       speechIndexRef.current = 0;
       speechSessionRef.current += 1;
-      speakNextInQueue(speechSessionRef.current);
+      void speakNextInQueue(speechSessionRef.current);
     },
     [buildSpokenHeadline, canUseSpeech, speakNextInQueue]
   );
@@ -542,10 +695,57 @@ export default function BreakingNews({
     startSpeechQueue(resolvedItems);
   }, [resolvedItems, soundOn, startSpeechQueue]);
 
+  useEffect(() => {
+    let active = true;
+
+    const loadTtsStatus = async () => {
+      try {
+        const response = await fetch('/api/ai/tts', {
+          method: 'GET',
+          cache: 'no-store',
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          data?: {
+            bhashiniConfigured?: boolean;
+          };
+        };
+
+        if (!active) return;
+        serverTtsAvailableRef.current = Boolean(payload?.success && payload?.data?.bhashiniConfigured);
+      } catch {
+        if (!active) return;
+        serverTtsAvailableRef.current = false;
+      }
+    };
+
+    void loadTtsStatus();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      const context = audioContextRef.current;
+      if (!context || context.state === 'closed') return;
+      void context.close().catch(() => {
+        // Ignore cleanup failures.
+      });
+
+      if (speechAudioRef.current) {
+        speechAudioRef.current.pause();
+        speechAudioRef.current = null;
+      }
+    };
+  }, []);
+
   const toggleSound = useCallback(async () => {
     userActivatedRef.current = true;
 
     if (soundOn) {
+      soundOnRef.current = false;
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
@@ -558,15 +758,12 @@ export default function BreakingNews({
       return;
     }
 
-    const played = await playBeep();
-    if (!played) {
-      setSoundOn(false);
-      return;
-    }
-
+    soundOnRef.current = true;
     hasEnabledSoundRef.current = true;
     setSoundOn(true);
-  }, [cancelSpeechQueue, playBeep, soundOn]);
+    void playBeep();
+    startSpeechQueue(resolvedItems);
+  }, [cancelSpeechQueue, playBeep, resolvedItems, soundOn, startSpeechQueue]);
 
   if (!resolvedItems.length && !isLoading) return null;
 

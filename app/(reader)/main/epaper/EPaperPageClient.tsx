@@ -339,6 +339,11 @@ export default function EPaperPageClient({
     startZoom: 1,
     isPinching: false,
   });
+  const previewPinchStateRef = useRef<ArticlePinchState>({
+    startDistance: 0,
+    startZoom: 1,
+    isPinching: false,
+  });
   const articleTapStateRef = useRef<ArticleTapState>({
     lastTapAt: 0,
     lastTapX: 0,
@@ -997,7 +1002,22 @@ export default function EPaperPageClient({
   };
 
   const onPreviewTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
-    if (!isCoarsePointer || activeArticle || event.touches.length !== 1) return;
+    if (!isCoarsePointer || activeArticle) return;
+
+    if (event.touches.length === 2) {
+      const distance = getTouchDistance(event.touches);
+      if (!distance) return;
+
+      previewPinchStateRef.current = {
+        startDistance: distance,
+        startZoom: previewZoom,
+        isPinching: true,
+      };
+      pageSwipeStateRef.current.tracking = false;
+      return;
+    }
+
+    if (event.touches.length !== 1 || previewPinchStateRef.current.isPinching) return;
 
     const touch = event.touches[0];
     pageSwipeStateRef.current = {
@@ -1007,7 +1027,57 @@ export default function EPaperPageClient({
     };
   };
 
+  const onPreviewTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (!isCoarsePointer || activeArticle) return;
+
+    if (event.touches.length === 2) {
+      if (!previewPinchStateRef.current.isPinching) {
+        const distance = getTouchDistance(event.touches);
+        if (!distance) return;
+
+        previewPinchStateRef.current = {
+          startDistance: distance,
+          startZoom: previewZoom,
+          isPinching: true,
+        };
+      }
+
+      const distance = getTouchDistance(event.touches);
+      if (!distance || previewPinchStateRef.current.startDistance <= 0) return;
+
+      event.preventDefault();
+      pageSwipeStateRef.current.tracking = false;
+
+      const nextZoom = Math.min(
+        MAX_PREVIEW_ZOOM,
+        Math.max(
+          MIN_PREVIEW_ZOOM,
+          Number(
+            (
+              previewPinchStateRef.current.startZoom *
+              (distance / previewPinchStateRef.current.startDistance)
+            ).toFixed(2)
+          )
+        )
+      );
+
+      setPreviewZoom(nextZoom);
+    }
+  };
+
   const onPreviewTouchEnd = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (previewPinchStateRef.current.isPinching) {
+      if (event.touches.length < 2) {
+        previewPinchStateRef.current = {
+          startDistance: 0,
+          startZoom: previewZoom,
+          isPinching: false,
+        };
+      }
+      pageSwipeStateRef.current.tracking = false;
+      return;
+    }
+
     if (!pageSwipeStateRef.current.tracking || event.changedTouches.length !== 1) {
       pageSwipeStateRef.current.tracking = false;
       return;
@@ -1035,6 +1105,11 @@ export default function EPaperPageClient({
   };
 
   const onPreviewTouchCancel = () => {
+    previewPinchStateRef.current = {
+      startDistance: 0,
+      startZoom: previewZoom,
+      isPinching: false,
+    };
     pageSwipeStateRef.current.tracking = false;
   };
 
@@ -1329,6 +1404,7 @@ export default function EPaperPageClient({
                     <div
                       className="relative w-fit"
                       onTouchStart={onPreviewTouchStart}
+                      onTouchMove={onPreviewTouchMove}
                       onTouchEnd={onPreviewTouchEnd}
                       onTouchCancel={onPreviewTouchCancel}
                     >
@@ -1351,32 +1427,6 @@ export default function EPaperPageClient({
                       >
                         <ChevronRight className="h-5 w-5" />
                       </button>
-
-                      {isCoarsePointer ? (
-                        <div className="absolute bottom-3 right-3 z-20 inline-flex items-center gap-1 rounded-full border border-white/75 bg-black/60 px-1.5 py-1 text-white shadow-lg backdrop-blur-md sm:bottom-4 sm:right-4">
-                          <button
-                            type="button"
-                            onClick={zoomPreviewOut}
-                            aria-label={t.zoomOut}
-                            disabled={previewZoom <= MIN_PREVIEW_ZOOM}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
-                          >
-                            <Minus className="h-4 w-4" />
-                          </button>
-                          <span className="min-w-[44px] text-center text-[11px] font-semibold">
-                            {Math.round(previewZoom * 100)}%
-                          </span>
-                          <button
-                            type="button"
-                            onClick={zoomPreviewIn}
-                            aria-label={t.zoomIn}
-                            disabled={previewZoom >= MAX_PREVIEW_ZOOM}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
-                          >
-                            <Plus className="h-4 w-4" />
-                          </button>
-                        </div>
-                      ) : null}
 
                       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-[0_24px_60px_-30px_rgba(15,23,42,0.55)] dark:border-zinc-800 dark:bg-zinc-900">
                         <AnimatePresence initial={false} custom={pageTurnDirection} mode="wait">
