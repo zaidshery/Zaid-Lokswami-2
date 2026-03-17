@@ -30,7 +30,7 @@ export const COMPANY_INFO = {
 
   // Contact Details
   contact: {
-    email: 'lokswamicom@gmail.com',
+    email: 'support@lokswami.com',
     phone: '+917312552109',
     phone2: '+917312552109',
   },

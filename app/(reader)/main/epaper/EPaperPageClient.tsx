@@ -2306,30 +2306,7 @@ export default function EPaperPageClient({
       ) : null}
 
       <section className="cnp-surface p-3.5 sm:p-4 md:p-5">
-        <div className="mb-4 grid grid-cols-1 gap-4 border-b border-zinc-200/80 pb-4 dark:border-zinc-800">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div className="min-w-0">
-              <h1 className="text-lg font-extrabold tracking-tight text-gray-900 dark:text-zinc-100 sm:text-2xl">
-                {t.title}
-              </h1>
-              <p className="mt-1 max-w-2xl text-xs leading-5 text-gray-600 dark:text-zinc-400 sm:text-sm">
-                {t.subtitle}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-zinc-200/80 bg-white/80 px-3 py-2.5 text-left dark:border-zinc-800 dark:bg-zinc-900/70 lg:min-w-[220px]">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-500 dark:text-zinc-400">
-                {t.archiveSummary}
-              </p>
-              <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-zinc-100">
-                {epapers.length} {t.editions} {t.resultsLoaded}
-              </p>
-              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                {hasMoreList && !loadingList ? t.moreAvailable : t.noMore}
-              </p>
-            </div>
-          </div>
-
+        <div className="mb-4 border-b border-zinc-200/80 pb-4 dark:border-zinc-800">
           <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,0.85fr)_auto]">
             <label className="block">
               <span className="sr-only">{t.archiveSearch}</span>

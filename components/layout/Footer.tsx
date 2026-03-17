@@ -44,8 +44,8 @@ const COMPANY_LINKS: FooterLink[] = [
   { href: '/about', hi: '\u0939\u092e\u093e\u0930\u0947 \u092c\u093e\u0930\u0947 \u092e\u0947\u0902', en: 'About Us' },
   { href: '/careers', hi: '\u0915\u0930\u093f\u092f\u0930', en: 'Careers' },
   { href: '/advertise', hi: '\u0935\u093f\u091c\u094d\u091e\u093e\u092a\u0928', en: 'Advertise' },
-  { href: '/privacy', hi: '\u092a\u094d\u0930\u093e\u0907\u0935\u0947\u0938\u0940 \u092a\u0949\u0932\u093f\u0938\u0940', en: 'Privacy Policy' },
-  { href: '/terms', hi: '\u0928\u093f\u092f\u092e \u0914\u0930 \u0936\u0930\u094d\u0924\u0947\u0902', en: 'Terms & Conditions' },
+  { href: '/main/privacy', hi: '\u092a\u094d\u0930\u093e\u0907\u0935\u0947\u0938\u0940 \u092a\u0949\u0932\u093f\u0938\u0940', en: 'Privacy Policy' },
+  { href: '/main/terms', hi: '\u0928\u093f\u092f\u092e \u0914\u0930 \u0936\u0930\u094d\u0924\u0947\u0902', en: 'Terms & Conditions' },
   { href: '/contact', hi: '\u0938\u0902\u092a\u0930\u094d\u0915 \u0915\u0930\u0947\u0902', en: 'Contact' },
 ];
 
@@ -77,11 +77,11 @@ const CATEGORY_LINKS: FooterLink[] = FOOTER_CATEGORY_ORDER.map((slug) => {
 }).filter((item) => item.hi.trim() !== '');
 
 const LEGAL_LINKS: FooterLink[] = [
-  { href: '/cookies', hi: '\u0915\u0941\u0915\u0940 \u0928\u0940\u0924\u093f', en: 'Cookie Policy' },
-  { href: '/disclaimer', hi: '\u0905\u0938\u094d\u0935\u0940\u0915\u0930\u0923', en: 'Disclaimer' },
-  { href: '/privacy', hi: '\u092a\u094d\u0930\u093e\u0907\u0935\u0947\u0938\u0940 \u092a\u0949\u0932\u093f\u0938\u0940', en: 'Privacy Policy' },
-  { href: '/terms', hi: '\u0928\u093f\u092f\u092e \u0914\u0930 \u0936\u0930\u094d\u0924\u0947\u0902', en: 'Terms & Conditions' },
-  { href: '/sitemap', hi: '\u0938\u093e\u0907\u091f\u092e\u0948\u092a', en: 'Sitemap' },
+  { href: '/main/cookies', hi: '\u0915\u0941\u0915\u0940 \u0928\u0940\u0924\u093f', en: 'Cookie Policy' },
+  { href: '/main/disclaimer', hi: '\u0905\u0938\u094d\u0935\u0940\u0915\u0930\u0923', en: 'Disclaimer' },
+  { href: '/main/privacy', hi: '\u092a\u094d\u0930\u093e\u0907\u0935\u0947\u0938\u0940 \u092a\u0949\u0932\u093f\u0938\u0940', en: 'Privacy Policy' },
+  { href: '/main/terms', hi: '\u0928\u093f\u092f\u092e \u0914\u0930 \u0936\u0930\u094d\u0924\u0947\u0902', en: 'Terms & Conditions' },
+  { href: '/main/sitemap', hi: '\u0938\u093e\u0907\u091f\u092e\u0948\u092a', en: 'Sitemap' },
 ];
 
 const SOCIAL_LINKS: SocialLink[] = [
@@ -403,12 +403,25 @@ export default function Footer() {
 
         <div className="mt-6 border-t border-zinc-200 pt-4 dark:border-zinc-800">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <p className="text-[14px] text-zinc-700 dark:text-zinc-300 md:text-[15px]">
-              {`\u00A9 ${new Date().getFullYear()} ${COMPANY_INFO.name}. `}
-              {language === 'hi'
-                ? '\u0938\u0930\u094d\u0935\u093e\u0927\u093f\u0915\u093e\u0930 \u0938\u0941\u0930\u0915\u094d\u0937\u093f\u0924\u0964'
-                : 'All rights reserved.'}
-            </p>
+            <div className="space-y-1">
+              <p className="text-[14px] text-zinc-700 dark:text-zinc-300 md:text-[15px]">
+                {`\u00A9 ${new Date().getFullYear()} ${COMPANY_INFO.name}. `}
+                {language === 'hi'
+                  ? '\u0938\u0930\u094d\u0935\u093e\u0927\u093f\u0915\u093e\u0930 \u0938\u0941\u0930\u0915\u094d\u0937\u093f\u0924\u0964'
+                  : 'All rights reserved.'}
+              </p>
+              <p className="text-[12px] text-zinc-500 dark:text-zinc-400 md:text-[13px]">
+                {language === 'hi' ? 'Developed by ' : 'Developed by '}
+                <a
+                  href="https://github.com/zaidshery"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-zinc-700 underline decoration-zinc-300 underline-offset-4 transition hover:text-orange-600 hover:decoration-orange-400 dark:text-zinc-200 dark:decoration-zinc-600 dark:hover:text-orange-400 dark:hover:decoration-orange-400"
+                >
+                  Zaid Shery
+                </a>
+              </p>
+            </div>
 
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
               {legalLinks.map((item) => (

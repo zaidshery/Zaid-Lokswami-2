@@ -17,6 +17,7 @@ import {
 import HeroCarousel from '@/components/ui/HeroCarousel';
 import StoriesRail from '@/components/ui/StoriesRail';
 import NewsCard from '@/components/ui/NewsCard';
+import DesktopHeroEpaperCard from '@/components/ui/DesktopHeroEpaperCard';
 import { articles as mockArticles, type Article } from '@/lib/mock/data';
 import { categoryMatches, fetchMergedLiveArticles } from '@/lib/content/liveArticles';
 import {
@@ -91,6 +92,7 @@ export default function HomePage() {
   const visibleLatestNews = latestNews.slice(0, visibleLatestNewsCount);
   const hasMoreLatestNews = visibleLatestNewsCount < latestNews.length;
   const featuredSidebar: Article[] = (trendingArticles.length ? trendingArticles : feedArticles).slice(0, 5);
+  const desktopHeroSidebarStories: Article[] = (trendingArticles.length ? trendingArticles : feedArticles).slice(0, 2);
   const visualStories = useMemo(
     () =>
       cmsStories.length
@@ -258,6 +260,22 @@ export default function HomePage() {
   const epaperPagesLabel = latestEpaper?.pageCount
     ? `${latestEpaper.pageCount} ${language === 'hi' ? '\u092a\u0947\u091c' : 'pages'}`
     : '';
+  const desktopHeroEpaperTitle =
+    language === 'hi'
+      ? '\u0932\u094b\u0915\u0938\u094d\u0935\u093e\u092e\u0940 \u0908-\u092a\u0947\u092a\u0930'
+      : 'Lokswami E-Paper';
+  const desktopHeroEpaperEyebrow =
+    language === 'hi' ? '\u0921\u093f\u091c\u093f\u091f\u0932 \u090f\u0921\u093f\u0936\u0928' : 'Digital Edition';
+  const desktopHeroEpaperEdition =
+    language === 'hi' ? `${localizedEpaperCity} \u090f\u0921\u093f\u0936\u0928` : epaperEditionLabel;
+  const desktopHeroEpaperSupport =
+    language === 'hi'
+      ? '\u0906\u091c \u0915\u093e \u092a\u0942\u0930\u093e \u0905\u0902\u0915 \u0911\u0928\u0932\u093e\u0907\u0928 \u092a\u0922\u093c\u0947\u0902'
+      : "Read today's full edition online.";
+  const desktopHeroEpaperCta =
+    language === 'hi' ? '\u092a\u0947\u091c \u0916\u094b\u0932\u0947\u0902' : 'Open Page';
+  const desktopHeroEpaperAriaLabel =
+    language === 'hi' ? '\u0908-\u092a\u0947\u092a\u0930 \u092a\u0947\u091c \u0916\u094b\u0932\u0947\u0902' : 'Open e-paper page';
 
   return (
     <div className="relative pb-3 [--section-gap:1rem] sm:[--section-gap:1.25rem] lg:[--section-gap:1.5rem]">
@@ -339,13 +357,33 @@ export default function HomePage() {
             ))}
           </div>
 
-          <div className="hidden xl:col-span-4 xl:grid xl:h-[var(--top-stories-h)] xl:grid-rows-4 xl:gap-[var(--spot-gap)]">
-            {spotlightDesktop.map((article, index) => (
+          <div className="hidden xl:col-span-4 xl:grid xl:h-[var(--top-stories-h)] xl:grid-rows-[minmax(0,1.3fr)_repeat(2,minmax(0,0.85fr))] xl:gap-3">
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.35 }}
+              className="h-full"
+            >
+              <DesktopHeroEpaperCard
+                href={epaperHref}
+                dateLabel={epaperDateLabel}
+                thumbnailSrc={epaperThumbnail}
+                thumbnailAlt={epaperThumbnailAlt}
+                eyebrowLabel={desktopHeroEpaperEyebrow}
+                title={desktopHeroEpaperTitle}
+                editionLabel={desktopHeroEpaperEdition}
+                supportLabel={desktopHeroEpaperSupport}
+                ctaLabel={desktopHeroEpaperCta}
+                ariaLabel={desktopHeroEpaperAriaLabel}
+              />
+            </motion.div>
+
+            {desktopHeroSidebarStories.map((article, index) => (
               <motion.div
                 key={article.id}
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.35, delay: index * 0.07 }}
+                transition={{ duration: 0.35, delay: 0.08 + index * 0.07 }}
                 className="h-full"
               >
                 <Link
@@ -667,5 +705,6 @@ export default function HomePage() {
     </div>
   );
 }
+
 
 

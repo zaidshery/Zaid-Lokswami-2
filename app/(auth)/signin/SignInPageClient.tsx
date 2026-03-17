@@ -332,7 +332,7 @@ function AuthFormContent({
         className="mt-6 text-center text-xs text-zinc-400"
       >
         By signing in you agree to the{' '}
-        <Link href="/privacy" className="text-zinc-600 underline dark:text-zinc-300">
+        <Link href="/main/privacy" className="text-zinc-600 underline dark:text-zinc-300">
           Privacy Policy
         </Link>
         .
