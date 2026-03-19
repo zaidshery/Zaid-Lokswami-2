@@ -185,6 +185,7 @@ function AuthFormContent({
   errorMessage,
   isSigningIn,
   isCredentialSigningIn,
+  showGoogleSignIn,
   showAdminCredentialsLogin,
   adminLoginId,
   adminPassword,
@@ -196,6 +197,7 @@ function AuthFormContent({
   errorMessage: string;
   isSigningIn: boolean;
   isCredentialSigningIn: boolean;
+  showGoogleSignIn: boolean;
   showAdminCredentialsLogin: boolean;
   adminLoginId: string;
   adminPassword: string;
@@ -219,8 +221,10 @@ function AuthFormContent({
 
       <motion.div variants={formItemVariants}>
         <p className="mb-6 mt-1 text-center text-sm text-zinc-500 dark:text-zinc-400">
-          {showAdminCredentialsLogin
-            ? 'Use your admin ID and password to access the control panel.'
+          {showAdminCredentialsLogin && showGoogleSignIn
+            ? 'Continue with Google or use your admin ID and password to access the control panel.'
+            : showAdminCredentialsLogin
+              ? 'Use your admin ID and password to access the control panel.'
             : 'Sign in to continue to your account.'}
         </p>
       </motion.div>
@@ -232,6 +236,44 @@ function AuthFormContent({
         >
           <AlertCircle className="mt-0.5 h-4 w-4 flex-none" />
           <span>{errorMessage}</span>
+        </motion.div>
+      ) : null}
+
+      {showGoogleSignIn ? (
+        <motion.div variants={formItemVariants}>
+          <motion.button
+            type="button"
+            onClick={() => void onGoogleSignIn()}
+            disabled={isSigningIn || isCredentialSigningIn}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="inline-flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-[#dadce0] bg-white px-4 text-sm font-semibold text-[#3c4043] shadow-sm transition hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSigningIn ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <GoogleGlyph />
+            )}
+            <span>{isSigningIn ? 'Redirecting to Google...' : 'Continue with Google'}</span>
+          </motion.button>
+        </motion.div>
+      ) : null}
+
+      {showAdminCredentialsLogin ? (
+        <motion.div variants={formItemVariants} className="my-5 flex items-center gap-3">
+          <span className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
+          <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
+            or use admin credentials
+          </span>
+          <span className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
+        </motion.div>
+      ) : showGoogleSignIn ? (
+        <motion.div variants={formItemVariants} className="my-5 flex items-center gap-3">
+          <span className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
+          <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
+            or
+          </span>
+          <span className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
         </motion.div>
       ) : null}
 
@@ -284,36 +326,6 @@ function AuthFormContent({
             </motion.button>
           </div>
         </motion.div>
-      ) : null}
-
-      {!showAdminCredentialsLogin ? (
-        <>
-          <motion.div variants={formItemVariants}>
-            <motion.button
-              type="button"
-              onClick={() => void onGoogleSignIn()}
-              disabled={isSigningIn || isCredentialSigningIn}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              className="inline-flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-[#dadce0] bg-white px-4 text-sm font-semibold text-[#3c4043] shadow-sm transition hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSigningIn ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <GoogleGlyph />
-              )}
-              <span>{isSigningIn ? 'Redirecting to Google...' : 'Continue with Google'}</span>
-            </motion.button>
-          </motion.div>
-
-          <motion.div variants={formItemVariants} className="my-5 flex items-center gap-3">
-            <span className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
-            <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
-              or
-            </span>
-            <span className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
-          </motion.div>
-        </>
       ) : null}
 
       <motion.div variants={formItemVariants}>
@@ -395,8 +407,10 @@ function AuthenticatedNotice({
 
 function SignInPageContent({
   adminCredentialsEnabled,
+  adminGoogleEnabled,
 }: {
   adminCredentialsEnabled: boolean;
+  adminGoogleEnabled: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -424,6 +438,7 @@ function SignInPageContent({
   );
   const isAdminTarget = isAdminOnlyTarget(redirectTo);
   const showAdminCredentialsLogin = adminCredentialsEnabled && isAdminTarget;
+  const showGoogleSignIn = !isAdminTarget || adminGoogleEnabled;
   const isAdminSession =
     isAdminRole(session?.user?.role) && session?.user?.isActive !== false;
   const callbackUrl = useMemo(
@@ -640,6 +655,7 @@ function SignInPageContent({
                     errorMessage={errorMessage}
                     isSigningIn={isSigningIn}
                     isCredentialSigningIn={isCredentialSigningIn}
+                    showGoogleSignIn={showGoogleSignIn}
                     showAdminCredentialsLogin={showAdminCredentialsLogin}
                     adminLoginId={adminLoginId}
                     adminPassword={adminPassword}
@@ -674,6 +690,7 @@ function SignInPageContent({
                     errorMessage={errorMessage}
                     isSigningIn={isSigningIn}
                     isCredentialSigningIn={isCredentialSigningIn}
+                    showGoogleSignIn={showGoogleSignIn}
                     showAdminCredentialsLogin={showAdminCredentialsLogin}
                     adminLoginId={adminLoginId}
                     adminPassword={adminPassword}
@@ -737,6 +754,7 @@ function SignInPageContent({
                 errorMessage={errorMessage}
                 isSigningIn={isSigningIn}
                 isCredentialSigningIn={isCredentialSigningIn}
+                showGoogleSignIn={showGoogleSignIn}
                 showAdminCredentialsLogin={showAdminCredentialsLogin}
                 adminLoginId={adminLoginId}
                 adminPassword={adminPassword}
@@ -770,12 +788,17 @@ function SignInPageFallback() {
 
 export default function SignInPage({
   adminCredentialsEnabled,
+  adminGoogleEnabled,
 }: {
   adminCredentialsEnabled: boolean;
+  adminGoogleEnabled: boolean;
 }) {
   return (
     <Suspense fallback={<SignInPageFallback />}>
-      <SignInPageContent adminCredentialsEnabled={adminCredentialsEnabled} />
+      <SignInPageContent
+        adminCredentialsEnabled={adminCredentialsEnabled}
+        adminGoogleEnabled={adminGoogleEnabled}
+      />
     </Suspense>
   );
 }

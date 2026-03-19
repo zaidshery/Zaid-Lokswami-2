@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { auth } from '@/lib/auth';
+import { auth, isAdminGoogleAuthConfigured } from '@/lib/auth';
 import { isAdminCredentialsAuthConfigured } from '@/lib/auth/adminCredentials';
 import { normalizeRedirectPath } from '@/lib/auth/redirect';
 import { isAdminRole } from '@/lib/auth/roles';
@@ -65,6 +65,7 @@ export default async function SignInPage({
   const errorKey = readSearchParam(params.error);
   const session = await auth();
   const adminCredentialsEnabled = isAdminCredentialsAuthConfigured();
+  const adminGoogleEnabled = isAdminGoogleAuthConfigured;
   const isAuthenticated = Boolean(session?.user?.email);
   const isAdminSession =
     isAdminRole(session?.user?.role) && session?.user?.isActive !== false;
@@ -76,7 +77,12 @@ export default async function SignInPage({
 
     if (isAdminSession) {
       if (shouldShowAdminBanner) {
-        return <SignInPageClient adminCredentialsEnabled={adminCredentialsEnabled} />;
+        return (
+          <SignInPageClient
+            adminCredentialsEnabled={adminCredentialsEnabled}
+            adminGoogleEnabled={adminGoogleEnabled}
+          />
+        );
       }
 
       redirect('/admin');
@@ -89,5 +95,10 @@ export default async function SignInPage({
     redirect(redirectTo);
   }
 
-  return <SignInPageClient adminCredentialsEnabled={adminCredentialsEnabled} />;
+  return (
+    <SignInPageClient
+      adminCredentialsEnabled={adminCredentialsEnabled}
+      adminGoogleEnabled={adminGoogleEnabled}
+    />
+  );
 }
