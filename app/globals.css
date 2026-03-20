@@ -665,9 +665,71 @@
     will-change: transform;
   }
 
+  .epaper-premium-card {
+    isolation: isolate;
+    transform: translate3d(0, 0, 0);
+  }
+
+  .epaper-premium-aurora {
+    background:
+      radial-gradient(circle at 16% 24%, rgba(255, 255, 255, 0.14), transparent 18%),
+      radial-gradient(circle at 76% 12%, rgba(249, 115, 22, 0.3), transparent 26%),
+      radial-gradient(circle at 82% 74%, rgba(239, 68, 68, 0.22), transparent 30%);
+    filter: blur(24px);
+    animation: epaperPremiumAurora 11s ease-in-out infinite alternate;
+    transform: translate3d(0, 0, 0);
+    will-change: transform, opacity;
+  }
+
+  .epaper-premium-spotlight {
+    background:
+      radial-gradient(
+        240px circle at var(--epaper-spotlight-x, 72%) var(--epaper-spotlight-y, 26%),
+        rgba(255, 255, 255, 0.16),
+        rgba(255, 255, 255, 0.08) 20%,
+        transparent 60%
+      );
+    mix-blend-mode: screen;
+    opacity: 0.72;
+    transition: opacity 180ms ease;
+    will-change: background;
+  }
+
+  .epaper-premium-button {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .epaper-premium-button-shimmer {
+    background: linear-gradient(
+      112deg,
+      transparent 16%,
+      rgba(255, 255, 255, 0.08) 34%,
+      rgba(255, 255, 255, 0.58) 50%,
+      rgba(255, 255, 255, 0.1) 66%,
+      transparent 84%
+    );
+    animation: epaperPremiumShimmer 3.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+    mix-blend-mode: screen;
+    opacity: 0.92;
+    transform: skewX(-18deg) translate3d(-130%, 0, 0);
+    will-change: transform;
+  }
+
   @media (min-width: 768px) {
     .footer-social-float {
       animation: footerIconFloatSoft 7.4s ease-in-out infinite;
+    }
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .epaper-premium-card:hover .epaper-premium-spotlight {
+      opacity: 1;
+    }
+
+    .epaper-premium-card:hover .epaper-premium-button-shimmer {
+      animation-duration: 2.3s;
     }
   }
 
@@ -865,6 +927,33 @@
   }
   50% {
     transform: perspective(900px) rotateX(11deg) rotateY(-10deg) translate3d(0, -2px, 0);
+  }
+}
+
+@keyframes epaperPremiumAurora {
+  0% {
+    transform: translate3d(-3%, -2%, 0) scale(1);
+    opacity: 0.62;
+  }
+  50% {
+    transform: translate3d(4%, 3%, 0) scale(1.06);
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate3d(-2%, 6%, 0) scale(1.02);
+    opacity: 0.7;
+  }
+}
+
+@keyframes epaperPremiumShimmer {
+  0% {
+    transform: skewX(-18deg) translate3d(-130%, 0, 0);
+  }
+  55% {
+    transform: skewX(-18deg) translate3d(140%, 0, 0);
+  }
+  100% {
+    transform: skewX(-18deg) translate3d(140%, 0, 0);
   }
 }
 

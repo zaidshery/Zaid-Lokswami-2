@@ -51,6 +51,28 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+function formatDesktopHeroDate(value: string | undefined, language: 'en' | 'hi') {
+  if (!value) return '';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return formatUiDate(value, value);
+  }
+
+  return new Intl.DateTimeFormat(language === 'hi' ? 'hi-IN' : 'en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(parsed);
+}
+
+function getLocalDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 const HOME_LATEST_INITIAL_COUNT = 8;
 const HOME_LATEST_PAGE_STEP = 8;
 const HI_EPAPER_CITY_LABELS: Record<string, string> = {
@@ -239,6 +261,10 @@ export default function HomePage() {
   const epaperDateLabel = latestEpaper?.publishDate
     ? formatUiDate(latestEpaper.publishDate, latestEpaper.publishDate)
     : '';
+  const desktopHeroEpaperDateLabel = formatDesktopHeroDate(latestEpaper?.publishDate, language);
+  const isDesktopHeroEpaperToday = Boolean(
+    latestEpaper?.publishDate && latestEpaper.publishDate === getLocalDateKey()
+  );
   const epaperThumbnail = latestEpaper?.thumbnailPath || '/placeholders/epaper-3x4.svg';
   const epaperThumbnailAlt =
     language === 'hi'
@@ -261,20 +287,30 @@ export default function HomePage() {
     : '';
   const desktopHeroEpaperTitle =
     language === 'hi'
-      ? '\u0932\u094b\u0915\u0938\u094d\u0935\u093e\u092e\u0940 \u0908-\u092a\u0947\u092a\u0930'
-      : 'Lokswami E-Paper';
+      ? '\u0932\u094b\u0915\u0938\u094d\u0935\u093e\u092e\u0940'
+      : 'Lokswami';
   const desktopHeroEpaperEyebrow =
-    language === 'hi' ? '\u0921\u093f\u091c\u093f\u091f\u0932 \u090f\u0921\u093f\u0936\u0928' : 'Digital Edition';
+    language === 'hi'
+      ? isDesktopHeroEpaperToday
+        ? '\u0906\u091c \u0915\u093e \u0908-\u092a\u0947\u092a\u0930'
+        : '\u0924\u093e\u091c\u093c\u093e \u0908-\u092a\u0947\u092a\u0930'
+      : isDesktopHeroEpaperToday
+        ? "Today's E-Paper"
+        : 'Latest E-Paper';
   const desktopHeroEpaperEdition =
     language === 'hi' ? `${localizedEpaperCity} \u090f\u0921\u093f\u0936\u0928` : epaperEditionLabel;
   const desktopHeroEpaperSupport =
     language === 'hi'
-      ? '\u0906\u091c \u0915\u093e \u092a\u0942\u0930\u093e \u0905\u0902\u0915 \u0911\u0928\u0932\u093e\u0907\u0928 \u092a\u0922\u093c\u0947\u0902'
-      : "Read today's full edition online.";
+      ? isDesktopHeroEpaperToday
+        ? '\u0924\u093e\u091c\u093c\u093e \u0916\u092c\u0930\u0947\u0902, \u092a\u0942\u0930\u093e \u0921\u093f\u091c\u093f\u091f\u0932 \u0938\u0902\u0938\u094d\u0915\u0930\u0923'
+        : '\u0909\u092a\u0932\u092c\u094d\u0927 \u0938\u092c\u0938\u0947 \u0928\u0908 \u0921\u093f\u091c\u093f\u091f\u0932 \u090f\u0921\u093f\u0936\u0928'
+      : isDesktopHeroEpaperToday
+        ? 'Fresh news, full digital edition'
+        : 'Latest available digital edition';
   const desktopHeroEpaperCta =
-    language === 'hi' ? '\u092a\u0947\u091c \u0916\u094b\u0932\u0947\u0902' : 'Open Page';
+    language === 'hi' ? '\u0905\u092d\u0940 \u092a\u0922\u093c\u0947\u0902' : 'Read Now';
   const desktopHeroEpaperAriaLabel =
-    language === 'hi' ? '\u0908-\u092a\u0947\u092a\u0930 \u092a\u0947\u091c \u0916\u094b\u0932\u0947\u0902' : 'Open e-paper page';
+    language === 'hi' ? '\u0905\u092d\u0940 \u0908-\u092a\u0947\u092a\u0930 \u092a\u0922\u093c\u0947\u0902' : "Read today's e-paper";
 
   return (
     <div className="relative pb-3 [--section-gap:1rem] sm:[--section-gap:1.25rem] lg:[--section-gap:1.5rem]">
@@ -356,7 +392,7 @@ export default function HomePage() {
             ))}
           </div>
 
-          <div className="hidden xl:col-span-4 xl:grid xl:h-[var(--top-stories-h)] xl:grid-rows-[minmax(0,1.3fr)_repeat(2,minmax(0,0.85fr))] xl:gap-3">
+          <div className="hidden xl:col-span-4 xl:grid xl:h-[var(--top-stories-h)] xl:grid-rows-[minmax(0,1.55fr)_repeat(2,minmax(0,0.725fr))] xl:gap-3">
             <motion.div
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
@@ -365,7 +401,7 @@ export default function HomePage() {
             >
               <DesktopHeroEpaperCard
                 href={epaperHref}
-                dateLabel={epaperDateLabel}
+                dateLabel={desktopHeroEpaperDateLabel}
                 thumbnailSrc={epaperThumbnail}
                 thumbnailAlt={epaperThumbnailAlt}
                 eyebrowLabel={desktopHeroEpaperEyebrow}
