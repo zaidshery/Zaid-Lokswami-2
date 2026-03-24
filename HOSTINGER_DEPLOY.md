@@ -50,8 +50,9 @@ OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
 OCR_SPACE_API_KEY=
 OCR_SPACE_LANGUAGE=hin
-BHASHINI_TTS_API_URL=
-BHASHINI_API_KEY=
+GEMINI_API_KEY=
+GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts
+GEMINI_TTS_VOICE=Charon
 ```
 
 ## Google OAuth Production Redirect
@@ -94,6 +95,7 @@ After deploy, verify:
 - admin login works
 - uploads work
 - Google sign-in works if enabled
+- article, e-paper, breaking news, and AI listen features generate Gemini audio
 
 ## Hostinger VPS
 

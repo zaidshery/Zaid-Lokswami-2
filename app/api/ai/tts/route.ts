@@ -1,36 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { synthesizeBhashiniSpeech } from '@/lib/ai/bhashiniTts';
 import {
-  isSarvamConfigured,
-  isSupportedSarvamLanguage,
-  SARVAM_LANGUAGE_OPTIONS,
-  synthesizeSarvamSpeech,
-} from '@/lib/ai/sarvamTts';
+  getGeminiTtsRuntimeConfig,
+  isGeminiTtsConfigured,
+  synthesizeGeminiSpeech,
+} from '@/lib/ai/geminiTts';
 import {
-  BHASHINI_LANGUAGE_OPTIONS,
-  isSupportedBhashiniLanguage,
-} from '@/lib/constants/lokswamiAi';
-
-function isBhashiniConfigured() {
-  return Boolean(process.env.BHASHINI_TTS_API_URL?.trim());
-}
-
-function getConfiguredTtsProvider() {
-  if (isSarvamConfigured()) return 'sarvam' as const;
-  if (isBhashiniConfigured()) return 'bhashini' as const;
-  return null;
-}
+  GEMINI_TTS_LANGUAGE_OPTIONS,
+  GEMINI_TTS_MAX_TOTAL_CHARS,
+  GEMINI_TTS_PROVIDER,
+  GEMINI_TTS_VOICE_OPTIONS,
+} from '@/lib/constants/tts';
 
 export async function GET() {
-  const provider = getConfiguredTtsProvider();
+  const runtime = getGeminiTtsRuntimeConfig();
 
   return NextResponse.json({
     success: true,
     data: {
-      bhashiniConfigured: Boolean(provider),
-      provider,
-      supportedLanguages:
-        provider === 'sarvam' ? SARVAM_LANGUAGE_OPTIONS : BHASHINI_LANGUAGE_OPTIONS,
+      configured: isGeminiTtsConfigured(),
+      provider: GEMINI_TTS_PROVIDER,
+      model: runtime.model,
+      defaultVoice: runtime.defaultVoice,
+      supportedLanguages: GEMINI_TTS_LANGUAGE_OPTIONS,
+      voices: GEMINI_TTS_VOICE_OPTIONS,
+      maxCharacters: GEMINI_TTS_MAX_TOTAL_CHARS,
     },
   });
 }
@@ -55,56 +48,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const provider = getConfiguredTtsProvider();
-
-    if (!provider) {
+    if (!isGeminiTtsConfigured()) {
       return NextResponse.json(
-        { success: false, error: 'No server TTS provider is configured.' },
+        { success: false, error: 'Gemini TTS is not configured. Set GEMINI_API_KEY.' },
         { status: 501 }
       );
     }
 
-    const maxLength = provider === 'sarvam' ? 2500 : 3500;
-    if (text.length > maxLength) {
+    if (text.length > GEMINI_TTS_MAX_TOTAL_CHARS) {
       return NextResponse.json(
         {
           success: false,
-          error: `Text is too long for TTS. Keep it under ${maxLength} characters.`,
+          error: `Text is too long for Gemini TTS. Keep it under ${GEMINI_TTS_MAX_TOTAL_CHARS} characters.`,
         },
         { status: 400 }
       );
     }
 
-    const isSupportedLanguage =
-      provider === 'sarvam'
-        ? isSupportedSarvamLanguage(languageCode)
-        : isSupportedBhashiniLanguage(languageCode);
-
-    if (!isSupportedLanguage) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            provider === 'sarvam'
-              ? 'Unsupported language code for Sarvam TTS.'
-              : 'Unsupported language code for Bhashini TTS.',
-        },
-        { status: 400 }
-      );
-    }
-
-    const synthesized =
-      provider === 'sarvam'
-        ? await synthesizeSarvamSpeech({
-            text,
-            languageCode,
-            voice,
-          })
-        : await synthesizeBhashiniSpeech({
-            text,
-            languageCode,
-            voice,
-          });
+    const synthesized = await synthesizeGeminiSpeech({
+      text,
+      languageCode,
+      voice,
+    });
 
     if (synthesized.mode === 'unavailable') {
       return NextResponse.json(

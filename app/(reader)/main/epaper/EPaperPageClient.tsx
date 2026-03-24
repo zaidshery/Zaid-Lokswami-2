@@ -60,6 +60,7 @@ import {
   type EPaperCityFilter,
 } from '@/lib/utils/publicEpaperFilters';
 import type { EPaperArticleRecord, EPaperRecord } from '@/lib/types/epaper';
+import { buildTtsAudioSource, requestTtsAudio } from '@/lib/ai/ttsClient';
 
 export type PublicCursor = {
   publishedAt: string;
@@ -441,14 +442,6 @@ function splitTextParagraphs(value: string) {
     .split(/\n{2,}/)
     .map((item) => item.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
-}
-
-function normalizeLangCode(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function getBaseLang(value: string) {
-  return normalizeLangCode(value).split('-')[0] || '';
 }
 
 function toErrorMessage(error: unknown, fallback: string) {
@@ -1713,10 +1706,6 @@ export default function EPaperPageClient({
       articleAudioRef.current = null;
     }
 
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-
     if (!suppressState) {
       setIsPreparingArticleListen(false);
       setIsPlayingArticleAudio(false);
@@ -1897,114 +1886,15 @@ export default function EPaperPageClient({
     setIsPreparingArticleListen(true);
     stopArticleListening(true);
 
-    const fallbackSpeak = async () => {
-      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-        throw new Error(t.audioUnavailable);
-      }
-
-      const speech = window.speechSynthesis;
-      let voices = speech.getVoices();
-
-      if (!voices.length) {
-        voices = await new Promise<SpeechSynthesisVoice[]>((resolve) => {
-          let settled = false;
-          const timeout = window.setTimeout(() => {
-            if (settled) return;
-            settled = true;
-            resolve(speech.getVoices());
-          }, 800);
-
-          const done = () => {
-            if (settled) return;
-            settled = true;
-            window.clearTimeout(timeout);
-            resolve(speech.getVoices());
-          };
-
-          if (typeof speech.addEventListener === 'function') {
-            speech.addEventListener('voiceschanged', done, { once: true });
-          } else {
-            const previous = speech.onvoiceschanged;
-            speech.onvoiceschanged = () => {
-              done();
-              speech.onvoiceschanged = previous;
-            };
-          }
-        });
-      }
-
-      if (!voices.length) {
-        throw new Error(t.audioUnavailable);
-      }
-
-      const targetCode = 'hi-IN';
-      const normalizedTarget = normalizeLangCode(targetCode);
-      const baseTarget = getBaseLang(targetCode);
-      const preferredVoice =
-        voices.find((voice) => normalizeLangCode(voice.lang) === normalizedTarget) ||
-        voices.find((voice) => normalizeLangCode(voice.lang).startsWith(`${baseTarget}-`)) ||
-        voices.find((voice) => normalizeLangCode(voice.lang) === 'hi-in') ||
-        voices.find((voice) => normalizeLangCode(voice.lang).startsWith('hi-')) ||
-        voices.find((voice) => normalizeLangCode(voice.lang) === 'en-us') ||
-        voices.find((voice) => normalizeLangCode(voice.lang).startsWith('en-')) ||
-        voices[0];
-
-      const utterance = new SpeechSynthesisUtterance(sourceText);
-      utterance.voice = preferredVoice || null;
-      utterance.lang = preferredVoice?.lang || targetCode;
-      utterance.rate = 1;
-      utterance.pitch = 1;
-      utterance.onend = () => {
-        setIsPlayingArticleAudio(false);
-      };
-      utterance.onerror = () => {
-        setIsPlayingArticleAudio(false);
-        setArticleListenError(t.audioUnavailable);
-      };
-
-      speech.cancel();
-      speech.speak(utterance);
-      setIsPlayingArticleAudio(true);
-    };
-
     try {
-      const response = await fetch('/api/ai/tts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text: sourceText,
-          languageCode: 'hi-IN',
-        }),
+      const payload = await requestTtsAudio({
+        text: sourceText,
+        languageCode: 'hi-IN',
       });
-
-      const payload = (await response.json().catch(() => ({}))) as {
-        success?: boolean;
-        data?: {
-          audioUrl?: string;
-          audioBase64?: string;
-          mimeType?: string;
-        };
-        error?: string;
-      };
-
-      if (!response.ok || !payload.success || !payload.data) {
-        throw new Error(payload.error || t.audioUnavailable);
-      }
-
-      const audioUrl =
-        typeof payload.data.audioUrl === 'string' ? payload.data.audioUrl.trim() : '';
-      const audioBase64 =
-        typeof payload.data.audioBase64 === 'string' ? payload.data.audioBase64.trim() : '';
-      const mimeType =
-        typeof payload.data.mimeType === 'string' && payload.data.mimeType.trim()
-          ? payload.data.mimeType.trim()
-          : 'audio/mpeg';
-      const src = audioUrl || (audioBase64 ? `data:${mimeType};base64,${audioBase64}` : '');
+      const src = buildTtsAudioSource(payload);
 
       if (!src) {
-        throw new Error('No audio payload returned.');
+        throw new Error('Gemini TTS returned no audio payload.');
       }
 
       const audio = new Audio(src);
@@ -2019,12 +1909,8 @@ export default function EPaperPageClient({
 
       await audio.play();
       setIsPlayingArticleAudio(true);
-    } catch {
-      try {
-        await fallbackSpeak();
-      } catch (fallbackError) {
-        setArticleListenError(toErrorMessage(fallbackError, t.audioUnavailable));
-      }
+    } catch (error) {
+      setArticleListenError(toErrorMessage(error, t.audioUnavailable));
     } finally {
       setIsPreparingArticleListen(false);
     }

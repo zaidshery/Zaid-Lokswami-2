@@ -12,6 +12,11 @@ import {
   sortBreakingNewsItems,
   type BreakingNewsItem,
 } from '@/lib/types/breaking';
+import {
+  buildTtsAudioSource,
+  fetchTtsStatus,
+  requestTtsAudio,
+} from '@/lib/ai/ttsClient';
 
 type BreakingApiPayload = {
   items?: unknown;
@@ -185,7 +190,6 @@ export default function BreakingNews({
   const speechQueueRef = useRef<string[]>([]);
   const speechIndexRef = useRef(0);
   const speechSessionRef = useRef(0);
-  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
   const serverTtsAvailableRef = useRef(false);
 
   const externalProvided = items !== undefined || news !== undefined;
@@ -285,14 +289,6 @@ export default function BreakingNews({
     }
   }, []);
 
-  const canUseSpeech = useCallback(() => {
-    return (
-      typeof window !== 'undefined' &&
-      'speechSynthesis' in window &&
-      typeof window.SpeechSynthesisUtterance !== 'undefined'
-    );
-  }, []);
-
   const cancelSpeechQueue = useCallback(() => {
     speechSessionRef.current += 1;
     speechQueueRef.current = [];
@@ -303,118 +299,23 @@ export default function BreakingNews({
       speechAudioRef.current.currentTime = 0;
       speechAudioRef.current = null;
     }
-
-    if (!canUseSpeech()) return;
-    try {
-      window.speechSynthesis.cancel();
-    } catch {
-      // No-op
-    }
-  }, [canUseSpeech]);
-
-  const pickPreferredVoice = useCallback((targetLang: string) => {
-    if (!canUseSpeech()) return null;
-    const voices = voicesRef.current.length
-      ? voicesRef.current
-      : window.speechSynthesis.getVoices();
-    if (!voices.length) return null;
-
-    const langLower = targetLang.toLowerCase();
-    const baseLang = langLower.split('-')[0];
-    const femaleKeywords = [
-      'female',
-      'woman',
-      'zira',
-      'susan',
-      'hazel',
-      'heera',
-      'neha',
-      'priya',
-      'kavya',
-      'siri',
-    ];
-    const maleKeywords = [
-      'male',
-      'man',
-      'david',
-      'mark',
-      'ravi',
-      'george',
-      'alex',
-      'daniel',
-      'james',
-    ];
-
-    const ranked = voices
-      .map((voice) => {
-        const voiceLang = (voice.lang || '').toLowerCase();
-        const name = (voice.name || '').toLowerCase();
-        let score = 0;
-
-        if (voiceLang === langLower) score += 120;
-        else if (voiceLang.startsWith(`${baseLang}-`)) score += 95;
-        else if (voiceLang.startsWith(baseLang)) score += 85;
-
-        for (const keyword of femaleKeywords) {
-          if (name.includes(keyword)) score += 24;
-        }
-        for (const keyword of maleKeywords) {
-          if (name.includes(keyword)) score -= 32;
-        }
-
-        if (name.includes('microsoft')) score += 4;
-        if (name.includes('google')) score += 2;
-        if (voice.default) score += 1;
-
-        return { voice, score };
-      })
-      .sort((a, b) => b.score - a.score);
-
-    return ranked[0]?.voice || null;
-  }, [canUseSpeech]);
+  }, []);
 
   const playServerSpeech = useCallback(
     async (text: string, languageCode: string, sessionId: number) => {
       if (!serverTtsAvailableRef.current) return false;
 
       try {
-        const response = await fetch('/api/ai/tts', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            text,
-            languageCode,
-          }),
+        const payload = await requestTtsAudio({
+          text,
+          languageCode,
         });
-
-        const payload = (await response.json().catch(() => ({}))) as {
-          success?: boolean;
-          data?: {
-            audioUrl?: string;
-            audioBase64?: string;
-            mimeType?: string;
-          };
-        };
-
-        if (!response.ok || !payload.success || !payload.data) {
-          return false;
-        }
 
         if (sessionId !== speechSessionRef.current || !soundOnRef.current) {
           return true;
         }
 
-        const audioUrl =
-          typeof payload.data.audioUrl === 'string' ? payload.data.audioUrl.trim() : '';
-        const audioBase64 =
-          typeof payload.data.audioBase64 === 'string' ? payload.data.audioBase64.trim() : '';
-        const mimeType =
-          typeof payload.data.mimeType === 'string' && payload.data.mimeType.trim()
-            ? payload.data.mimeType.trim()
-            : 'audio/mpeg';
-        const src = audioUrl || (audioBase64 ? `data:${mimeType};base64,${audioBase64}` : '');
+        const src = buildTtsAudioSource(payload);
         if (!src) return false;
 
         return await new Promise<boolean>((resolve) => {
@@ -462,69 +363,31 @@ export default function BreakingNews({
       if (!text) return;
 
       const targetLang = getTtsLang(text);
-      if (targetLang === 'hi-IN') {
-        const playedWithServer = await playServerSpeech(text, targetLang, sessionId);
-        if (playedWithServer) {
-          if (sessionId !== speechSessionRef.current) return;
-          speechIndexRef.current += 1;
-          void speakNextInQueue(sessionId);
-          return;
-        }
-      }
-
-      if (!canUseSpeech()) return;
-
-      const synth = window.speechSynthesis;
-
-      const utterance = new window.SpeechSynthesisUtterance(text);
-      utterance.lang = targetLang;
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-
-      const matchedVoice = pickPreferredVoice(targetLang);
-      if (matchedVoice) utterance.voice = matchedVoice;
-
-      utterance.onend = () => {
-        if (sessionId !== speechSessionRef.current) return;
-        speechIndexRef.current += 1;
-        void speakNextInQueue(sessionId);
-      };
-
-      utterance.onerror = () => {
-        if (sessionId !== speechSessionRef.current) return;
-        speechIndexRef.current += 1;
-        void speakNextInQueue(sessionId);
-      };
-
-      try {
-        synth.speak(utterance);
-      } catch (error) {
-        console.warn('Ticker speech failed:', error);
-      }
+      await playServerSpeech(text, targetLang, sessionId);
+      if (sessionId !== speechSessionRef.current) return;
+      speechIndexRef.current += 1;
+      void speakNextInQueue(sessionId);
     },
-    [canUseSpeech, pickPreferredVoice, playServerSpeech]
+    [playServerSpeech]
   );
 
   const startSpeechQueue = useCallback(
     (itemsToRead: BreakingNewsItem[]) => {
-      if (!soundOnRef.current || !userActivatedRef.current) return;
+      if (!soundOnRef.current || !userActivatedRef.current || !serverTtsAvailableRef.current) {
+        return;
+      }
 
       const queue = itemsToRead
         .map((item) => buildSpokenHeadline(item))
         .filter((value) => value.length > 0);
       if (!queue.length) return;
 
-      if (canUseSpeech()) {
-        const synth = window.speechSynthesis;
-        synth.cancel();
-      }
-
       speechQueueRef.current = queue;
       speechIndexRef.current = 0;
       speechSessionRef.current += 1;
       void speakNextInQueue(speechSessionRef.current);
     },
-    [buildSpokenHeadline, canUseSpeech, speakNextInQueue]
+    [buildSpokenHeadline, speakNextInQueue]
   );
 
   const fetchBreakingItems = useCallback(async (showLoading = false) => {
@@ -622,30 +485,6 @@ export default function BreakingNews({
   }, []);
 
   useEffect(() => {
-    if (!canUseSpeech()) return;
-
-    const synth = window.speechSynthesis;
-    const refreshVoices = () => {
-      voicesRef.current = synth.getVoices();
-    };
-
-    refreshVoices();
-
-    if (typeof synth.addEventListener === 'function') {
-      synth.addEventListener('voiceschanged', refreshVoices);
-      return () => {
-        synth.removeEventListener('voiceschanged', refreshVoices);
-      };
-    }
-
-    const previous = synth.onvoiceschanged;
-    synth.onvoiceschanged = refreshVoices;
-    return () => {
-      synth.onvoiceschanged = previous || null;
-    };
-  }, [canUseSpeech]);
-
-  useEffect(() => {
     soundOnRef.current = soundOn;
   }, [soundOn]);
 
@@ -700,19 +539,9 @@ export default function BreakingNews({
 
     const loadTtsStatus = async () => {
       try {
-        const response = await fetch('/api/ai/tts', {
-          method: 'GET',
-          cache: 'no-store',
-        });
-        const payload = (await response.json().catch(() => ({}))) as {
-          success?: boolean;
-          data?: {
-            bhashiniConfigured?: boolean;
-          };
-        };
-
+        const payload = await fetchTtsStatus();
         if (!active) return;
-        serverTtsAvailableRef.current = Boolean(payload?.success && payload?.data?.bhashiniConfigured);
+        serverTtsAvailableRef.current = Boolean(payload.configured);
       } catch {
         if (!active) return;
         serverTtsAvailableRef.current = false;
@@ -749,9 +578,6 @@ export default function BreakingNews({
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
-      }
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
       }
       cancelSpeechQueue();
       setSoundOn(false);

@@ -20,7 +20,15 @@ import {
 } from '@/lib/utils/articleMedia';
 import { formatUiDate } from '@/lib/utils/dateFormat';
 import { renderArticleRichContent } from '@/lib/utils/articleRichContent';
-import { BHASHINI_LANGUAGE_OPTIONS } from '@/lib/constants/lokswamiAi';
+import {
+  GEMINI_TTS_LANGUAGE_OPTIONS,
+  GEMINI_TTS_VOICE_OPTIONS,
+} from '@/lib/constants/tts';
+import {
+  buildTtsAudioSource,
+  fetchTtsStatus,
+  requestTtsAudio,
+} from '@/lib/ai/ttsClient';
 
 type ApiArticle = {
   _id?: string;
@@ -37,53 +45,12 @@ type ApiArticle = {
   isTrending?: boolean;
 };
 
-type TtsVoiceOption = {
-  id: string;
-  label: string;
-  languages: string[];
-};
-
 const DEFAULT_AVATAR = '/logo-icon-final.png';
 const USE_REMOTE_DEMO_MEDIA =
   process.env.NEXT_PUBLIC_USE_REMOTE_DEMO_MEDIA === 'true';
-const ALLOW_BROWSER_TTS_FALLBACK = process.env.NODE_ENV !== 'production';
 const UNSPLASH_IMAGE_HOST = /^https:\/\/images\.unsplash\.com\//i;
 const LOCAL_NEWS_FALLBACK_IMAGE = '/placeholders/news-16x9.svg';
 const MONGO_OBJECT_ID_REGEX = /^[a-fA-F0-9]{24}$/;
-
-function parsePublicBhashiniVoiceOptions(raw: string | undefined): TtsVoiceOption[] {
-  if (!raw) return [];
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-
-    const voices: TtsVoiceOption[] = [];
-    for (const item of parsed) {
-      if (!item || typeof item !== 'object') continue;
-      const source = item as Record<string, unknown>;
-      const id = typeof source.id === 'string' ? source.id.trim().slice(0, 120) : '';
-      const label = typeof source.label === 'string' ? source.label.trim().slice(0, 80) : '';
-      const languages = Array.isArray(source.languages)
-        ? source.languages
-            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-            .map((value) => value.trim().slice(0, 16))
-        : [];
-
-      if (!id || !label) continue;
-      voices.push({ id, label, languages });
-      if (voices.length >= 20) break;
-    }
-
-    return voices;
-  } catch {
-    return [];
-  }
-}
-
-const PUBLIC_BHASHINI_VOICE_OPTIONS = parsePublicBhashiniVoiceOptions(
-  process.env.NEXT_PUBLIC_BHASHINI_TTS_VOICE_OPTIONS
-);
 
 function normalizeArticleImage(input: string) {
   const image = input.trim();
@@ -165,27 +132,6 @@ function toPlainText(html: string) {
     .trim();
 }
 
-function normalizeLangCode(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function getBaseLang(value: string) {
-  return normalizeLangCode(value).split('-')[0] || '';
-}
-
-function isLangSupportedByVoices(targetCode: string, voices: string[]) {
-  const normalizedTarget = normalizeLangCode(targetCode);
-  const base = getBaseLang(targetCode);
-  return voices.some((voiceCode) => {
-    const normalizedVoice = normalizeLangCode(voiceCode);
-    return (
-      normalizedVoice === normalizedTarget ||
-      normalizedVoice.startsWith(`${base}-`) ||
-      normalizedVoice === base
-    );
-  });
-}
-
 export default function ArticleDetailPage() {
   const router = useRouter();
   const { status } = useSession();
@@ -206,8 +152,7 @@ export default function ArticleDetailPage() {
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isSavingBookmark, setIsSavingBookmark] = useState(false);
   const [listenError, setListenError] = useState('');
-  const [isBhashiniConfigured, setIsBhashiniConfigured] = useState(false);
-  const [browserVoiceLangCodes, setBrowserVoiceLangCodes] = useState<string[]>([]);
+  const [isTtsConfigured, setIsTtsConfigured] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hasTrackedReadRef = useRef(false);
   const readingProgressRef = useRef(0);
@@ -356,22 +301,12 @@ export default function ArticleDetailPage() {
 
     const loadTtsStatus = async () => {
       try {
-        const response = await fetch('/api/ai/tts', {
-          method: 'GET',
-          cache: 'no-store',
-        });
-        const payload = (await response.json().catch(() => ({}))) as {
-          success?: boolean;
-          data?: {
-            bhashiniConfigured?: boolean;
-          };
-        };
-
+        const payload = await fetchTtsStatus();
         if (!active) return;
-        setIsBhashiniConfigured(Boolean(payload?.success && payload?.data?.bhashiniConfigured));
+        setIsTtsConfigured(Boolean(payload.configured));
       } catch {
         if (!active) return;
-        setIsBhashiniConfigured(false);
+        setIsTtsConfigured(false);
       }
     };
 
@@ -379,42 +314,6 @@ export default function ArticleDetailPage() {
 
     return () => {
       active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    const speech = window.speechSynthesis;
-
-    const syncVoices = () => {
-      const voices = speech.getVoices();
-      const codes = Array.from(
-        new Set(
-          voices
-            .map((voice) => voice.lang)
-            .filter((lang): lang is string => Boolean(lang && lang.trim()))
-        )
-      );
-      setBrowserVoiceLangCodes(codes);
-    };
-
-    syncVoices();
-
-    const handleVoicesChanged = () => {
-      syncVoices();
-    };
-
-    if (typeof speech.addEventListener === 'function') {
-      speech.addEventListener('voiceschanged', handleVoicesChanged);
-      return () => {
-        speech.removeEventListener('voiceschanged', handleVoicesChanged);
-      };
-    }
-
-    const previous = speech.onvoiceschanged;
-    speech.onvoiceschanged = handleVoicesChanged;
-    return () => {
-      speech.onvoiceschanged = previous;
     };
   }, []);
 
@@ -483,36 +382,12 @@ export default function ArticleDetailPage() {
   }, [article]);
 
   const listenLanguageOptions = useMemo(() => {
-    if (isBhashiniConfigured) return BHASHINI_LANGUAGE_OPTIONS;
-
-    const filtered = BHASHINI_LANGUAGE_OPTIONS.filter((option) =>
-      isLangSupportedByVoices(option.code, browserVoiceLangCodes)
-    );
-
-    if (filtered.length) return filtered;
-
-    const hindi = BHASHINI_LANGUAGE_OPTIONS.find((option) => option.code === 'hi-IN');
-    return hindi ? [hindi] : BHASHINI_LANGUAGE_OPTIONS.slice(0, 1);
-  }, [browserVoiceLangCodes, isBhashiniConfigured]);
+    return GEMINI_TTS_LANGUAGE_OPTIONS;
+  }, []);
 
   const listenVoiceOptions = useMemo(() => {
-    if (!isBhashiniConfigured || !PUBLIC_BHASHINI_VOICE_OPTIONS.length) return [];
-
-    const normalizedTarget = normalizeLangCode(listenLanguageCode);
-    const baseTarget = getBaseLang(listenLanguageCode);
-
-    return PUBLIC_BHASHINI_VOICE_OPTIONS.filter((voice) => {
-      if (!voice.languages.length) return true;
-      return voice.languages.some((code) => {
-        const normalizedVoiceLang = normalizeLangCode(code);
-        return (
-          normalizedVoiceLang === normalizedTarget ||
-          normalizedVoiceLang === baseTarget ||
-          normalizedVoiceLang.startsWith(`${baseTarget}-`)
-        );
-      });
-    });
-  }, [isBhashiniConfigured, listenLanguageCode]);
+    return GEMINI_TTS_VOICE_OPTIONS;
+  }, []);
 
   useEffect(() => {
     if (!listenLanguageOptions.length) return;
@@ -535,9 +410,6 @@ export default function ArticleDetailPage() {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
       audioRef.current = null;
-    }
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
     }
     if (!suppressState) {
       setIsPlayingAudio(false);
@@ -663,147 +535,24 @@ export default function ArticleDetailPage() {
       return;
     }
 
-    const friendlyVoiceMessage =
-      language === 'hi'
-        ? 'Selected voice is unavailable on this device. Hindi/English try karein ya Bhashini connect karein.'
-        : 'Selected voice is unavailable on this device. Try Hindi/English or connect server TTS.';
-    const resolvedFriendlyVoiceMessage =
-      language === 'hi'
-        ? 'Selected voice is unavailable on this device. Hindi/English try karein ya server TTS connect karein.'
-        : friendlyVoiceMessage;
-
-    const serverVoiceOnlyMessage =
-      language === 'hi'
-        ? 'हाई-क्वालिटी हिंदी वॉइस अभी उपलब्ध नहीं है। कृपया थोड़ी देर बाद फिर प्रयास करें।'
-        : 'High-quality Hindi voice is currently unavailable. Please try again shortly.';
-
-    const fallbackSpeak = async () => {
-      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    try {
+      if (!isTtsConfigured) {
         setListenError(
           language === 'hi'
-            ? 'Listen feature is unavailable in this browser.'
-            : 'Listen feature is unavailable in this browser.'
+            ? 'Gemini audio abhi configured nahi hai. Thodi der baad phir try karein.'
+            : 'Gemini audio is not configured right now. Please try again shortly.'
         );
         return;
       }
 
-      const speech = window.speechSynthesis;
-      let voices = speech.getVoices();
-
-      if (!voices.length) {
-        voices = await new Promise<SpeechSynthesisVoice[]>((resolve) => {
-          let settled = false;
-          const timeout = window.setTimeout(() => {
-            if (settled) return;
-            settled = true;
-            resolve(speech.getVoices());
-          }, 800);
-
-          const done = () => {
-            if (settled) return;
-            settled = true;
-            window.clearTimeout(timeout);
-            resolve(speech.getVoices());
-          };
-
-          if (typeof speech.addEventListener === 'function') {
-            speech.addEventListener('voiceschanged', done, { once: true });
-          } else {
-            const previous = speech.onvoiceschanged;
-            speech.onvoiceschanged = () => {
-              done();
-              speech.onvoiceschanged = previous;
-            };
-          }
-        });
-      }
-
-      if (!voices.length) {
-        setListenError(resolvedFriendlyVoiceMessage);
-        return;
-      }
-
-      const normalizedTarget = normalizeLangCode(listenLanguageCode);
-      const baseTarget = getBaseLang(listenLanguageCode);
-      const preferredVoice =
-        voices.find((voice) => normalizeLangCode(voice.lang) === normalizedTarget) ||
-        voices.find((voice) => normalizeLangCode(voice.lang).startsWith(`${baseTarget}-`)) ||
-        voices.find((voice) => normalizeLangCode(voice.lang) === 'hi-in') ||
-        voices.find((voice) => normalizeLangCode(voice.lang).startsWith('hi-')) ||
-        voices.find((voice) => normalizeLangCode(voice.lang) === 'en-us') ||
-        voices.find((voice) => normalizeLangCode(voice.lang).startsWith('en-')) ||
-        voices[0];
-
-      const utterance = new SpeechSynthesisUtterance(sourceText);
-      utterance.voice = preferredVoice;
-      utterance.lang = preferredVoice.lang || listenLanguageCode;
-      utterance.rate = 1;
-      utterance.pitch = 1;
-      utterance.onend = () => {
-        setIsPlayingAudio(false);
-      };
-      utterance.onerror = () => {
-        setIsPlayingAudio(false);
-        setListenError(resolvedFriendlyVoiceMessage);
-      };
-
-      speech.cancel();
-      speech.speak(utterance);
-      setIsPlayingAudio(true);
-    };
-
-    try {
-      if (!isBhashiniConfigured) {
-        if (!ALLOW_BROWSER_TTS_FALLBACK) {
-          setListenError(serverVoiceOnlyMessage);
-          return;
-        }
-        await fallbackSpeak();
-        return;
-      }
-
-      const response = await fetch('/api/ai/tts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text: sourceText,
-          languageCode: listenLanguageCode,
-          voice: listenVoiceId || undefined,
-        }),
+      const payload = await requestTtsAudio({
+        text: sourceText,
+        languageCode: listenLanguageCode,
+        voice: listenVoiceId || undefined,
       });
-
-      const payload = (await response.json().catch(() => ({}))) as {
-        success?: boolean;
-        data?: {
-          audioUrl?: string;
-          audioBase64?: string;
-          mimeType?: string;
-        };
-        error?: string;
-      };
-
-      if (!response.ok || !payload.success || !payload.data) {
-        throw new Error(payload.error || 'Server TTS is not available.');
-      }
-
-      const audioUrl =
-        typeof payload.data.audioUrl === 'string'
-          ? payload.data.audioUrl.trim()
-          : '';
-      const audioBase64 =
-        typeof payload.data.audioBase64 === 'string'
-          ? payload.data.audioBase64.trim()
-          : '';
-      const mimeType =
-        typeof payload.data.mimeType === 'string' && payload.data.mimeType.trim()
-          ? payload.data.mimeType.trim()
-          : 'audio/mpeg';
-
-      const src = audioUrl || (audioBase64 ? `data:${mimeType};base64,${audioBase64}` : '');
+      const src = buildTtsAudioSource(payload);
       if (!src) {
-        throw new Error('No audio payload returned by TTS provider.');
+        throw new Error('Gemini TTS returned no audio payload.');
       }
 
       const audio = new Audio(src);
@@ -813,17 +562,23 @@ export default function ArticleDetailPage() {
       };
       audio.onerror = () => {
         setIsPlayingAudio(false);
-        setListenError('Unable to play generated audio.');
+        setListenError(
+          language === 'hi'
+            ? 'Generated Gemini audio play nahi ho paaya.'
+            : 'Unable to play the generated Gemini audio.'
+        );
       };
 
       await audio.play();
       setIsPlayingAudio(true);
-    } catch {
-      if (!ALLOW_BROWSER_TTS_FALLBACK) {
-        setListenError(serverVoiceOnlyMessage);
-        return;
-      }
-      await fallbackSpeak();
+    } catch (error) {
+      setListenError(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : language === 'hi'
+            ? 'Gemini audio generate karne mein dikkat aayi.'
+            : 'Unable to generate Gemini audio right now.'
+      );
     } finally {
       setIsPreparingListen(false);
     }
@@ -1114,7 +869,7 @@ export default function ArticleDetailPage() {
                     className="w-full rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 sm:w-auto"
                   >
                     <option value="">
-                      {language === 'hi' ? 'Auto Voice' : 'Auto Voice'}
+                      {language === 'hi' ? 'Auto Gemini Voice' : 'Auto Gemini Voice'}
                     </option>
                     {listenVoiceOptions.map((voice) => (
                       <option key={voice.id} value={voice.id}>
