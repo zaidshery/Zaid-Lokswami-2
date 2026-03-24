@@ -233,50 +233,52 @@ async function synthesizeGeminiChunk(input: {
   voice: string;
   prompt: string;
 }) {
-  const response = await fetch(
-    `${GEMINI_TTS_ENDPOINT_ROOT}/${encodeURIComponent(input.model)}:generateContent`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': input.apiKey,
-      },
-      body: JSON.stringify({
-        model: input.model,
-        contents: [
-          {
-            parts: [
-              {
-                text: input.prompt,
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: input.voice,
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch(
+      `${GEMINI_TTS_ENDPOINT_ROOT}/${encodeURIComponent(input.model)}:generateContent`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': input.apiKey,
+        },
+        body: JSON.stringify({
+          model: input.model,
+          contents: [
+            {
+              parts: [
+                {
+                  text: input.prompt,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: input.voice,
+                },
               },
             },
           },
-        },
-      }),
+        }),
+      }
+    );
+
+    const payload = (await response.json().catch(() => ({}))) as GeminiGenerateContentResponse;
+    if (!response.ok) {
+      throw new Error(payload.error?.message || `Gemini TTS request failed (${response.status}).`);
     }
-  );
 
-  const payload = (await response.json().catch(() => ({}))) as GeminiGenerateContentResponse;
-  if (!response.ok) {
-    throw new Error(payload.error?.message || `Gemini TTS request failed (${response.status}).`);
+    const audioBase64 = getInlineAudioBase64(payload);
+    if (audioBase64) {
+      return Buffer.from(audioBase64, 'base64');
+    }
   }
 
-  const audioBase64 = getInlineAudioBase64(payload);
-  if (!audioBase64) {
-    throw new Error('Gemini TTS returned no audio data.');
-  }
-
-  return Buffer.from(audioBase64, 'base64');
+  throw new Error('Gemini TTS returned no audio data.');
 }
 
 export function isGeminiTtsConfigured() {

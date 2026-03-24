@@ -51,6 +51,7 @@ const USE_REMOTE_DEMO_MEDIA =
 const UNSPLASH_IMAGE_HOST = /^https:\/\/images\.unsplash\.com\//i;
 const LOCAL_NEWS_FALLBACK_IMAGE = '/placeholders/news-16x9.svg';
 const MONGO_OBJECT_ID_REGEX = /^[a-fA-F0-9]{24}$/;
+const DEVANAGARI_REGEX = /[\u0900-\u097F]/;
 
 function normalizeArticleImage(input: string) {
   const image = input.trim();
@@ -132,6 +133,33 @@ function toPlainText(html: string) {
     .trim();
 }
 
+function inferArticleContentLanguage(article: Article | null): 'hi' | 'en' {
+  if (!article) {
+    return 'hi';
+  }
+
+  const sample = [article.title, article.summary, article.content || '']
+    .filter(Boolean)
+    .join(' ');
+
+  return DEVANAGARI_REGEX.test(sample) ? 'hi' : 'en';
+}
+
+function getPreferredListenLanguageCode(article: Article | null) {
+  return inferArticleContentLanguage(article) === 'hi' ? 'hi-IN' : 'en-IN';
+}
+
+function buildArticleListenText(article: Article) {
+  const plainTitle = toPlainText(article.title);
+  const plainSummary = toPlainText(article.summary);
+  const plainContent = toPlainText(article.content || '');
+
+  return [plainTitle, plainSummary, plainContent]
+    .filter((item) => item.length > 0)
+    .join('. ')
+    .slice(0, 5000);
+}
+
 export default function ArticleDetailPage() {
   const router = useRouter();
   const { status } = useSession();
@@ -158,6 +186,7 @@ export default function ArticleDetailPage() {
   const readingProgressRef = useRef(0);
   const isSignedIn = status === 'authenticated';
   const canSaveArticle = Boolean(article && MONGO_OBJECT_ID_REGEX.test(article.id));
+  const articleContentLanguage = useMemo(() => inferArticleContentLanguage(article), [article]);
   const isBookmarked = Boolean(
     article && Array.isArray(savedArticleIds) && savedArticleIds.includes(article.id)
   );
@@ -167,6 +196,9 @@ export default function ArticleDetailPage() {
 
     const loadArticle = async () => {
       setIsLoading(true);
+      setAiBullets([]);
+      setAiSummaryError('');
+      setListenError('');
       if (!routeId) {
         setArticle(null);
         setRelatedArticles([]);
@@ -398,6 +430,13 @@ export default function ArticleDetailPage() {
   }, [listenLanguageCode, listenLanguageOptions]);
 
   useEffect(() => {
+    const preferredCode = getPreferredListenLanguageCode(article);
+    setListenLanguageCode((current) =>
+      current === preferredCode ? current : preferredCode
+    );
+  }, [article]);
+
+  useEffect(() => {
     if (!listenVoiceId) return;
     const exists = listenVoiceOptions.some((voice) => voice.id === listenVoiceId);
     if (!exists) {
@@ -429,7 +468,7 @@ export default function ArticleDetailPage() {
         },
         body: JSON.stringify({
           articleId: article.id,
-          language,
+          language: articleContentLanguage,
         }),
       });
 
@@ -467,69 +506,12 @@ export default function ArticleDetailPage() {
     setIsPreparingListen(true);
     stopListening();
 
-    const formatBulletsForSpeech = (bullets: string[]) => {
-      const cleaned = bullets
-        .map((item) => toPlainText(item))
-        .filter((item) => item.length > 0)
-        .slice(0, 3);
-
-      if (!cleaned.length) return '';
-
-      const prefix =
-        language === 'hi' ? 'इस खबर का संक्षिप्त सारांश।' : 'Here is the quick summary.';
-      const body = cleaned
-        .map((item, index) => `${index + 1}. ${item}`)
-        .join(' ');
-      return `${prefix} ${body}`.slice(0, 1400);
-    };
-
-    const resolveListenSourceText = async () => {
-      if (aiBullets.length) {
-        return formatBulletsForSpeech(aiBullets);
-      }
-
-      try {
-        const response = await fetch('/api/ai/summary', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            articleId: article.id,
-            language,
-          }),
-        });
-
-        const payload = (await response.json().catch(() => ({}))) as {
-          success?: boolean;
-          data?: {
-            bullets?: string[];
-          };
-        };
-
-        if (response.ok && payload.success && payload.data?.bullets?.length) {
-          const bullets = payload.data.bullets
-            .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-            .slice(0, 3);
-
-          if (bullets.length) {
-            setAiBullets(bullets);
-            return formatBulletsForSpeech(bullets);
-          }
-        }
-      } catch {
-        // Fall back to headline + summary below.
-      }
-
-      return toPlainText(`${article.title}. ${article.summary}`).slice(0, 1200);
-    };
-
-    const sourceText = await resolveListenSourceText();
+    const sourceText = buildArticleListenText(article);
     if (!sourceText) {
       setListenError(
         language === 'hi'
-          ? 'सुनने के लिए सारांश उपलब्ध नहीं है।'
-          : 'No summary text is available for listen mode.'
+          ? 'सुनने के लिए लेख का टेक्स्ट उपलब्ध नहीं है।'
+          : 'No article text is available for listen mode.'
       );
       setIsPreparingListen(false);
       return;
@@ -833,7 +815,7 @@ export default function ArticleDetailPage() {
                 className="inline-flex h-8 items-center gap-1.5 rounded-full border border-orange-300 bg-white px-3 py-1.5 text-xs font-semibold text-orange-700 transition hover:bg-orange-50 disabled:opacity-60 dark:border-orange-700 dark:bg-zinc-950 dark:text-orange-300 dark:hover:bg-zinc-900 sm:h-auto"
               >
                 {isGeneratingSummary ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                {language === 'hi' ? 'AI TL;DR' : 'AI TL;DR'}
+                {language === 'hi' ? 'Summary' : 'Summary'}
               </button>
             </div>
 
