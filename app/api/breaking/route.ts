@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db/mongoose';
 import Article from '@/lib/models/Article';
+import { resolveReusableBreakingTts } from '@/lib/server/breakingTts';
 import { listAllStoredArticles } from '@/lib/storage/articlesFile';
 
 const DEFAULT_LIMIT = 10;
@@ -14,6 +15,8 @@ type BreakingItem = {
   createdAt?: string;
   href: string;
   priority: number;
+  ttsAudioUrl?: string;
+  ttsReady?: boolean;
 };
 
 function parseLimit(value: string | null) {
@@ -49,6 +52,13 @@ function normalizeBreakingItem(source: unknown): BreakingItem | null {
   const category = String(input.category || '').trim();
   const views =
     typeof input.views === 'number' ? input.views : Number.parseInt(String(input.views ?? 0), 10);
+  const reusableTts = resolveReusableBreakingTts({
+    _id: id,
+    title,
+    category,
+    isBreaking: true,
+    breakingTts: input.breakingTts,
+  });
 
   return {
     id,
@@ -57,6 +67,12 @@ function normalizeBreakingItem(source: unknown): BreakingItem | null {
     createdAt: normalizeTimestamp(input.publishedAt || input.createdAt),
     href: `/main/article/${encodeURIComponent(id)}`,
     priority: Math.max(1, Number.isFinite(views) ? views : 1),
+    ...(reusableTts
+      ? {
+          ttsAudioUrl: reusableTts.audioUrl,
+          ttsReady: true,
+        }
+      : {}),
   };
 }
 
@@ -84,7 +100,7 @@ async function shouldUseFileStore() {
 
 async function listFromMongo(limit: number) {
   const docs = await Article.find({ isBreaking: true })
-    .select('_id title category publishedAt views')
+    .select('_id title category publishedAt views breakingTts')
     .sort({ publishedAt: -1, _id: -1 })
     .limit(limit)
     .lean();

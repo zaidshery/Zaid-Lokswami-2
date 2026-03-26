@@ -1,97 +1,25 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useMemo } from 'react';
 import Link from 'next/link';
-import { Volume2, VolumeX } from 'lucide-react';
+import { Loader2, Volume2, VolumeX } from 'lucide-react';
 import { useAppStore } from '@/lib/store/appStore';
 import Container from '@/components/layout/Container';
+import { type BreakingNewsItem } from '@/lib/types/breaking';
 import styles from './BreakingNews.module.css';
-import { breakingNews as mockBreakingNews } from '@/lib/mock/data';
-import {
-  normalizeBreakingNewsItem,
-  sortBreakingNewsItems,
-  type BreakingNewsItem,
-} from '@/lib/types/breaking';
-import {
-  buildTtsAudioSource,
-  fetchTtsStatus,
-  requestTtsAudio,
-} from '@/lib/ai/ttsClient';
-
-type BreakingApiPayload = {
-  items?: unknown;
-};
+import { useBreakingNewsController } from './useBreakingNewsController';
 
 interface BreakingNewsProps {
   items?: BreakingNewsItem[];
-  // Backward compatibility for existing usage.
   news?: BreakingNewsItem[];
   speedSeconds?: number;
   pauseOnHover?: boolean;
   showTime?: boolean;
 }
 
-const MIN_SPEED_SECONDS = 8;
-const MAX_SPEED_SECONDS = 120;
-const BREAKING_LIMIT = 10;
-const STORAGE_KEY = 'lokswami.breaking.cache.v1';
-const CACHE_TTL_MS = 120_000;
-
-let memoryCache: {
-  at: number;
-  items: BreakingNewsItem[];
-} | null = null;
-
-function normalizeList(value: unknown): BreakingNewsItem[] {
-  if (!Array.isArray(value)) return [];
-  const mapped = value
-    .map((item) => normalizeBreakingNewsItem(item))
-    .filter((item): item is BreakingNewsItem => Boolean(item));
-  return sortBreakingNewsItems(mapped);
-}
-
-function mockFallbackList(): BreakingNewsItem[] {
-  return sortBreakingNewsItems(
-    mockBreakingNews
-      .map((item) =>
-        normalizeBreakingNewsItem({
-          id: item.id,
-          title: item.title,
-          priority: item.priority,
-          href: `/main/article/${encodeURIComponent(item.id)}`,
-        })
-      )
-      .filter((item): item is BreakingNewsItem => Boolean(item))
-  );
-}
-
-function readLocalCache() {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { at?: number; items?: unknown };
-    const at = Number(parsed.at);
-    const items = normalizeList(parsed.items);
-    if (!Number.isFinite(at) || !items.length) return null;
-    return { at, items };
-  } catch {
-    return null;
-  }
-}
-
-function writeLocalCache(items: BreakingNewsItem[]) {
-  if (typeof window === 'undefined' || !items.length) return;
-  try {
-    const payload = JSON.stringify({ at: Date.now(), items });
-    window.localStorage.setItem(STORAGE_KEY, payload);
-  } catch {
-    // Ignore quota/privacy errors.
-  }
-}
-
-function formatTickerTime(value: string | undefined, language: 'hi' | 'en') {
+function formatHeadlineTime(value: string | undefined, language: 'hi' | 'en') {
   if (!value) return '';
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
 
@@ -108,526 +36,84 @@ function buildItemHref(item: BreakingNewsItem) {
   return `/main/article/${encodeURIComponent(item.id)}`;
 }
 
-function isCacheFresh(timestamp: number) {
-  return Date.now() - timestamp < CACHE_TTL_MS;
-}
-
-function tinyCategoryLabel(value: string | undefined) {
-  const category = (value || '').trim();
-  if (!category) return '';
-  return category.length > 12 ? `${category.slice(0, 12).trim()}...` : category;
-}
-
-function getUiLang(): 'hi' | 'en' | 'unknown' {
-  if (typeof window === 'undefined') return 'unknown';
-
-  const normalize = (value: string | null | undefined): 'hi' | 'en' | 'unknown' => {
-    const next = (value || '').trim().toLowerCase();
-    if (!next) return 'unknown';
-    if (next.startsWith('hi')) return 'hi';
-    if (next.startsWith('en')) return 'en';
-    return 'unknown';
-  };
-
-  const htmlLang = normalize(window.document?.documentElement?.lang);
-  if (htmlLang !== 'unknown') return htmlLang;
-
-  try {
-    const storageLang = normalize(window.localStorage.getItem('lang'));
-    if (storageLang !== 'unknown') return storageLang;
-  } catch {
-    // Ignore storage access errors.
-  }
-
-  const navigatorLang = normalize(window.navigator?.language);
-  if (navigatorLang !== 'unknown') return navigatorLang;
-
-  return 'unknown';
-}
-
-function getTtsLang(text: string): 'hi-IN' | 'en-IN' {
-  const devanagariCount = (text.match(/[\u0900-\u097F]/g) || []).length;
-  const latinCount = (text.match(/[A-Za-z]/g) || []).length;
-
-  if (devanagariCount > 0 && devanagariCount >= Math.max(1, Math.floor(latinCount / 2))) {
-    return 'hi-IN';
-  }
-
-  if (latinCount > 0 && latinCount > devanagariCount) {
-    return 'en-IN';
-  }
-
-  const uiLang = getUiLang();
-  if (uiLang === 'hi') return 'hi-IN';
-  if (uiLang === 'en') return 'en-IN';
-  return 'en-IN';
-}
-
 export default function BreakingNews({
   items,
   news,
-  speedSeconds = 40,
+  speedSeconds,
   pauseOnHover = true,
   showTime = false,
 }: BreakingNewsProps) {
   const { language } = useAppStore();
-  const [soundOn, setSoundOn] = useState(false);
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-  const [sequenceWidth, setSequenceWidth] = useState(0);
-  const [repeatCount, setRepeatCount] = useState(2);
-  const [isLoading, setIsLoading] = useState(false);
-  const [fetchedItems, setFetchedItems] = useState<BreakingNewsItem[]>([]);
+  const {
+    currentIndex,
+    isLoading,
+    isPlaying,
+    isPreparingAudio,
+    queue,
+    soundEnabled,
+    toggleSound,
+    ttsAvailable,
+    visibleItem,
+  } = useBreakingNewsController({
+    items,
+    news,
+    preferredLanguage: language,
+  });
 
-  const viewportRef = useRef<HTMLDivElement | null>(null);
-  const measureRef = useRef<HTMLDivElement | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const speechAudioRef = useRef<HTMLAudioElement | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const topItemIdRef = useRef<string>('');
-  const hasEnabledSoundRef = useRef(false);
-  const userActivatedRef = useRef(false);
-  const soundOnRef = useRef(false);
-  const speechQueueRef = useRef<string[]>([]);
-  const speechIndexRef = useRef(0);
-  const speechSessionRef = useRef(0);
-  const serverTtsAvailableRef = useRef(false);
+  if (!visibleItem && !isLoading) {
+    return null;
+  }
 
-  const externalProvided = items !== undefined || news !== undefined;
-  const externalItems = useMemo(
-    () => normalizeList((items && items.length ? items : news) || []),
-    [items, news]
-  );
-  const fallbackItems = useMemo(() => mockFallbackList(), []);
+  const marqueeItems = queue.length ? queue : visibleItem ? [visibleItem] : [];
+  const queueProgressLabel =
+    queue.length > 0
+      ? `${String(currentIndex + 1).padStart(2, '0')}/${String(queue.length).padStart(2, '0')}`
+      : '';
 
-  const resolvedItems = useMemo(() => {
-    if (externalProvided) return externalItems;
-    if (fetchedItems.length) return fetchedItems;
-    return [];
-  }, [externalItems, externalProvided, fetchedItems]);
+  const computedDurationSeconds = useMemo(() => {
+    const totalCharacters = marqueeItems.reduce((sum, item) => {
+      return sum + item.title.length + (item.city?.length || 0) + (item.category?.length || 0);
+    }, 0);
 
-  const clampedSpeedSeconds = useMemo(
-    () =>
-      Math.max(
-        MIN_SPEED_SECONDS,
-        Math.min(MAX_SPEED_SECONDS, Number.isFinite(speedSeconds) ? speedSeconds : 40)
-      ),
-    [speedSeconds]
-  );
-
-  const shouldAnimate =
-    !prefersReducedMotion &&
-    resolvedItems.length > 1 &&
-    sequenceWidth > 0 &&
-    repeatCount >= 2;
-
-  const buildSpokenHeadline = useCallback((item: BreakingNewsItem | undefined) => {
-    if (!item) return '';
-    const cityPrefix = item.city ? `${item.city}: ` : '';
-    const title = (item.title || '').trim();
-    return `${cityPrefix}${title}`.trim();
-  }, []);
-
-  const playBeep = useCallback(async () => {
-    if (typeof window === 'undefined') return false;
-
-    const playFallbackBeep = async () => {
-      const AudioContextCtor =
-        window.AudioContext ||
-        (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AudioContextCtor) return false;
-
-      try {
-        const context =
-          audioContextRef.current && audioContextRef.current.state !== 'closed'
-            ? audioContextRef.current
-            : new AudioContextCtor();
-        audioContextRef.current = context;
-
-        if (context.state === 'suspended') {
-          await context.resume();
-        }
-
-        const now = context.currentTime;
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-
-        oscillator.type = 'triangle';
-        oscillator.frequency.setValueAtTime(880, now);
-        oscillator.frequency.exponentialRampToValueAtTime(660, now + 0.18);
-
-        gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.14, now + 0.03);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
-
-        oscillator.connect(gain);
-        gain.connect(context.destination);
-
-        oscillator.start(now);
-        oscillator.stop(now + 0.22);
-        return true;
-      } catch (error) {
-        console.warn('Ticker fallback beep failed:', error);
-        return false;
-      }
-    };
-
-    if (!audioRef.current) {
-      const audio = new Audio('/sounds/breaking.mp3');
-      audio.preload = 'auto';
-      audio.volume = 0.65;
-      audioRef.current = audio;
+    if (Number.isFinite(speedSeconds) && typeof speedSeconds === 'number') {
+      return Math.max(16, Math.min(160, speedSeconds));
     }
 
-    const audio = audioRef.current;
-    try {
-      audio.currentTime = 0;
-      await audio.play();
-      return true;
-    } catch (error) {
-      console.warn('Ticker sound play failed:', error);
-      return playFallbackBeep();
-    }
-  }, []);
+    return Math.max(22, Math.min(84, Math.round(totalCharacters * 0.26)));
+  }, [marqueeItems, speedSeconds]);
 
-  const cancelSpeechQueue = useCallback(() => {
-    speechSessionRef.current += 1;
-    speechQueueRef.current = [];
-    speechIndexRef.current = 0;
+  const buttonTitle = isPreparingAudio
+    ? 'Preparing breaking news voice'
+    : soundEnabled
+      ? 'Disable breaking news voice'
+      : ttsAvailable === false
+        ? 'Breaking news voice is unavailable'
+        : 'Enable breaking news voice';
 
-    if (speechAudioRef.current) {
-      speechAudioRef.current.pause();
-      speechAudioRef.current.currentTime = 0;
-      speechAudioRef.current = null;
-    }
-  }, []);
-
-  const playServerSpeech = useCallback(
-    async (text: string, languageCode: string, sessionId: number) => {
-      if (!serverTtsAvailableRef.current) return false;
-
-      try {
-        const payload = await requestTtsAudio({
-          text,
-          languageCode,
-        });
-
-        if (sessionId !== speechSessionRef.current || !soundOnRef.current) {
-          return true;
-        }
-
-        const src = buildTtsAudioSource(payload);
-        if (!src) return false;
-
-        return await new Promise<boolean>((resolve) => {
-          const audio = new Audio(src);
-          speechAudioRef.current = audio;
-
-          const cleanup = () => {
-            if (speechAudioRef.current === audio) {
-              speechAudioRef.current = null;
-            }
-          };
-
-          audio.onended = () => {
-            cleanup();
-            resolve(true);
-          };
-          audio.onerror = () => {
-            cleanup();
-            resolve(false);
-          };
-
-          audio
-            .play()
-            .then(() => {
-              // Playback continues until onended resolves the promise.
-            })
-            .catch(() => {
-              cleanup();
-              resolve(false);
-            });
-        });
-      } catch {
-        return false;
-      }
-    },
-    []
-  );
-
-  const speakNextInQueue = useCallback(
-    async (sessionId: number) => {
-      if (!soundOnRef.current) return;
-      if (sessionId !== speechSessionRef.current) return;
-
-      const text = speechQueueRef.current[speechIndexRef.current];
-      if (!text) return;
-
-      const targetLang = getTtsLang(text);
-      await playServerSpeech(text, targetLang, sessionId);
-      if (sessionId !== speechSessionRef.current) return;
-      speechIndexRef.current += 1;
-      void speakNextInQueue(sessionId);
-    },
-    [playServerSpeech]
-  );
-
-  const startSpeechQueue = useCallback(
-    (itemsToRead: BreakingNewsItem[]) => {
-      if (!soundOnRef.current || !userActivatedRef.current || !serverTtsAvailableRef.current) {
-        return;
-      }
-
-      const queue = itemsToRead
-        .map((item) => buildSpokenHeadline(item))
-        .filter((value) => value.length > 0);
-      if (!queue.length) return;
-
-      speechQueueRef.current = queue;
-      speechIndexRef.current = 0;
-      speechSessionRef.current += 1;
-      void speakNextInQueue(speechSessionRef.current);
-    },
-    [buildSpokenHeadline, speakNextInQueue]
-  );
-
-  const fetchBreakingItems = useCallback(async (showLoading = false) => {
-    if (showLoading) setIsLoading(true);
-    try {
-      const response = await fetch(`/api/breaking?limit=${BREAKING_LIMIT}`, {
-        cache: 'no-store',
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const payload = (await response.json()) as BreakingApiPayload;
-      const apiItems = normalizeList(payload.items);
-      const nextItems = apiItems.length ? apiItems : fallbackItems;
-      setFetchedItems(nextItems);
-      memoryCache = { at: Date.now(), items: nextItems };
-      writeLocalCache(nextItems);
-    } catch (error) {
-      console.warn('Failed loading /api/breaking, using fallback:', error);
-
-      const local = readLocalCache();
-      const nextItems = local?.items?.length ? local.items : fallbackItems;
-      setFetchedItems(nextItems);
-      memoryCache = { at: Date.now(), items: nextItems };
-    } finally {
-      setIsLoading(false);
-    }
-  }, [fallbackItems]);
-
-  const measureTrack = useCallback(() => {
-    const viewport = viewportRef.current;
-    const measure = measureRef.current;
-    if (!viewport || !measure) return;
-
-    const nextSequenceWidth = Math.ceil(measure.scrollWidth);
-    const viewportWidth = Math.ceil(viewport.clientWidth);
-    if (!nextSequenceWidth || !viewportWidth) return;
-
-    const minimumRepeats = Math.ceil((viewportWidth * 2) / nextSequenceWidth) + 1;
-    setSequenceWidth(nextSequenceWidth);
-    setRepeatCount(Math.max(2, minimumRepeats));
-  }, []);
-
-  useEffect(() => {
-    if (externalProvided) {
-      setIsLoading(false);
-      return;
-    }
-
-    const warmMemory = memoryCache?.items?.length ? memoryCache : null;
-    if (warmMemory?.items.length) {
-      setFetchedItems(warmMemory.items);
-      if (!isCacheFresh(warmMemory.at)) setIsLoading(true);
-      void fetchBreakingItems(false);
-      return;
-    }
-
-    const warmLocal = readLocalCache();
-    if (warmLocal?.items.length) {
-      setFetchedItems(warmLocal.items);
-      memoryCache = warmLocal;
-      if (!isCacheFresh(warmLocal.at)) setIsLoading(true);
-      void fetchBreakingItems(false);
-      return;
-    }
-
-    void fetchBreakingItems(true);
-  }, [externalProvided, fetchBreakingItems]);
-
-  useEffect(() => {
-    if (externalProvided) return;
-
-    const timer = window.setInterval(() => {
-      void fetchBreakingItems(false);
-    }, 90_000);
-
-    return () => window.clearInterval(timer);
-  }, [externalProvided, fetchBreakingItems]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-
-    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const apply = () => setPrefersReducedMotion(query.matches);
-
-    apply();
-    if (typeof query.addEventListener === 'function') {
-      query.addEventListener('change', apply);
-      return () => query.removeEventListener('change', apply);
-    }
-
-    query.addListener(apply);
-    return () => query.removeListener(apply);
-  }, []);
-
-  useEffect(() => {
-    soundOnRef.current = soundOn;
-  }, [soundOn]);
-
-  useEffect(() => {
-    measureTrack();
-  }, [measureTrack, resolvedItems, showTime, soundOn]);
-
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    const measure = measureRef.current;
-    if (!viewport || !measure || typeof ResizeObserver === 'undefined') return;
-
-    const observer = new ResizeObserver(() => {
-      measureTrack();
-    });
-
-    observer.observe(viewport);
-    observer.observe(measure);
-    return () => observer.disconnect();
-  }, [measureTrack]);
-
-  useEffect(() => {
-    const topId = resolvedItems[0]?.id || '';
-    if (!topId) {
-      topItemIdRef.current = '';
-      return;
-    }
-
-    if (!topItemIdRef.current) {
-      topItemIdRef.current = topId;
-      return;
-    }
-
-    if (
-      soundOn &&
-      hasEnabledSoundRef.current &&
-      topId !== topItemIdRef.current
-    ) {
-      void playBeep();
-    }
-
-    topItemIdRef.current = topId;
-  }, [playBeep, resolvedItems, soundOn]);
-
-  useEffect(() => {
-    if (!soundOn || !userActivatedRef.current) return;
-    startSpeechQueue(resolvedItems);
-  }, [resolvedItems, soundOn, startSpeechQueue]);
-
-  useEffect(() => {
-    let active = true;
-
-    const loadTtsStatus = async () => {
-      try {
-        const payload = await fetchTtsStatus();
-        if (!active) return;
-        serverTtsAvailableRef.current = Boolean(payload.configured);
-      } catch {
-        if (!active) return;
-        serverTtsAvailableRef.current = false;
-      }
-    };
-
-    void loadTtsStatus();
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      const context = audioContextRef.current;
-      if (!context || context.state === 'closed') return;
-      void context.close().catch(() => {
-        // Ignore cleanup failures.
-      });
-
-      if (speechAudioRef.current) {
-        speechAudioRef.current.pause();
-        speechAudioRef.current = null;
-      }
-    };
-  }, []);
-
-  const toggleSound = useCallback(async () => {
-    userActivatedRef.current = true;
-
-    if (soundOn) {
-      soundOnRef.current = false;
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-      }
-      cancelSpeechQueue();
-      setSoundOn(false);
-      return;
-    }
-
-    soundOnRef.current = true;
-    hasEnabledSoundRef.current = true;
-    setSoundOn(true);
-    void playBeep();
-    startSpeechQueue(resolvedItems);
-  }, [cancelSpeechQueue, playBeep, resolvedItems, soundOn, startSpeechQueue]);
-
-  if (!resolvedItems.length && !isLoading) return null;
-
-  const renderSequence = (keyPrefix: string) =>
-    resolvedItems.map((item, index) => {
-      const cityPrefix = item.city ? `${item.city}: ` : '';
-      const timeLabel = showTime ? formatTickerTime(item.createdAt, language) : '';
-      const categoryLabel = tinyCategoryLabel(item.category);
+  const renderMarqueeSequence = (keyPrefix: string, ariaHidden = false) =>
+    marqueeItems.map((item, index) => {
+      const titleText = `${item.city ? `${item.city}: ` : ''}${item.title}`;
+      const timeLabel = showTime ? formatHeadlineTime(item.createdAt, language) : '';
+      const categoryLabel = (item.category || '').trim();
+      const isActive = currentIndex === index;
 
       return (
         <span
           key={`${keyPrefix}-${item.id}-${index}`}
-          className="inline-flex h-full min-w-0 items-center"
+          className={`${styles.marqueeEntry} ${isActive ? styles.marqueeEntryActive : ''}`}
+          aria-hidden={ariaHidden}
         >
+          {categoryLabel ? <span className={styles.categoryPill}>{categoryLabel}</span> : null}
+          {timeLabel ? <span className={styles.timeLabel}>{timeLabel}</span> : null}
           <Link
             href={buildItemHref(item)}
-            className="group inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-sm font-semibold leading-none text-white/95 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/90 focus-visible:ring-offset-2 focus-visible:ring-offset-[#8b1218] md:h-8"
+            className={`${styles.marqueeLink} ${isActive ? styles.marqueeLinkActive : ''}`}
           >
-            {categoryLabel ? (
-              <span className="inline-flex flex-shrink-0 rounded-full border border-white/30 bg-white/12 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.03em] text-white/85">
-                {categoryLabel}
-              </span>
-            ) : null}
-            {timeLabel ? (
-              <time className="hidden flex-shrink-0 text-[11px] font-medium text-white/70 sm:inline">
-                {timeLabel}
-              </time>
-            ) : null}
-            <span className="whitespace-nowrap">
-              {cityPrefix}
-              {item.title}
-            </span>
+            <span className={styles.marqueeTitle}>{titleText}</span>
           </Link>
-          {index < resolvedItems.length - 1 ? (
-            <span className="mx-2 select-none text-white/45 leading-none" aria-hidden="true">
-              {'\u2022'}
-            </span>
-          ) : null}
+          <span className={styles.marqueeSeparator} aria-hidden="true">
+            *
+          </span>
         </span>
       );
     });
@@ -636,88 +122,76 @@ export default function BreakingNews({
     <div
       className="fixed left-0 right-0 top-0 z-[60] w-full border-b border-red-950/50 bg-gradient-to-r from-[#7f1116] via-[#97131a] to-[#7f1116] shadow-[inset_0_-1px_0_rgba(255,255,255,0.08),inset_0_1px_0_rgba(0,0,0,0.28),0_8px_24px_rgba(0,0,0,0.22)]"
       role="region"
-      aria-label={
-        language === 'hi'
-          ? '\u092c\u094d\u0930\u0947\u0915\u093f\u0902\u0917 \u0928\u094d\u092f\u0942\u091c \u091f\u093f\u0915\u0930'
-          : 'Breaking News ticker'
-      }
+      aria-label={language === 'hi' ? 'Breaking news' : 'Breaking News'}
     >
       <Container>
-        <div className="flex h-9 items-center gap-2 md:h-11 md:gap-3">
+        <div className="flex h-11 items-center gap-2 md:h-12 md:gap-3">
           <div className="flex h-full items-center">
-            <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-white px-2 text-[11px] font-extrabold uppercase tracking-[0.08em] text-red-600 ring-1 ring-white/30 shadow-[inset_0_0_0_1px_rgba(239,68,68,0.15)] md:h-8 md:gap-2 md:px-2.5 md:text-xs">
-              <span className="h-2.5 w-2.5 rounded-full bg-red-500 shadow-[0_0_0_2px_rgba(239,68,68,0.22)] md:h-3 md:w-3" />
+            <span className={styles.liveBadge}>
+              <span className={styles.liveDot} />
               LIVE
             </span>
           </div>
 
-          <div
-            ref={viewportRef}
-            className={`relative min-w-0 flex-1 overflow-hidden ${styles.viewport} ${
-              pauseOnHover ? styles.pausable : ''
-            }`}
-            aria-live="polite"
-          >
-            {isLoading && !resolvedItems.length ? (
-              <div className="flex h-7 items-center md:h-8">
-                <div className="h-3.5 w-[62%] animate-pulse rounded-full bg-white/20" />
+          <div className="min-w-0 flex-1">
+            {isLoading && !visibleItem ? (
+              <div className={styles.loadingShell} aria-hidden="true">
+                <div className={styles.loadingPulse} />
               </div>
-            ) : shouldAnimate ? (
-              <div
-                className={`${styles.track} ${styles.animate}`}
-                style={
-                  {
-                    '--ticker-duration': `${clampedSpeedSeconds}s`,
-                    '--ticker-distance': `${sequenceWidth}px`,
-                  } as CSSProperties
-                }
-              >
-                {Array.from({ length: repeatCount }).map((_, repeatIndex) => (
-                  <div
-                    key={`repeat-${repeatIndex}`}
-                    className={styles.sequence}
-                    aria-hidden={repeatIndex > 0}
-                  >
-                    {renderSequence(`repeat-${repeatIndex}`)}
-                  </div>
-                ))}
+            ) : marqueeItems.length ? (
+              <div className={styles.inlineShell}>
+                <span className="sr-only" aria-live="polite" aria-atomic="true">
+                  {visibleItem ? `${visibleItem.city ? `${visibleItem.city}: ` : ''}${visibleItem.title}` : ''}
+                </span>
+                <div
+                  className={`${styles.marqueeViewport} ${pauseOnHover ? styles.pausable : ''}`}
+                  style={{ ['--marquee-duration' as string]: `${computedDurationSeconds}s` }}
+                >
+                  {marqueeItems.length > 1 ? (
+                    <div className={`${styles.marqueeTrack} ${styles.marqueeAnimate}`}>
+                      <div className={styles.marqueeSequence}>{renderMarqueeSequence('primary')}</div>
+                      <div className={styles.marqueeSequence} aria-hidden="true">
+                        {renderMarqueeSequence('repeat', true)}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={styles.marqueeStatic}>{renderMarqueeSequence('static')}</div>
+                  )}
+                </div>
               </div>
-            ) : (
-              <div className="flex min-w-0 items-center">
-                {renderSequence('static').slice(0, 1)}
-              </div>
-            )}
-
-            <div className={styles.fadeLeft} aria-hidden="true" />
-            <div className={styles.fadeRight} aria-hidden="true" />
+            ) : null}
           </div>
+
+          {queueProgressLabel ? <span className={styles.countPill}>{queueProgressLabel}</span> : null}
 
           <button
             type="button"
-            onClick={() => {
-              void toggleSound();
-            }}
-            className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white/90 backdrop-blur-sm transition hover:border-white/35 hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/90 focus-visible:ring-offset-2 focus-visible:ring-offset-[#8b1218] md:h-8 md:w-8"
-            aria-label={
-              soundOn
-                ? 'Disable breaking sound and voice'
-                : 'Enable breaking sound and voice'
-            }
-            title={
-              soundOn
-                ? 'Disable breaking sound and voice'
-                : 'Enable breaking sound and voice'
-            }
+            onClick={toggleSound}
+            className={`${styles.toggleButton} ${soundEnabled ? styles.toggleButtonActive : ''} ${isPreparingAudio ? styles.toggleButtonLoading : ''}`}
+            aria-label={buttonTitle}
+            aria-pressed={soundEnabled}
+            aria-busy={isPreparingAudio}
+            title={buttonTitle}
           >
-            {soundOn ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+            <span className="sr-only">
+              {isPreparingAudio
+                ? 'Preparing breaking news voice'
+                : isPlaying
+                  ? 'Breaking news voice is playing'
+                  : soundEnabled
+                    ? 'Breaking news voice is enabled'
+                    : 'Breaking news voice is disabled'}
+            </span>
+            {isPreparingAudio ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : soundEnabled ? (
+              <Volume2 className="h-3.5 w-3.5" />
+            ) : (
+              <VolumeX className="h-3.5 w-3.5" />
+            )}
           </button>
-        </div>
-
-        <div ref={measureRef} className={styles.measure} aria-hidden="true">
-          <div className={styles.sequence}>{renderSequence('measure')}</div>
         </div>
       </Container>
     </div>
   );
 }
-

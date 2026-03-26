@@ -790,6 +790,11 @@ export default function UploadArticle() {
                 />
                 <span className="text-sm text-gray-700">Mark as Breaking News</span>
               </label>
+              {formData.isBreaking ? (
+                <p className="text-xs text-gray-600">
+                  Breaking articles generate reusable voice cache automatically after publish.
+                </p>
+              ) : null}
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"

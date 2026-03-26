@@ -4,11 +4,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
-import { ArrowLeft, Upload, AlertCircle, CheckCircle, Image as ImageIcon, Loader } from 'lucide-react';
+import {
+  ArrowLeft,
+  RefreshCw,
+  Upload,
+  AlertCircle,
+  CheckCircle,
+  Image as ImageIcon,
+  Loader,
+  Volume2,
+} from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import RichTextEditor from '@/components/forms/RichTextEditor';
 import { getAuthHeader } from '@/lib/auth/clientToken';
 import { NEWS_CATEGORIES } from '@/lib/constants/newsCategories';
+import { normalizeBreakingTtsMetadata, type BreakingTtsMetadata } from '@/lib/types/breaking';
 import { formatUiDateTime } from '@/lib/utils/dateFormat';
 import { renderArticleRichContent } from '@/lib/utils/articleRichContent';
 import {
@@ -41,6 +51,11 @@ type ArticleSeo = {
   metaDescription?: string;
   ogImage?: string;
   canonicalUrl?: string;
+};
+
+type BreakingTtsResponse = {
+  ready?: boolean;
+  breakingTts?: BreakingTtsMetadata | null;
 };
 
 type RevisionItem = {
@@ -77,6 +92,11 @@ function isValidAbsoluteHttpUrl(value: string) {
   }
 }
 
+function formatBreakingTtsTimestamp(value: string | undefined) {
+  if (!value) return '';
+  return formatUiDateTime(value, '');
+}
+
 export default function EditArticle() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -106,12 +126,20 @@ export default function EditArticle() {
   const [isLoadingRevisions, setIsLoadingRevisions] = useState(false);
   const [restoringRevisionId, setRestoringRevisionId] = useState('');
   const [imageQualityNote, setImageQualityNote] = useState('');
+  const [breakingTtsInfo, setBreakingTtsInfo] = useState<BreakingTtsMetadata | null>(null);
+  const [isRegeneratingBreakingTts, setIsRegeneratingBreakingTts] = useState(false);
 
   const previewContentHtml = useMemo(() => {
     const source = formData.content.trim() || formData.summary.trim();
     if (!source) return '<p>Start writing your article to see a live preview.</p>';
     return renderArticleRichContent(source);
   }, [formData.content, formData.summary]);
+
+  const breakingTtsStatus = !formData.isBreaking
+    ? 'disabled'
+    : breakingTtsInfo?.audioUrl
+      ? 'ready'
+      : 'missing';
 
   const fetchRevisions = useCallback(async () => {
     if (!articleId) return;
@@ -159,6 +187,7 @@ export default function EditArticle() {
         isBreaking?: boolean;
         isTrending?: boolean;
         seo?: ArticleSeo;
+        breakingTts?: BreakingTtsMetadata | null;
       };
 
       const baseForm: ArticleFormState = {
@@ -214,6 +243,7 @@ export default function EditArticle() {
       setContentMode(nextMode);
       setDraftSavedAt(nextSavedAt);
       setDraftRestored(restored);
+      setBreakingTtsInfo(normalizeBreakingTtsMetadata(article.breakingTts));
     } catch {
       setError('Failed to load article');
     } finally {
@@ -388,6 +418,7 @@ export default function EditArticle() {
         isBreaking?: boolean;
         isTrending?: boolean;
         seo?: ArticleSeo;
+        breakingTts?: BreakingTtsMetadata | null;
       };
 
       setFormData({
@@ -407,6 +438,7 @@ export default function EditArticle() {
       setImageFile(null);
       setImageQualityNote('');
       setContentMode('write');
+      setBreakingTtsInfo(normalizeBreakingTtsMetadata(article.breakingTts));
       clearDraft();
       setSuccess('Revision restored successfully.');
       await fetchRevisions();
@@ -414,6 +446,43 @@ export default function EditArticle() {
       setError('Failed to restore revision. Please try again.');
     } finally {
       setRestoringRevisionId('');
+    }
+  };
+
+  const handleRegenerateBreakingTts = async () => {
+    if (!articleId) return;
+
+    setIsRegeneratingBreakingTts(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const response = await fetch(
+        `/api/admin/articles/${encodeURIComponent(articleId)}/breaking-tts?force=1`,
+        {
+          method: 'POST',
+          headers: {
+            ...getAuthHeader(),
+          },
+        }
+      );
+      const data = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        data?: BreakingTtsResponse;
+      };
+
+      if (!response.ok || !data.success || !data.data?.breakingTts) {
+        setError(data.error || 'Failed to regenerate breaking voice cache');
+        return;
+      }
+
+      setBreakingTtsInfo(normalizeBreakingTtsMetadata(data.data.breakingTts));
+      setSuccess('Breaking voice cache regenerated successfully.');
+    } catch {
+      setError('Failed to regenerate breaking voice cache. Please try again.');
+    } finally {
+      setIsRegeneratingBreakingTts(false);
     }
   };
 
@@ -482,6 +551,7 @@ export default function EditArticle() {
         return;
       }
 
+      setBreakingTtsInfo(normalizeBreakingTtsMetadata(data?.data?.breakingTts));
       setSuccess('Article updated successfully! Redirecting...');
       setImageFile(null);
       clearDraft();
@@ -695,6 +765,60 @@ export default function EditArticle() {
               <p className="text-sm font-medium text-gray-900">Article Status</p>
               <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" name="isBreaking" checked={formData.isBreaking} onChange={handleInputChange} className="w-4 h-4 rounded border-gray-300 text-spanish-red focus:ring-spanish-red" /><span className="text-sm text-gray-700">Mark as Breaking News</span></label>
               <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" name="isTrending" checked={formData.isTrending} onChange={handleInputChange} className="w-4 h-4 rounded border-gray-300 text-spanish-red focus:ring-spanish-red" /><span className="text-sm text-gray-700">Mark as Trending</span></label>
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Volume2 className="h-4 w-4 text-spanish-red" />
+                    <p className="text-sm font-semibold text-gray-900">Breaking Voice Cache</p>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-700">
+                    {breakingTtsStatus === 'disabled'
+                      ? 'Voice cache is off until this article is saved as breaking news.'
+                      : breakingTtsStatus === 'ready'
+                        ? 'Cached voice is ready and will be reused by readers.'
+                        : 'No reusable voice cache is ready yet for this breaking article.'}
+                  </p>
+                  {breakingTtsInfo?.generatedAt ? (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Last generated: {formatBreakingTtsTimestamp(breakingTtsInfo.generatedAt)}
+                    </p>
+                  ) : null}
+                  {breakingTtsInfo?.voice || breakingTtsInfo?.model ? (
+                    <p className="mt-1 text-xs text-gray-500">
+                      {[breakingTtsInfo?.voice, breakingTtsInfo?.model].filter(Boolean).join(' · ')}
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRegenerateBreakingTts}
+                  disabled={!formData.isBreaking || isRegeneratingBreakingTts}
+                  className="inline-flex items-center gap-2 rounded-md border border-spanish-red bg-white px-3 py-2 text-xs font-semibold text-spanish-red hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isRegeneratingBreakingTts ? (
+                    <Loader className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  {breakingTtsInfo?.audioUrl ? 'Regenerate Voice' : 'Generate Voice'}
+                </button>
+              </div>
+              {breakingTtsInfo?.audioUrl ? (
+                <div className="rounded-md border border-gray-200 bg-white px-3 py-2">
+                  <p className="text-xs font-medium text-gray-700">Cached audio</p>
+                  <a
+                    href={breakingTtsInfo.audioUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 block truncate text-xs text-spanish-red hover:underline"
+                  >
+                    {breakingTtsInfo.audioUrl}
+                  </a>
+                </div>
+              ) : null}
             </div>
 
             <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">

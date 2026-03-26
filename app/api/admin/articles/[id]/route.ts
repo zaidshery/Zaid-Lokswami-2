@@ -6,6 +6,10 @@ import EPaper from '@/lib/models/EPaper';
 import EPaperArticle from '@/lib/models/EPaperArticle';
 import { getAdminSession } from '@/lib/auth/admin';
 import {
+  deleteStoredBreakingAudio,
+  ensureBreakingTtsForArticle,
+} from '@/lib/server/breakingTts';
+import {
   deleteStoredArticle,
   getStoredArticleById,
   updateStoredArticle,
@@ -474,6 +478,33 @@ export async function PATCH(
           { status: 404 }
         );
       }
+
+      try {
+        if (!article.isBreaking) {
+          if (article.breakingTts?.audioUrl) {
+            await deleteStoredBreakingAudio(article.breakingTts.audioUrl).catch(() => undefined);
+          }
+          const cleared = await updateStoredArticle(id, { breakingTts: null }, { skipRevision: true });
+          article.breakingTts = cleared?.breakingTts ?? null;
+        } else {
+          const breakingTts = await ensureBreakingTtsForArticle(article);
+          if (breakingTts) {
+            const synced = await updateStoredArticle(
+              id,
+              { breakingTts },
+              { skipRevision: true }
+            );
+            if (synced) {
+              article.breakingTts = synced.breakingTts ?? breakingTts;
+            } else {
+              article.breakingTts = breakingTts;
+            }
+          }
+        }
+      } catch (ttsError) {
+        console.error('Failed to cache breaking TTS after article patch:', ttsError);
+      }
+
       return NextResponse.json({ success: true, data: article });
     }
 
@@ -505,6 +536,31 @@ export async function PATCH(
         { success: false, error: 'Article not found' },
         { status: 404 }
       );
+    }
+
+    try {
+      if (!article.isBreaking) {
+        const previousAudioUrl =
+          article.breakingTts && typeof article.breakingTts.audioUrl === 'string'
+            ? article.breakingTts.audioUrl
+            : '';
+        if (previousAudioUrl) {
+          await deleteStoredBreakingAudio(previousAudioUrl).catch(() => undefined);
+        }
+        article.breakingTts = null;
+        await article.save();
+      } else {
+        const breakingTts = await ensureBreakingTtsForArticle(article.toObject());
+        if (breakingTts) {
+          article.breakingTts = {
+            ...breakingTts,
+            generatedAt: new Date(breakingTts.generatedAt),
+          };
+          await article.save();
+        }
+      }
+    } catch (ttsError) {
+      console.error('Failed to cache breaking TTS after article patch:', ttsError);
     }
 
     return NextResponse.json({ success: true, data: article });
@@ -556,6 +612,33 @@ export async function PUT(
           { status: 404 }
         );
       }
+
+      try {
+        if (!article.isBreaking) {
+          if (article.breakingTts?.audioUrl) {
+            await deleteStoredBreakingAudio(article.breakingTts.audioUrl).catch(() => undefined);
+          }
+          const cleared = await updateStoredArticle(id, { breakingTts: null }, { skipRevision: true });
+          article.breakingTts = cleared?.breakingTts ?? null;
+        } else {
+          const breakingTts = await ensureBreakingTtsForArticle(article);
+          if (breakingTts) {
+            const synced = await updateStoredArticle(
+              id,
+              { breakingTts },
+              { skipRevision: true }
+            );
+            if (synced) {
+              article.breakingTts = synced.breakingTts ?? breakingTts;
+            } else {
+              article.breakingTts = breakingTts;
+            }
+          }
+        }
+      } catch (ttsError) {
+        console.error('Failed to cache breaking TTS after article put:', ttsError);
+      }
+
       return NextResponse.json({
         success: true,
         data: article,
@@ -591,6 +674,31 @@ export async function PUT(
         { success: false, error: 'Article not found' },
         { status: 404 }
       );
+    }
+
+    try {
+      if (!article.isBreaking) {
+        const previousAudioUrl =
+          article.breakingTts && typeof article.breakingTts.audioUrl === 'string'
+            ? article.breakingTts.audioUrl
+            : '';
+        if (previousAudioUrl) {
+          await deleteStoredBreakingAudio(previousAudioUrl).catch(() => undefined);
+        }
+        article.breakingTts = null;
+        await article.save();
+      } else {
+        const breakingTts = await ensureBreakingTtsForArticle(article.toObject());
+        if (breakingTts) {
+          article.breakingTts = {
+            ...breakingTts,
+            generatedAt: new Date(breakingTts.generatedAt),
+          };
+          await article.save();
+        }
+      }
+    } catch (ttsError) {
+      console.error('Failed to cache breaking TTS after article put:', ttsError);
     }
 
     return NextResponse.json({
@@ -644,12 +752,16 @@ export async function DELETE(
     }
 
     if (await shouldUseFileStore()) {
+      const existing = await getStoredArticleById(id);
       const deleted = await deleteStoredArticle(id);
       if (!deleted) {
         return NextResponse.json(
           { success: false, error: 'Article not found' },
           { status: 404 }
         );
+      }
+      if (existing?.breakingTts?.audioUrl) {
+        await deleteStoredBreakingAudio(existing.breakingTts.audioUrl).catch(() => undefined);
       }
       return NextResponse.json({
         success: true,
@@ -666,6 +778,21 @@ export async function DELETE(
 
     const article = await Article.findByIdAndDelete(id).lean();
     if (article) {
+      const deletedArticle =
+        typeof article === 'object' && article && !Array.isArray(article)
+          ? (article as Record<string, unknown>)
+          : null;
+      const breakingTts =
+        deletedArticle && typeof deletedArticle.breakingTts === 'object'
+          ? (deletedArticle.breakingTts as Record<string, unknown>)
+          : null;
+      const audioUrl =
+        breakingTts && typeof breakingTts.audioUrl === 'string'
+          ? breakingTts.audioUrl
+          : '';
+      if (audioUrl) {
+        await deleteStoredBreakingAudio(audioUrl).catch(() => undefined);
+      }
       return NextResponse.json({
         success: true,
         message: 'Article deleted successfully',

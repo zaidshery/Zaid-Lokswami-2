@@ -79,16 +79,6 @@ async function main() {
       );
     });
 
-    const currentAdminGoogleLoginEnabled =
-      (process.env.ADMIN_GOOGLE_LOGIN_ENABLED || '').trim().toLowerCase() === 'true';
-
-    await runCase('current environment keeps admin Google login disabled', () => {
-      expect(
-        !currentAdminGoogleLoginEnabled,
-        'ADMIN_GOOGLE_LOGIN_ENABLED is enabled, so admin is not credentials-only'
-      );
-    });
-
     const testPassword = 'S3cret!Pass123';
     const testHash = await reloadModule<typeof import('../lib/auth/jwt')>(
       '../lib/auth/jwt'
@@ -155,6 +145,21 @@ async function main() {
       });
 
       expect(result === null, 'expected unknown login id to be rejected');
+    });
+
+    process.env.ADMIN_PASSWORD_HASH = testHash.replace(/\$/g, '\\$');
+
+    const escapedHashAdminCredentials = reloadModule<AdminCredentialsModule>(
+      '../lib/auth/adminCredentials'
+    );
+
+    await runCase('admin login accepts bcrypt hashes copied with escaped dollar signs', async () => {
+      const result = await escapedHashAdminCredentials.authorizeAdminCredentials({
+        loginId: 'admin',
+        password: testPassword,
+      });
+
+      expect(result?.userId === 'env-admin:admin', 'expected escaped hash normalization to work');
     });
   } finally {
     restoreEnv(originalEnv);

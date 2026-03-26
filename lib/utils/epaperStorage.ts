@@ -23,7 +23,7 @@ export type EpaperPublicPathPrefix = '/uploads/epapers' | '/api/public/uploads/e
 const SAFE_SEGMENT_PATTERN = /^[a-zA-Z0-9._-]+$/;
 const SAFE_FILE_NAME_PATTERN = /^[a-zA-Z0-9._-]+\.[a-zA-Z0-9]+$/;
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp']);
-const SERVABLE_FILE_EXTENSIONS = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.webp']);
+const SERVABLE_FILE_EXTENSIONS = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.wav']);
 const IMAGE_MIME_TO_EXTENSION: Record<string, '.jpg' | '.png' | '.webp'> = {
   'image/jpeg': '.jpg',
   'image/jpg': '.jpg',
@@ -501,7 +501,7 @@ export function isSafeProxyPathSegments(segments: string[]) {
 
 export function resolveStorageProxyPath(segments: string[]) {
   if (!isSafeProxyPathSegments(segments)) return null;
-  if (segments[0] !== 'epapers') return null;
+  if (segments[0] !== 'epapers' && segments[0] !== 'breaking-audio') return null;
   const absolutePath = path.resolve(STORAGE_UPLOADS_BASE_DIR, ...segments);
   const relative = path.relative(STORAGE_UPLOADS_BASE_DIR, absolutePath);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
@@ -516,6 +516,7 @@ export function getFileMimeType(filePath: string) {
   if (extension === '.png') return 'image/png';
   if (extension === '.webp') return 'image/webp';
   if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg';
+  if (extension === '.wav') return 'audio/wav';
   return 'application/octet-stream';
 }
 

@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import { type BreakingTtsMetadata, normalizeBreakingTtsMetadata } from '@/lib/types/breaking';
 import { resolveArticleOgImageUrl } from '@/lib/utils/articleMedia';
 
 export interface ArticleSeo {
@@ -39,6 +40,7 @@ export interface StoredArticle {
   isTrending: boolean;
   seo: ArticleSeo;
   revisions: StoredArticleRevision[];
+  breakingTts?: BreakingTtsMetadata | null;
 }
 
 export interface CreateArticleInput {
@@ -57,6 +59,7 @@ type UpdateArticleInput = Partial<CreateArticleInput> & {
   views?: number;
   publishedAt?: string;
   seo?: Partial<ArticleSeo>;
+  breakingTts?: BreakingTtsMetadata | null;
 };
 
 const dataDir = path.resolve(process.cwd(), 'data');
@@ -188,6 +191,7 @@ function normalizeStoredArticle(input: unknown): StoredArticle | null {
         : new Date().toISOString(),
     seo: withSeoOgFallback(normalizeSeo(source.seo), image),
     revisions,
+    breakingTts: normalizeBreakingTtsMetadata(source.breakingTts),
   };
 }
 
@@ -288,6 +292,7 @@ export async function createStoredArticle(input: CreateArticleInput) {
     updatedAt: now,
     seo: withSeoOgFallback(normalizeSeo(input.seo), normalizeMediaUrl(input.image)),
     revisions: [],
+    breakingTts: null,
   };
 
   all.push(article);

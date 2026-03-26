@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db/mongoose';
 import Article from '@/lib/models/Article';
 import { getAdminSession } from '@/lib/auth/admin';
+import { ensureBreakingTtsForArticle } from '@/lib/server/breakingTts';
 import {
   createStoredArticle,
   listStoredArticles,
+  updateStoredArticle,
 } from '@/lib/storage/articlesFile';
 import { resolveArticleOgImageUrl } from '@/lib/utils/articleMedia';
 const FILE_STORE_UNBOUNDED_LIMIT = Number.MAX_SAFE_INTEGER;
@@ -221,6 +223,23 @@ export async function POST(req: NextRequest) {
 
     if (useFileStore) {
       const stored = await createStoredArticle(input);
+      try {
+        const breakingTts = await ensureBreakingTtsForArticle(stored);
+        if (breakingTts) {
+          const updated = await updateStoredArticle(
+            stored._id,
+            { breakingTts },
+            { skipRevision: true }
+          );
+          if (updated) {
+            stored.breakingTts = updated.breakingTts ?? breakingTts;
+          } else {
+            stored.breakingTts = breakingTts;
+          }
+        }
+      } catch (ttsError) {
+        console.error('Failed to cache breaking TTS after article create:', ttsError);
+      }
       return NextResponse.json({ success: true, data: stored }, { status: 201 });
     }
 
@@ -232,6 +251,19 @@ export async function POST(req: NextRequest) {
     });
 
     await article.save();
+    try {
+      const breakingTts = await ensureBreakingTtsForArticle(article.toObject());
+      if (breakingTts) {
+        article.breakingTts = {
+          ...breakingTts,
+          generatedAt: new Date(breakingTts.generatedAt),
+        };
+        await article.save();
+      }
+    } catch (ttsError) {
+      console.error('Failed to cache breaking TTS after article create:', ttsError);
+    }
+
     return NextResponse.json({ success: true, data: article }, { status: 201 });
   } catch (error: unknown) {
     console.error('Error creating article:', error);

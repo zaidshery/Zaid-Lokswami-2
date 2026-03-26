@@ -8,8 +8,41 @@ type AdminCredentialsProfile = {
   passwordHash: string;
 };
 
+let hasWarnedAboutEscapedAdminPasswordHash = false;
+
 function normalizeIdentifier(value: string | null | undefined) {
   return (value || '').trim().toLowerCase();
+}
+
+function unwrapQuotedValue(value: string) {
+  const trimmedValue = value.trim();
+
+  if (
+    (trimmedValue.startsWith('"') && trimmedValue.endsWith('"')) ||
+    (trimmedValue.startsWith("'") && trimmedValue.endsWith("'"))
+  ) {
+    return trimmedValue.slice(1, -1).trim();
+  }
+
+  return trimmedValue;
+}
+
+function normalizePasswordHash(value: string | null | undefined) {
+  const rawHash = unwrapQuotedValue(value || '');
+  if (!rawHash) {
+    return '';
+  }
+
+  const normalizedHash = rawHash.replace(/\\\$/g, '$');
+
+  if (normalizedHash !== rawHash && !hasWarnedAboutEscapedAdminPasswordHash) {
+    hasWarnedAboutEscapedAdminPasswordHash = true;
+    console.warn(
+      'ADMIN_PASSWORD_HASH contains escaped "$" characters. Normalizing it for bcrypt; update the env value to remove backslashes.'
+    );
+  }
+
+  return normalizedHash;
 }
 
 function getConfiguredProfile(): AdminCredentialsProfile | null {
@@ -17,7 +50,7 @@ function getConfiguredProfile(): AdminCredentialsProfile | null {
     process.env.ADMIN_LOGIN_ID || process.env.ADMIN_USERNAME
   );
   const email = normalizeIdentifier(process.env.ADMIN_EMAIL);
-  const passwordHash = (process.env.ADMIN_PASSWORD_HASH || '').trim();
+  const passwordHash = normalizePasswordHash(process.env.ADMIN_PASSWORD_HASH);
   const name = (process.env.ADMIN_DISPLAY_NAME || 'Admin').trim() || 'Admin';
 
   if (!username || !passwordHash) {
