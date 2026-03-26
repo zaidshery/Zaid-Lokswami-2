@@ -60,11 +60,12 @@ export default function BreakingNews({
     preferredLanguage: language,
   });
 
-  if (!visibleItem && !isLoading) {
-    return null;
-  }
+  const marqueeItems = useMemo(() => {
+    if (queue.length) return queue;
+    if (visibleItem) return [visibleItem];
+    return [];
+  }, [queue, visibleItem]);
 
-  const marqueeItems = queue.length ? queue : visibleItem ? [visibleItem] : [];
   const queueProgressLabel =
     queue.length > 0
       ? `${String(currentIndex + 1).padStart(2, '0')}/${String(queue.length).padStart(2, '0')}`
@@ -89,6 +90,10 @@ export default function BreakingNews({
       : ttsAvailable === false
         ? 'Breaking news voice is unavailable'
         : 'Enable breaking news voice';
+
+  if (!visibleItem && !isLoading) {
+    return null;
+  }
 
   const renderMarqueeSequence = (keyPrefix: string, ariaHidden = false) =>
     marqueeItems.map((item, index) => {

@@ -586,14 +586,17 @@ export function useBreakingNewsController({
   }, []);
 
   useEffect(() => {
+    const preparedAudioCache = preparedAudioCacheRef.current;
+    const preloadedAudio = preloadedAudioRef.current;
+
     return () => {
       mountedRef.current = false;
       if (pollIntervalRef.current !== null) {
         window.clearInterval(pollIntervalRef.current);
       }
       clearAllTrackedTimeouts();
-      preparedAudioCacheRef.current.clear();
-      preloadedAudioRef.current.clear();
+      preparedAudioCache.clear();
+      preloadedAudio.clear();
       stopCurrentAudio('cancelled');
     };
   }, [clearAllTrackedTimeouts, stopCurrentAudio]);
