@@ -384,6 +384,14 @@ export async function GET(
   context: RouteContext
 ) {
   try {
+    const user = await getAdminSession();
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { id } = await context.params;
 
     if (isEpaperKind(req)) {

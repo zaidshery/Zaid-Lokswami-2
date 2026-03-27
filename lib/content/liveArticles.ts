@@ -88,7 +88,7 @@ function mergeUnique(primary: Article[], secondary: Article[]) {
 
 export async function fetchMergedLiveArticles(limit = 100): Promise<Article[]> {
   try {
-    const res = await fetch(`/api/admin/articles?limit=${limit}&page=1`, {
+    const res = await fetch(`/api/articles/latest?limit=${limit}`, {
       cache: 'no-store',
     });
     if (!res.ok) {
@@ -96,7 +96,11 @@ export async function fetchMergedLiveArticles(limit = 100): Promise<Article[]> {
     }
 
     const data = await res.json();
-    const rows: ApiArticle[] = Array.isArray(data?.data) ? data.data : [];
+    const rows: ApiArticle[] = Array.isArray(data?.items)
+      ? data.items
+      : Array.isArray(data?.data)
+        ? data.data
+        : [];
     const live = rows
       .map((row, idx) => normalizeArticle(row, idx))
       .filter((item): item is Article => Boolean(item));

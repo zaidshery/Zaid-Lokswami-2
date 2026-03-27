@@ -6,7 +6,7 @@ import { listAllStoredArticles } from '@/lib/storage/articlesFile';
 
 const DEFAULT_LIMIT = 20;
 const MIN_LIMIT = 5;
-const MAX_LIMIT = 50;
+const MAX_LIMIT = 200;
 
 type FeedArticle = {
   _id: string;

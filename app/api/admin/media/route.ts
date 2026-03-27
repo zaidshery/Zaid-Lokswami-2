@@ -17,6 +17,14 @@ type MediaRecord = {
 
 export async function GET() {
   try {
+    const user = await getAdminSession();
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     if (!process.env.MONGODB_URI) {
       const dataPath = path.resolve(process.cwd(), 'data', 'media.json');
       try {

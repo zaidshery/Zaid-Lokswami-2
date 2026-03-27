@@ -125,14 +125,19 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const user = await getAdminSession();
-    const isAdmin = Boolean(user);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
 
     const category = searchParams.get('category');
     const search = (searchParams.get('search') || '').trim();
     const sort = searchParams.get('sort'); // latest | priority | trending
     const publishedParam = parseBooleanParam(searchParams.get('published'));
     const effectivePublished =
-      typeof publishedParam === 'boolean' ? publishedParam : isAdmin ? undefined : true;
+      typeof publishedParam === 'boolean' ? publishedParam : undefined;
     const limit = parseListLimit(searchParams.get('limit'), 20, 200);
     const page = parsePositiveInt(searchParams.get('page'), 1, 100000);
     const isUnbounded = limit === null;

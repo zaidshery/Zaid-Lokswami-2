@@ -1,4 +1,6 @@
+import type { Metadata } from 'next';
 import { headers } from 'next/headers';
+import { buildEpaperPageMetadata } from '@/lib/seo/readerPageMetadata';
 import { parseUiDateInput } from '@/lib/utils/dateFormat';
 import {
   resolvePublicEpaperCityFilter,
@@ -72,6 +74,16 @@ function resolveInitialFilters(params: Record<string, string | string[] | undefi
     city,
     date,
   };
+}
+
+export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
+  const resolvedParams = searchParams ? await searchParams : {};
+  const filters = resolveInitialFilters(resolvedParams);
+
+  return buildEpaperPageMetadata({
+    city: filters.city,
+    publishDate: filters.date,
+  });
 }
 
 async function fetchInitialEPapers(city: EPaperCityFilter, publishDate: string) {

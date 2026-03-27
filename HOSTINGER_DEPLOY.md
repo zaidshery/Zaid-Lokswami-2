@@ -2,6 +2,8 @@
 
 This project is now prepared for a standard Hostinger Node.js deployment.
 
+This is the only documented production deployment target for the repo. Remove any old non-Hostinger production examples from active environment files and OAuth settings.
+
 Assumption:
 - You are deploying to Hostinger Node hosting or a Hostinger VPS.
 - You are not deploying to PHP-only shared hosting.
@@ -23,6 +25,13 @@ NEXTAUTH_URL=https://your-domain.com
 NEXT_PUBLIC_SITE_URL=https://your-domain.com
 ADMIN_LOGIN_ID=admin
 ADMIN_PASSWORD_HASH=
+```
+
+Example for the current production site:
+
+```env
+NEXTAUTH_URL=https://lokswami.com
+NEXT_PUBLIC_SITE_URL=https://lokswami.com
 ```
 
 Recommended if uploads are enabled:
@@ -62,6 +71,11 @@ If Google login is enabled, add these in Google Cloud Console:
 - Authorized JavaScript origin: `https://your-domain.com`
 - Authorized redirect URI: `https://your-domain.com/api/auth/callback/google`
 
+If you are using the current production domain, that means:
+
+- Authorized JavaScript origin: `https://lokswami.com`
+- Authorized redirect URI: `https://lokswami.com/api/auth/callback/google`
+
 ## Build And Start Commands
 
 Use these commands on the server:
@@ -72,9 +86,18 @@ npm run build:hostinger
 npm run start:hostinger
 ```
 
+Recommended release flow:
+
+1. Update production env values in Hostinger.
+2. Run `npm ci`.
+3. Run `npm run build:hostinger`.
+4. Start or restart with `npm run start:hostinger`.
+5. Run the smoke checks before calling the deploy complete.
+
 What `build:hostinger` does:
 
 - builds the Next.js app
+- normalizes `next-env.d.ts` for production route types and clears stale `.next` / `.next-dev` output first
 - creates a standalone server bundle
 - copies `public/` into `.next/standalone/public`
 - copies `.next/static` into `.next/standalone/.next/static`
@@ -134,8 +157,5 @@ EPAPER_STORAGE_UPLOADS_BASE_DIR=/absolute/path/to/writable/storage/uploads
 
 After deployment:
 
-1. Open `https://your-domain.com/api/health`
-2. Open the homepage
-3. Sign in to `/admin`
-4. Open `/main/epaper`
-5. Test one image or PDF upload if uploads are enabled
+1. Run `npm run test:smoke -- https://your-domain.com`
+2. Complete the manual checks in `DEPLOY_SMOKE_CHECKLIST.md`

@@ -111,11 +111,16 @@ export async function GET(
   try {
     const { id } = await context.params;
     const user = await getAdminSession();
-    const isAdmin = Boolean(user);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
 
     if (await shouldUseFileStore()) {
       const story = await getStoredStoryById(id);
-      if (!story || (!isAdmin && !story.isPublished)) {
+      if (!story) {
         return NextResponse.json(
           { success: false, error: 'Story not found' },
           { status: 404 }
@@ -135,7 +140,7 @@ export async function GET(
       | (Record<string, unknown> & { isPublished?: boolean })
       | null;
 
-    if (!story || (!isAdmin && story.isPublished === false)) {
+    if (!story) {
       return NextResponse.json(
         { success: false, error: 'Story not found' },
         { status: 404 }

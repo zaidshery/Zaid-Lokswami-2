@@ -140,11 +140,16 @@ export async function GET(
   try {
     const { id } = await context.params;
     const user = await getAdminSession();
-    const isAdmin = Boolean(user);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
 
     if (await shouldUseFileStore()) {
       const video = await getStoredVideoById(id);
-      if (!video || (!isAdmin && !video.isPublished)) {
+      if (!video) {
         return NextResponse.json(
           { success: false, error: 'Video not found' },
           { status: 404 }
@@ -165,7 +170,7 @@ export async function GET(
       | (Record<string, unknown> & { isPublished?: boolean })
       | null;
 
-    if (!video || (!isAdmin && video.isPublished === false)) {
+    if (!video) {
       return NextResponse.json(
         { success: false, error: 'Video not found' },
         { status: 404 }

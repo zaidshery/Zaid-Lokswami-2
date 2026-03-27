@@ -1,7 +1,11 @@
+import type { Metadata } from 'next';
 import { headers } from 'next/headers';
+import { buildLatestPageMetadata } from '@/lib/seo/readerPageMetadata';
 import LatestFeedClient, { type LatestFeedApiItem, type LatestFeedCursor } from './LatestFeedClient';
 
 const LATEST_PAGE_LIMIT = 20;
+
+export const metadata: Metadata = buildLatestPageMetadata();
 
 type LatestFeedResponse = {
   items?: LatestFeedApiItem[];

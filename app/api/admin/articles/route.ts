@@ -133,6 +133,14 @@ function validateArticleInput(input: ReturnType<typeof normalizeArticleInput>) {
 
 export async function GET(req: NextRequest) {
   try {
+    const user = await getAdminSession();
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const category = searchParams.get('category');
     const limit = parseListLimit(searchParams.get('limit'), 10);

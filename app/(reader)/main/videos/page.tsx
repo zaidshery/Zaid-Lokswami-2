@@ -1,10 +1,14 @@
+import type { Metadata } from 'next';
 import { headers } from 'next/headers';
+import { buildVideosPageMetadata } from '@/lib/seo/readerPageMetadata';
 import VideosPageClient, {
   type PublicCursor,
   type PublicVideoFeedItem,
 } from './VideosPageClient';
 
 const VIDEOS_LIMIT = 20;
+
+export const metadata: Metadata = buildVideosPageMetadata();
 
 type VideosLatestResponse = {
   items?: PublicVideoFeedItem[];

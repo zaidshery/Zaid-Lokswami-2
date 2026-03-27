@@ -73,6 +73,14 @@ async function shouldUseFileStore() {
 
 export async function GET() {
   try {
+    const user = await getAdminSession();
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     if (await shouldUseFileStore()) {
       const dataPath = path.resolve(process.cwd(), 'data', 'categories.json');
       const dataDir = path.dirname(dataPath);

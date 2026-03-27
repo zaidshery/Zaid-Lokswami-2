@@ -175,15 +175,24 @@ Readiness currently checks:
 
 ## Deployment
 
-- Set `NEXTAUTH_URL` to the production origin
-- Set `NEXT_PUBLIC_SITE_URL` to the same production origin
-- Set `NEXT_PUBLIC_GTM_ID` to your Google Tag Manager container ID if you want GTM live in production
-- Add `https://<your-domain>/api/auth/callback/google` to the Google OAuth client
+Hostinger Node deployment is the supported production path for this repo.
+
+- Set `NEXTAUTH_URL` to your final Hostinger domain
+- Set `NEXT_PUBLIC_SITE_URL` to that same domain
+- Set `NEXT_PUBLIC_GTM_ID` only if you want GTM live in production
+- Add `https://<your-domain>/api/auth/callback/google` to the Google OAuth client if Google login is enabled
 - Keep `NEXTAUTH_SECRET` at 32+ characters
 - Use a persistent MongoDB instance
 - Configure Cloudinary if production uploads are enabled
 - `public/uploads/*` and `data/articles.json` are gitignored local/generated data
-- For Hostinger Node deployment, see `HOSTINGER_DEPLOY.md`
+- Deploy with `npm run build:hostinger` and `npm run start:hostinger`
+- See `HOSTINGER_DEPLOY.md` for the full server checklist
+
+## Project Docs
+
+- `HOSTINGER_DEPLOY.md` for the production deployment flow
+- `DEPLOY_SMOKE_CHECKLIST.md` for the post-deploy verification pass
+- `NEXT_SPRINT.md` for the current priority order and sprint direction
 
 ## Scripts
 
@@ -193,6 +202,7 @@ npm run build
 npm run start
 npm run lint
 npm run typecheck
+npm run test:smoke -- https://your-domain.com
 npm run seed
 npm run hash-password
 npm run migrate:epapers
