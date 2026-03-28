@@ -91,7 +91,7 @@ export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
       // Theme
-      theme: 'dark',
+      theme: resolveTheme(undefined),
       toggleTheme: () =>
         set((state) => {
           const nextTheme = state.theme === 'dark' ? 'light' : 'dark';
