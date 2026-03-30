@@ -185,7 +185,8 @@ Hostinger Node deployment is the supported production path for this repo.
 - Use a persistent MongoDB instance
 - Configure Cloudinary if production uploads are enabled
 - `public/uploads/*` and `data/articles.json` are gitignored local/generated data
-- Deploy with `npm run build:hostinger` and `npm run start:hostinger`
+- Deploy with `npm run build` and `npm start`
+- `npm run build:hostinger` and `npm run start:hostinger` remain as explicit aliases for the same Hostinger flow
 - Roll back to the previous prepared Hostinger release with `npm run rollback:hostinger` and then `npm run start:hostinger`
 - The Hostinger flow now stages versioned releases in `.hostinger/releases/*` and keeps a short overlap of older hashed `/_next/static/*` assets to prevent post-deploy `ChunkLoadError` crashes
 - `npm run test:smoke -- https://your-domain.com` now checks live HTML asset integrity, not just status codes

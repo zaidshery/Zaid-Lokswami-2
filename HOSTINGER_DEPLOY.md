@@ -82,6 +82,13 @@ Use these commands on the server:
 
 ```bash
 npm ci
+npm run build
+npm start
+```
+
+Equivalent explicit Hostinger aliases still work:
+
+```bash
 npm run build:hostinger
 npm run start:hostinger
 ```
@@ -90,8 +97,8 @@ Recommended release flow:
 
 1. Update production env values in Hostinger.
 2. Run `npm ci`.
-3. Run `npm run build:hostinger`.
-4. Restart with `npm run start:hostinger` or the Hostinger app restart control.
+3. Run `npm run build`.
+4. Restart with `npm start` or the Hostinger app restart control.
 5. Run the smoke checks before calling the deploy complete.
 6. Run the admin runtime checks before calling admin healthy.
 
@@ -122,13 +129,19 @@ What `start:hostinger` does now:
 
 This avoids the old failure mode where an in-place build deleted the currently running `.next/standalone/.next/static` files before the new release was fully live.
 
+Important for Hostinger auto-deploy:
+
+- the repo default `build` script now performs the Hostinger release preparation step
+- the repo default `start` script now launches the Hostinger release wrapper
+- this keeps Hostinger's "Build and output settings: Default" path compatible with this repo
+
 ## Hostinger hPanel Node App
 
 Recommended settings:
 
 - Application root: project root
-- Build command: `npm run build:hostinger`
-- Start command: `npm run start:hostinger`
+- Build command: `npm run build`
+- Start command: `npm start`
 - Node version: `20` or newer
 
 After deploy, verify:
@@ -147,8 +160,8 @@ Typical flow:
 
 ```bash
 npm ci
-npm run build:hostinger
-PORT=3000 npm run start:hostinger
+npm run build
+PORT=3000 npm start
 ```
 
 Then reverse proxy with Nginx to your domain.
