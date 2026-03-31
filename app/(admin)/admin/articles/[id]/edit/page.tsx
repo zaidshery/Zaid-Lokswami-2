@@ -58,6 +58,29 @@ type BreakingTtsResponse = {
   breakingTts?: BreakingTtsMetadata | null;
 };
 
+type ManagedTtsAsset = {
+  id?: string;
+  status?: string;
+  audioUrl?: string;
+  voice?: string;
+  model?: string;
+  languageCode?: string;
+  mimeType?: string;
+  generatedAt?: string;
+  updatedAt?: string;
+  lastVerifiedAt?: string;
+  lastError?: string;
+  chunkCount?: number;
+  charCount?: number;
+};
+
+type ManagedTtsResponse = {
+  eligible?: boolean;
+  ready?: boolean;
+  asset?: ManagedTtsAsset | null;
+  message?: string;
+};
+
 type RevisionItem = {
   _id?: string;
   title?: string;
@@ -97,6 +120,10 @@ function formatBreakingTtsTimestamp(value: string | undefined) {
   return formatUiDateTime(value, '');
 }
 
+function buildArticleListenSignature(input: Pick<ArticleFormState, 'title' | 'summary' | 'content'>) {
+  return [input.title.trim(), input.summary.trim(), input.content.trim()].join('\n::\n');
+}
+
 export default function EditArticle() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -128,6 +155,12 @@ export default function EditArticle() {
   const [imageQualityNote, setImageQualityNote] = useState('');
   const [breakingTtsInfo, setBreakingTtsInfo] = useState<BreakingTtsMetadata | null>(null);
   const [isRegeneratingBreakingTts, setIsRegeneratingBreakingTts] = useState(false);
+  const [articleTtsInfo, setArticleTtsInfo] = useState<ManagedTtsAsset | null>(null);
+  const [articleTtsEligible, setArticleTtsEligible] = useState(false);
+  const [articleTtsReady, setArticleTtsReady] = useState(false);
+  const [isLoadingArticleTts, setIsLoadingArticleTts] = useState(false);
+  const [isRegeneratingArticleTts, setIsRegeneratingArticleTts] = useState(false);
+  const [savedArticleListenSignature, setSavedArticleListenSignature] = useState('');
 
   const previewContentHtml = useMemo(() => {
     const source = formData.content.trim() || formData.summary.trim();
@@ -135,11 +168,60 @@ export default function EditArticle() {
     return renderArticleRichContent(source);
   }, [formData.content, formData.summary]);
 
+  const currentArticleListenSignature = useMemo(
+    () => buildArticleListenSignature(formData),
+    [formData]
+  );
+
   const breakingTtsStatus = !formData.isBreaking
     ? 'disabled'
     : breakingTtsInfo?.audioUrl
       ? 'ready'
       : 'missing';
+  const articleTtsNeedsSave = currentArticleListenSignature !== savedArticleListenSignature;
+  const articleTtsStatus = !articleTtsEligible
+    ? 'disabled'
+    : articleTtsReady && articleTtsInfo?.audioUrl
+      ? 'ready'
+      : articleTtsInfo?.status || 'missing';
+
+  const fetchArticleTtsStatus = useCallback(async () => {
+    if (!articleId) {
+      setArticleTtsEligible(false);
+      setArticleTtsReady(false);
+      setArticleTtsInfo(null);
+      return;
+    }
+
+    setIsLoadingArticleTts(true);
+    try {
+      const response = await fetch(`/api/admin/articles/${encodeURIComponent(articleId)}/tts`, {
+        headers: { ...getAuthHeader() },
+        cache: 'no-store',
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: ManagedTtsResponse;
+      };
+
+      if (!response.ok || !data.success || !data.data) {
+        setArticleTtsEligible(false);
+        setArticleTtsReady(false);
+        setArticleTtsInfo(null);
+        return;
+      }
+
+      setArticleTtsEligible(Boolean(data.data.eligible));
+      setArticleTtsReady(Boolean(data.data.ready));
+      setArticleTtsInfo(data.data.asset || null);
+    } catch {
+      setArticleTtsEligible(false);
+      setArticleTtsReady(false);
+      setArticleTtsInfo(null);
+    } finally {
+      setIsLoadingArticleTts(false);
+    }
+  }, [articleId]);
 
   const fetchRevisions = useCallback(async () => {
     if (!articleId) return;
@@ -244,13 +326,15 @@ export default function EditArticle() {
       setDraftSavedAt(nextSavedAt);
       setDraftRestored(restored);
       setBreakingTtsInfo(normalizeBreakingTtsMetadata(article.breakingTts));
+      setSavedArticleListenSignature(buildArticleListenSignature(baseForm));
+      void fetchArticleTtsStatus();
     } catch {
       setError('Failed to load article');
     } finally {
       setIsLoading(false);
       setDraftReady(true);
     }
-  }, [articleId, draftStorageKey]);
+  }, [articleId, draftStorageKey, fetchArticleTtsStatus]);
 
   useEffect(() => {
     fetchArticle();
@@ -439,8 +523,16 @@ export default function EditArticle() {
       setImageQualityNote('');
       setContentMode('write');
       setBreakingTtsInfo(normalizeBreakingTtsMetadata(article.breakingTts));
+      setSavedArticleListenSignature(
+        buildArticleListenSignature({
+          title: article.title || '',
+          summary: article.summary || '',
+          content: article.content || '',
+        })
+      );
       clearDraft();
       setSuccess('Revision restored successfully.');
+      await fetchArticleTtsStatus();
       await fetchRevisions();
     } catch {
       setError('Failed to restore revision. Please try again.');
@@ -483,6 +575,46 @@ export default function EditArticle() {
       setError('Failed to regenerate breaking voice cache. Please try again.');
     } finally {
       setIsRegeneratingBreakingTts(false);
+    }
+  };
+
+  const handleRegenerateArticleTts = async () => {
+    if (!articleId) return;
+
+    setIsRegeneratingArticleTts(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const response = await fetch(`/api/admin/articles/${encodeURIComponent(articleId)}/tts?force=1`, {
+        method: 'POST',
+        headers: {
+          ...getAuthHeader(),
+        },
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        data?: ManagedTtsResponse;
+      };
+
+      if (!response.ok || !data.success || !data.data?.asset) {
+        setError(data.error || 'Failed to generate article listen audio');
+        return;
+      }
+
+      setArticleTtsEligible(Boolean(data.data.eligible));
+      setArticleTtsReady(Boolean(data.data.ready));
+      setArticleTtsInfo(data.data.asset || null);
+      setSuccess(
+        data.data.ready
+          ? 'Article listen audio is ready for the current saved text.'
+          : 'Article listen audio request completed.'
+      );
+    } catch {
+      setError('Failed to generate article listen audio. Please try again.');
+    } finally {
+      setIsRegeneratingArticleTts(false);
     }
   };
 
@@ -552,6 +684,7 @@ export default function EditArticle() {
       }
 
       setBreakingTtsInfo(normalizeBreakingTtsMetadata(data?.data?.breakingTts));
+      setSavedArticleListenSignature(currentArticleListenSignature);
       setSuccess('Article updated successfully! Redirecting...');
       setImageFile(null);
       clearDraft();
@@ -816,6 +949,69 @@ export default function EditArticle() {
                     className="mt-1 block truncate text-xs text-spanish-red hover:underline"
                   >
                     {breakingTtsInfo.audioUrl}
+                  </a>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Volume2 className="h-4 w-4 text-spanish-red" />
+                    <p className="text-sm font-semibold text-gray-900">Article Listen Audio</p>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-700">
+                    {articleTtsNeedsSave
+                      ? 'Save the title, summary, or content changes first. Listen audio follows the last saved article text.'
+                      : articleTtsStatus === 'ready'
+                        ? 'Reusable listen audio is ready for readers.'
+                        : articleTtsStatus === 'failed'
+                          ? 'The last listen-audio generation failed. You can try again.'
+                          : articleTtsStatus === 'stale'
+                            ? 'The saved listen-audio asset needs regeneration.'
+                            : articleTtsStatus === 'disabled'
+                              ? 'Save article title, summary, and content before generating listen audio.'
+                              : 'No reusable listen audio is ready yet for the current saved article text.'}
+                  </p>
+                  {articleTtsInfo?.generatedAt ? (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Last generated: {formatBreakingTtsTimestamp(articleTtsInfo.generatedAt)}
+                    </p>
+                  ) : null}
+                  {articleTtsInfo?.voice || articleTtsInfo?.model ? (
+                    <p className="mt-1 text-xs text-gray-500">
+                      {[articleTtsInfo?.voice, articleTtsInfo?.model].filter(Boolean).join(' | ')}
+                    </p>
+                  ) : null}
+                  {articleTtsInfo?.lastError ? (
+                    <p className="mt-1 text-xs text-amber-700">{articleTtsInfo.lastError}</p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRegenerateArticleTts}
+                  disabled={articleTtsNeedsSave || !articleTtsEligible || isLoadingArticleTts || isRegeneratingArticleTts}
+                  className="inline-flex items-center gap-2 rounded-md border border-spanish-red bg-white px-3 py-2 text-xs font-semibold text-spanish-red hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isLoadingArticleTts || isRegeneratingArticleTts ? (
+                    <Loader className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  {articleTtsInfo?.audioUrl ? 'Regenerate Audio' : 'Generate Audio'}
+                </button>
+              </div>
+              {articleTtsInfo?.audioUrl ? (
+                <div className="rounded-md border border-gray-200 bg-white px-3 py-2">
+                  <p className="text-xs font-medium text-gray-700">Saved audio</p>
+                  <a
+                    href={articleTtsInfo.audioUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 block truncate text-xs text-spanish-red hover:underline"
+                  >
+                    {articleTtsInfo.audioUrl}
                   </a>
                 </div>
               ) : null}

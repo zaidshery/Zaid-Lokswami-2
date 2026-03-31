@@ -11,6 +11,7 @@ import {
   Video,
   Zap,
 } from 'lucide-react';
+import TtsOperationsPanel from './TtsOperationsPanel';
 
 type ContentType = 'article' | 'epaper' | 'video' | 'story';
 
@@ -302,6 +303,8 @@ export default function AdminAiTrainingPage() {
           );
         })}
       </div>
+
+      <TtsOperationsPanel />
     </div>
   );
 }

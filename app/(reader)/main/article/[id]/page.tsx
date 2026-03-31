@@ -27,7 +27,7 @@ import {
 import {
   buildTtsAudioSource,
   fetchTtsStatus,
-  requestTtsAudio,
+  requestArticleTtsAudio,
 } from '@/lib/ai/ttsClient';
 
 type ApiArticle = {
@@ -147,17 +147,6 @@ function inferArticleContentLanguage(article: Article | null): 'hi' | 'en' {
 
 function getPreferredListenLanguageCode(article: Article | null) {
   return inferArticleContentLanguage(article) === 'hi' ? 'hi-IN' : 'en-IN';
-}
-
-function buildArticleListenText(article: Article) {
-  const plainTitle = toPlainText(article.title);
-  const plainSummary = toPlainText(article.summary);
-  const plainContent = toPlainText(article.content || '');
-
-  return [plainTitle, plainSummary, plainContent]
-    .filter((item) => item.length > 0)
-    .join('. ')
-    .slice(0, 5000);
 }
 
 export default function ArticleDetailPage() {
@@ -506,8 +495,8 @@ export default function ArticleDetailPage() {
     setIsPreparingListen(true);
     stopListening();
 
-    const sourceText = buildArticleListenText(article);
-    if (!sourceText) {
+    const articleListenSourceId = article.id;
+    if (!articleListenSourceId) {
       setListenError(
         language === 'hi'
           ? 'सुनने के लिए लेख का टेक्स्ट उपलब्ध नहीं है।'
@@ -527,8 +516,7 @@ export default function ArticleDetailPage() {
         return;
       }
 
-      const payload = await requestTtsAudio({
-        text: sourceText,
+      const payload = await requestArticleTtsAudio(articleListenSourceId, {
         languageCode: listenLanguageCode,
         voice: listenVoiceId || undefined,
       });

@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   Loader2,
+  Volume2,
   Save,
   Trash2,
   UploadCloud,
@@ -31,6 +32,25 @@ type ArticlesResponse = {
   data?: EPaperArticleRecord[];
 };
 
+type TtsStatus = 'pending' | 'ready' | 'failed' | 'stale';
+
+type TtsAssetRecord = {
+  _id: string;
+  sourceId: string;
+  sourceParentId?: string;
+  variant: 'epaper_story';
+  status: TtsStatus;
+  audioUrl?: string;
+  lastError?: string;
+};
+
+type TtsAssetsResponse = {
+  success?: boolean;
+  data?: {
+    assets?: TtsAssetRecord[];
+  };
+};
+
 function toErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message.trim() ? error.message : fallback;
 }
@@ -48,11 +68,46 @@ export default function AdminEPaperDetailPage() {
   const [savingMeta, setSavingMeta] = useState(false);
   const [uploadingPage, setUploadingPage] = useState<number | null>(null);
   const [generatingPages, setGeneratingPages] = useState(false);
+  const [runningTtsTarget, setRunningTtsTarget] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [epaperTtsByStoryId, setEpaperTtsByStoryId] = useState<Record<string, TtsAssetRecord>>({});
 
   const [title, setTitle] = useState('');
   const [status, setStatus] = useState<'draft' | 'published'>('draft');
   const [publishDate, setPublishDate] = useState('');
+
+  const loadEpaperTtsAssets = useCallback(async () => {
+    if (!epaperId) {
+      setEpaperTtsByStoryId({});
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams({
+        sourceType: 'epaperArticle',
+        sourceParentId: epaperId,
+        variant: 'epaper_story',
+        limit: 'all',
+      });
+      const response = await fetch(`/api/admin/tts/assets?${params.toString()}`, {
+        cache: 'no-store',
+      });
+      const data = (await response.json().catch(() => ({}))) as TtsAssetsResponse;
+      if (!response.ok || !data.success || !Array.isArray(data.data?.assets)) {
+        return;
+      }
+
+      const nextMap: Record<string, TtsAssetRecord> = {};
+      for (const asset of data.data.assets) {
+        if (!nextMap[asset.sourceId]) {
+          nextMap[asset.sourceId] = asset;
+        }
+      }
+      setEpaperTtsByStoryId(nextMap);
+    } catch {
+      // Keep e-paper admin usable even if TTS overview fails to load.
+    }
+  }, [epaperId]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -79,14 +134,16 @@ export default function AdminEPaperDetailPage() {
       setTitle(epaperPayload.data.title || '');
       setStatus(epaperPayload.data.status || 'draft');
       setPublishDate(epaperPayload.data.publishDate || '');
+      await loadEpaperTtsAssets();
     } catch (err: unknown) {
       setError(toErrorMessage(err, 'Failed to load e-paper'));
       setEpaper(null);
       setArticles([]);
+      setEpaperTtsByStoryId({});
     } finally {
       setLoading(false);
     }
-  }, [epaperId]);
+  }, [epaperId, loadEpaperTtsAssets]);
 
   useEffect(() => {
     if (!epaperId) return;
@@ -102,6 +159,60 @@ export default function AdminEPaperDetailPage() {
     }
     return map;
   }, [articles]);
+
+  const ttsSummary = useMemo(() => {
+    let eligible = 0;
+    let ready = 0;
+    let stale = 0;
+    let failed = 0;
+
+    for (const article of articles) {
+      const hasReadableText = Boolean(
+        String(article.contentHtml || '').trim() || String(article.excerpt || '').trim()
+      );
+      if (!hasReadableText) continue;
+
+      eligible += 1;
+      const asset = epaperTtsByStoryId[article._id];
+      if (asset?.status === 'ready' && asset.audioUrl) {
+        ready += 1;
+      } else if (asset?.status === 'stale') {
+        stale += 1;
+      } else if (asset?.status === 'failed') {
+        failed += 1;
+      }
+    }
+
+    return {
+      eligible,
+      ready,
+      stale,
+      failed,
+      missing: Math.max(0, eligible - ready - stale - failed),
+    };
+  }, [articles, epaperTtsByStoryId]);
+
+  const ttsByPage = useMemo(() => {
+    const map = new Map<number, { eligible: number; ready: number }>();
+    for (const article of articles) {
+      const page = Number(article.pageNumber || 0);
+      if (!page) continue;
+
+      const hasReadableText = Boolean(
+        String(article.contentHtml || '').trim() || String(article.excerpt || '').trim()
+      );
+      const current = map.get(page) || { eligible: 0, ready: 0 };
+      if (hasReadableText) {
+        current.eligible += 1;
+        const asset = epaperTtsByStoryId[article._id];
+        if (asset?.status === 'ready' && asset.audioUrl) {
+          current.ready += 1;
+        }
+      }
+      map.set(page, current);
+    }
+    return map;
+  }, [articles, epaperTtsByStoryId]);
 
   const saveMeta = async () => {
     if (!epaper) return;
@@ -226,6 +337,57 @@ export default function AdminEPaperDetailPage() {
     }
   };
 
+  const generateStoryAudio = async (pageNumber?: number) => {
+    if (!epaper) return;
+
+    const target = pageNumber ? `page-${pageNumber}` : 'all';
+    setRunningTtsTarget(target);
+    setError('');
+    setNotice('');
+
+    try {
+      const response = await fetch(`/api/admin/epapers/${epaper._id}/tts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeader(),
+        },
+        body: JSON.stringify({
+          ...(pageNumber ? { pageNumber } : {}),
+          forceRegenerate: true,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        data?: {
+          result?: {
+            processed?: number;
+            ready?: number;
+            failed?: number;
+            skipped?: number;
+          };
+        };
+      };
+
+      if (!response.ok || !payload.success || !payload.data?.result) {
+        throw new Error(payload.error || 'Failed to generate story audio');
+      }
+
+      const result = payload.data.result;
+      setNotice(
+        pageNumber
+          ? `Page ${pageNumber} story audio updated. ${result.ready || 0} ready, ${result.failed || 0} failed, ${result.skipped || 0} skipped.`
+          : `Edition story audio updated. ${result.ready || 0} ready, ${result.failed || 0} failed, ${result.skipped || 0} skipped.`
+      );
+      await loadEpaperTtsAssets();
+    } catch (err: unknown) {
+      setError(toErrorMessage(err, 'Failed to generate story audio'));
+    } finally {
+      setRunningTtsTarget('');
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -254,10 +416,12 @@ export default function AdminEPaperDetailPage() {
   const pages = Array.from({ length: Math.max(1, epaper.pageCount) }, (_, index) => {
     const pageNumber = index + 1;
     const page = epaper.pages.find((item) => item.pageNumber === pageNumber);
+    const tts = ttsByPage.get(pageNumber) || { eligible: 0, ready: 0 };
     return {
       pageNumber,
       page,
       hotspotCount: hotspotsByPage.get(pageNumber) || 0,
+      tts,
     };
   });
   const readiness = epaper.readiness;
@@ -283,14 +447,23 @@ export default function AdminEPaperDetailPage() {
           Back to E-Papers
         </Link>
 
-        <a
-          href={`/api/public/epapers/${encodeURIComponent(String(epaper._id || ''))}/pdf`}
-          target="_blank"
-          rel="noreferrer"
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100"
-        >
-          Open PDF
-        </a>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/admin/ai?ttsVariant=epaper_story&ttsSourceType=epaperArticle&ttsSourceParentId=${encodeURIComponent(String(epaper._id || ''))}`}
+            className="inline-flex items-center gap-1.5 rounded-md border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 hover:bg-primary-100"
+          >
+            <Volume2 className="h-3.5 w-3.5" />
+            E-paper TTS Ops
+          </Link>
+          <a
+            href={`/api/public/epapers/${encodeURIComponent(String(epaper._id || ''))}/pdf`}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+          >
+            Open PDF
+          </a>
+        </div>
       </div>
 
       {error ? (
@@ -361,7 +534,7 @@ export default function AdminEPaperDetailPage() {
                 ) : null}
               </div>
 
-              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
                 <div className="rounded-lg border border-gray-200 bg-white p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Page images</p>
                   <p className="mt-2 text-2xl font-bold text-gray-900">{pageCoverage}%</p>
@@ -381,6 +554,16 @@ export default function AdminEPaperDetailPage() {
                   <p className="mt-2 text-2xl font-bold text-gray-900">{textCoverage}%</p>
                   <p className="mt-1 text-xs text-gray-600">
                     {readiness.articlesWithReadableText}/{readiness.mappedArticles} stories readable
+                  </p>
+                </div>
+                <div className="rounded-lg border border-gray-200 bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Story TTS</p>
+                  <p className="mt-2 text-2xl font-bold text-gray-900">{ttsSummary.ready}</p>
+                  <p className="mt-1 text-xs text-gray-600">
+                    {ttsSummary.ready}/{ttsSummary.eligible} readable stories ready
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {ttsSummary.missing} missing | {ttsSummary.stale} stale | {ttsSummary.failed} failed
                   </p>
                 </div>
               </div>
@@ -477,6 +660,20 @@ export default function AdminEPaperDetailPage() {
 
             <button
               type="button"
+              onClick={() => void generateStoryAudio()}
+              disabled={runningTtsTarget !== ''}
+              className="inline-flex items-center gap-1.5 rounded-md border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 hover:bg-primary-100 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {runningTtsTarget === 'all' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Volume2 className="h-3.5 w-3.5" />
+              )}
+              Generate Story Audio
+            </button>
+
+            <button
+              type="button"
               onClick={() => void deletePaper()}
               disabled={deleting}
               className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-70"
@@ -508,7 +705,7 @@ export default function AdminEPaperDetailPage() {
       </div>
 
       <div className="space-y-3">
-        {pages.map(({ pageNumber, page, hotspotCount }) => {
+        {pages.map(({ pageNumber, page, hotspotCount, tts }) => {
           const hasImage = Boolean(page?.imagePath);
           const isUploading = uploadingPage === pageNumber;
           return (
@@ -521,6 +718,9 @@ export default function AdminEPaperDetailPage() {
                   <h3 className="text-sm font-semibold text-gray-900">Page {pageNumber}</h3>
                   <p className="mt-1 text-xs text-gray-600">
                     {hasImage ? 'Image available' : 'Image missing'} | {hotspotCount} hotspots
+                  </p>
+                  <p className="mt-1 text-xs text-gray-600">
+                    Story TTS: {tts.ready}/{tts.eligible} ready
                   </p>
                 </div>
                 <Link
@@ -554,25 +754,40 @@ export default function AdminEPaperDetailPage() {
               ) : null}
 
               <div className="mt-3">
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100">
-                  {isUploading ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <UploadCloud className="h-3.5 w-3.5" />
-                  )}
-                  {isUploading ? 'Uploading...' : hasImage ? 'Replace Page Image' : 'Upload Page Image'}
-                  <input
-                    type="file"
-                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                    className="hidden"
-                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                      const file = event.target.files?.[0] || null;
-                      void onPageImageUpload(pageNumber, file);
-                      event.target.value = '';
-                    }}
-                    disabled={isUploading}
-                  />
-                </label>
+                <div className="flex flex-wrap gap-2">
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100">
+                    {isUploading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <UploadCloud className="h-3.5 w-3.5" />
+                    )}
+                    {isUploading ? 'Uploading...' : hasImage ? 'Replace Page Image' : 'Upload Page Image'}
+                    <input
+                      type="file"
+                      accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                        const file = event.target.files?.[0] || null;
+                        void onPageImageUpload(pageNumber, file);
+                        event.target.value = '';
+                      }}
+                      disabled={isUploading}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void generateStoryAudio(pageNumber)}
+                    disabled={runningTtsTarget !== '' || tts.eligible === 0}
+                    className="inline-flex items-center gap-2 rounded-md border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 hover:bg-primary-100 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {runningTtsTarget === `page-${pageNumber}` ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Volume2 className="h-3.5 w-3.5" />
+                    )}
+                    Generate Page Audio
+                  </button>
+                </div>
               </div>
             </div>
           );

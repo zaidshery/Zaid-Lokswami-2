@@ -501,7 +501,13 @@ export function isSafeProxyPathSegments(segments: string[]) {
 
 export function resolveStorageProxyPath(segments: string[]) {
   if (!isSafeProxyPathSegments(segments)) return null;
-  if (segments[0] !== 'epapers' && segments[0] !== 'breaking-audio') return null;
+  if (
+    segments[0] !== 'epapers' &&
+    segments[0] !== 'breaking-audio' &&
+    segments[0] !== 'tts'
+  ) {
+    return null;
+  }
   const absolutePath = path.resolve(STORAGE_UPLOADS_BASE_DIR, ...segments);
   const relative = path.relative(STORAGE_UPLOADS_BASE_DIR, absolutePath);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {

@@ -10,8 +10,9 @@ Set these in `.env` / hosting panel:
 MONGODB_URI=...
 JWT_SECRET=...
 EPAPER_ENABLE_PAGE_IMAGE_GENERATION=1
-# Optional: force /storage proxy mode even if /public is writable
-# EPAPER_FORCE_STORAGE=1
+# Recommended on versioned production deploys: force /storage proxy mode
+# so e-paper files and breaking-news audio stay durable across redeploys.
+EPAPER_FORCE_STORAGE=1
 ```
 
 ## 2) Storage mode behavior

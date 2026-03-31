@@ -15,7 +15,7 @@ export type TtsAudioData = {
   model: string;
   voice: string;
   mimeType: string;
-  audioBase64: string;
+  audioBase64?: string;
   chunkCount: number;
   audioUrl?: string;
 };
@@ -62,6 +62,56 @@ export async function requestTtsAudio(input: {
 
   if (!response.ok || !payload.success || !payload.data) {
     throw new Error(payload.error || 'Unable to generate audio.');
+  }
+
+  return payload.data as TtsAudioData;
+}
+
+export async function requestArticleTtsAudio(
+  articleId: string,
+  input?: {
+    languageCode?: string;
+    voice?: string;
+  }
+) {
+  const response = await fetch(`/api/articles/${encodeURIComponent(articleId)}/tts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input || {}),
+  });
+  const payload = (await response.json().catch(() => ({}))) as TtsAudioResponse;
+
+  if (!response.ok || !payload.success || !payload.data) {
+    throw new Error(payload.error || 'Unable to generate article audio.');
+  }
+
+  return payload.data as TtsAudioData;
+}
+
+export async function requestEpaperStoryTtsAudio(
+  paperId: string,
+  storyId: string,
+  input?: {
+    languageCode?: string;
+    voice?: string;
+  }
+) {
+  const response = await fetch(
+    `/api/epapers/${encodeURIComponent(paperId)}/articles/${encodeURIComponent(storyId)}/tts`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input || {}),
+    }
+  );
+  const payload = (await response.json().catch(() => ({}))) as TtsAudioResponse;
+
+  if (!response.ok || !payload.success || !payload.data) {
+    throw new Error(payload.error || 'Unable to generate e-paper story audio.');
   }
 
   return payload.data as TtsAudioData;

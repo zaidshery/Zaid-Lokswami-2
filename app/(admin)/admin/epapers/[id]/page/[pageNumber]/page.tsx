@@ -11,7 +11,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ArrowLeft, Loader2, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Plus, RefreshCw, Save, Sparkles, Trash2, Volume2 } from 'lucide-react';
 import { getAuthHeader } from '@/lib/auth/clientToken';
 import type { EPaperArticleRecord, EPaperRecord } from '@/lib/types/epaper';
 import { detectHotspotsFromImageClient } from '@/lib/utils/epaperHotspotDetectionClient';
@@ -42,6 +42,36 @@ type DraftArticleInput = {
   excerpt: string;
   contentHtml: string;
   coverImagePath: string;
+};
+
+type ManagedTtsAsset = {
+  id?: string;
+  status?: string;
+  audioUrl?: string;
+  voice?: string;
+  model?: string;
+  languageCode?: string;
+  mimeType?: string;
+  generatedAt?: string;
+  updatedAt?: string;
+  lastVerifiedAt?: string;
+  lastError?: string;
+  chunkCount?: number;
+  charCount?: number;
+};
+
+type StoryTtsResponse = {
+  eligible?: boolean;
+  ready?: boolean;
+  asset?: ManagedTtsAsset | null;
+  message?: string;
+};
+
+type StoryTtsState = {
+  eligible: boolean;
+  ready: boolean;
+  asset: ManagedTtsAsset | null;
+  message: string;
 };
 
 type DetectHotspotCandidate = {
@@ -107,6 +137,16 @@ function buildDraftInput(): DraftArticleInput {
   };
 }
 
+function buildStoryListenSignature(
+  article: Pick<EPaperArticleRecord, 'title' | 'excerpt' | 'contentHtml'>
+) {
+  return [
+    String(article.title || '').trim(),
+    String(article.excerpt || '').trim(),
+    String(article.contentHtml || '').trim(),
+  ].join('\n::\n');
+}
+
 function toHtmlParagraph(text: string) {
   if (!text.trim()) return '';
   const escaped = text
@@ -145,6 +185,9 @@ export default function EPaperPageHotspotEditor() {
   const [suggestions, setSuggestions] = useState<HotspotSuggestion[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [storyTtsById, setStoryTtsById] = useState<Record<string, StoryTtsState>>({});
+  const [savedStoryTtsSignatures, setSavedStoryTtsSignatures] = useState<Record<string, string>>({});
+  const [loadingStoryTtsIds, setLoadingStoryTtsIds] = useState<Record<string, boolean>>({});
 
   const pageImageMeta = useMemo(() => {
     if (!epaper) return null;
@@ -161,6 +204,64 @@ export default function EPaperPageHotspotEditor() {
     [articles]
   );
   const unreadableArticleCount = Math.max(0, articles.length - readableArticleCount);
+
+  const fetchStoryTtsStatus = useCallback(
+    async (storyId: string): Promise<StoryTtsState> => {
+      try {
+        const response = await fetch(
+          `/api/admin/epapers/${encodeURIComponent(epaperId)}/articles/${encodeURIComponent(storyId)}/tts`,
+          {
+            headers: { ...getAuthHeader() },
+            cache: 'no-store',
+          }
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          data?: StoryTtsResponse;
+        };
+
+        if (!response.ok || !payload.success || !payload.data) {
+          return {
+            eligible: false,
+            ready: false,
+            asset: null,
+            message: 'Story listen audio status is unavailable.',
+          };
+        }
+
+        return {
+          eligible: Boolean(payload.data.eligible),
+          ready: Boolean(payload.data.ready),
+          asset: payload.data.asset || null,
+          message: String(payload.data.message || '').trim(),
+        };
+      } catch {
+        return {
+          eligible: false,
+          ready: false,
+          asset: null,
+          message: 'Story listen audio status is unavailable.',
+        };
+      }
+    },
+    [epaperId]
+  );
+
+  const loadStoryTtsStatuses = useCallback(
+    async (records: EPaperArticleRecord[]) => {
+      if (!records.length) {
+        setStoryTtsById({});
+        return;
+      }
+
+      const entries = await Promise.all(
+        records.map(async (article) => [article._id, await fetchStoryTtsStatus(article._id)] as const)
+      );
+
+      setStoryTtsById(Object.fromEntries(entries));
+    },
+    [fetchStoryTtsStatus]
+  );
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -183,15 +284,24 @@ export default function EPaperPageHotspotEditor() {
       }
 
       setEpaper(epaperPayload.data);
-      setArticles(Array.isArray(articlesPayload.data) ? articlesPayload.data : []);
+      const nextArticles = Array.isArray(articlesPayload.data) ? articlesPayload.data : [];
+      setArticles(nextArticles);
+      setSavedStoryTtsSignatures(
+        Object.fromEntries(
+          nextArticles.map((article) => [article._id, buildStoryListenSignature(article)])
+        )
+      );
+      void loadStoryTtsStatuses(nextArticles);
     } catch (err: unknown) {
       setError(toErrorMessage(err, 'Failed to load page editor data'));
       setEpaper(null);
       setArticles([]);
+      setSavedStoryTtsSignatures({});
+      setStoryTtsById({});
     } finally {
       setLoading(false);
     }
-  }, [epaperId, pageNumber]);
+  }, [epaperId, loadStoryTtsStatuses, pageNumber]);
 
   useEffect(() => {
     if (!epaperId) return;
@@ -476,6 +586,52 @@ export default function EPaperPageHotspotEditor() {
     }
   };
 
+  const regenerateStoryTts = async (article: EPaperArticleRecord) => {
+    setLoadingStoryTtsIds((current) => ({ ...current, [article._id]: true }));
+    setError('');
+    setNotice('');
+
+    try {
+      const response = await fetch(
+        `/api/admin/epapers/${encodeURIComponent(epaperId)}/articles/${encodeURIComponent(article._id)}/tts?force=1`,
+        {
+          method: 'POST',
+          headers: {
+            ...getAuthHeader(),
+          },
+        }
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        data?: StoryTtsResponse;
+      };
+
+      if (!response.ok || !payload.success || !payload.data) {
+        throw new Error(payload.error || 'Failed to generate story listen audio');
+      }
+
+      setStoryTtsById((current) => ({
+        ...current,
+        [article._id]: {
+          eligible: Boolean(payload.data?.eligible),
+          ready: Boolean(payload.data?.ready),
+          asset: payload.data?.asset || null,
+          message: String(payload.data?.message || '').trim(),
+        },
+      }));
+      setNotice(`Story listen audio updated for "${article.title.trim() || 'Untitled story'}".`);
+    } catch (err: unknown) {
+      setError(toErrorMessage(err, 'Failed to generate story listen audio'));
+    } finally {
+      setLoadingStoryTtsIds((current) => {
+        const next = { ...current };
+        delete next[article._id];
+        return next;
+      });
+    }
+  };
+
   const deleteArticle = async (articleId: string) => {
     setDeletingId(articleId);
     setError('');
@@ -493,6 +649,16 @@ export default function EPaperPageHotspotEditor() {
       }
       setNotice('Article deleted');
       setArticles((current) => current.filter((item) => item._id !== articleId));
+      setSavedStoryTtsSignatures((current) => {
+        const next = { ...current };
+        delete next[articleId];
+        return next;
+      });
+      setStoryTtsById((current) => {
+        const next = { ...current };
+        delete next[articleId];
+        return next;
+      });
     } catch (err: unknown) {
       setError(toErrorMessage(err, 'Failed to delete article'));
     } finally {
@@ -800,6 +966,20 @@ export default function EPaperPageHotspotEditor() {
             {articles.map((article, index) => {
               const isSaving = savingId === article._id;
               const isDeleting = deletingId === article._id;
+              const isLoadingTts = Boolean(loadingStoryTtsIds[article._id]);
+              const storyTts = storyTtsById[article._id];
+              const storyHasReadableText = Boolean(
+                String(article.contentHtml || '').trim() || String(article.excerpt || '').trim()
+              );
+              const storyTtsNeedsSave =
+                buildStoryListenSignature(article) !== (savedStoryTtsSignatures[article._id] || '');
+              const storyTtsStatus = storyTtsNeedsSave
+                ? 'dirty'
+                : !storyTts?.eligible
+                  ? (storyHasReadableText ? 'missing' : 'disabled')
+                  : storyTts.ready && storyTts.asset?.audioUrl
+                    ? 'ready'
+                    : storyTts.asset?.status || 'missing';
               return (
                 <div
                   key={article._id}
@@ -841,6 +1021,66 @@ export default function EPaperPageHotspotEditor() {
                       }
                       className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-primary-600"
                     />
+                  </div>
+
+                  <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Volume2 className="h-4 w-4 text-primary-600" />
+                          <p className="text-sm font-semibold text-gray-900">Story Listen Audio</p>
+                        </div>
+                        <p className="mt-1 text-xs text-gray-700">
+                          {storyTtsNeedsSave
+                            ? 'Save this story first. Listen audio follows the last saved title and readable text.'
+                            : storyTtsStatus === 'ready'
+                              ? 'Reusable story listen audio is ready.'
+                              : storyTtsStatus === 'failed'
+                                ? 'The last story listen-audio generation failed. Try again.'
+                                : storyTtsStatus === 'stale'
+                                  ? 'The saved story listen-audio asset needs regeneration.'
+                                  : storyTtsStatus === 'disabled'
+                                    ? 'Add an excerpt or article text, then save before generating.'
+                                    : 'No reusable story listen audio is ready yet for the current saved text.'}
+                        </p>
+                        {storyTts?.asset?.generatedAt ? (
+                          <p className="mt-1 text-xs text-gray-500">
+                            Last generated: {storyTts.asset.generatedAt}
+                          </p>
+                        ) : null}
+                        {storyTts?.asset?.voice || storyTts?.asset?.model ? (
+                          <p className="mt-1 text-xs text-gray-500">
+                            {[storyTts?.asset?.voice, storyTts?.asset?.model].filter(Boolean).join(' | ')}
+                          </p>
+                        ) : null}
+                        {storyTts?.asset?.lastError ? (
+                          <p className="mt-1 text-xs text-amber-700">{storyTts.asset.lastError}</p>
+                        ) : null}
+                        {storyTts?.asset?.audioUrl ? (
+                          <a
+                            href={storyTts.asset.audioUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-1 block truncate text-xs font-medium text-primary-700 hover:underline"
+                          >
+                            {storyTts.asset.audioUrl}
+                          </a>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void regenerateStoryTts(article)}
+                        disabled={isSaving || isDeleting || isLoadingTts || storyTtsNeedsSave || !storyHasReadableText}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-primary-200 bg-white px-3 py-1.5 text-xs font-semibold text-primary-700 hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        {isLoadingTts ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                        {storyTts?.asset?.audioUrl ? 'Regenerate Audio' : 'Generate Audio'}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs md:grid-cols-4">

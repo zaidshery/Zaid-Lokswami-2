@@ -10,7 +10,7 @@ export type TtsVoiceOption = {
 
 export const GEMINI_TTS_PROVIDER = 'gemini' as const;
 export const GEMINI_TTS_DEFAULT_MODEL = 'gemini-2.5-flash-preview-tts';
-export const GEMINI_TTS_DEFAULT_VOICE = 'Charon';
+export const GEMINI_TTS_DEFAULT_VOICE = 'Sulafat';
 export const GEMINI_TTS_OUTPUT_SAMPLE_RATE = 24000;
 export const GEMINI_TTS_OUTPUT_MIME_TYPE = 'audio/wav';
 export const GEMINI_TTS_MAX_CHARS_PER_CHUNK = 1400;

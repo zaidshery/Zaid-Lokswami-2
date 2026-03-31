@@ -55,7 +55,7 @@ import {
   type EPaperCityFilter,
 } from '@/lib/utils/publicEpaperFilters';
 import type { EPaperArticleRecord, EPaperRecord } from '@/lib/types/epaper';
-import { buildTtsAudioSource, requestTtsAudio } from '@/lib/ai/ttsClient';
+import { buildTtsAudioSource, requestEpaperStoryTtsAudio } from '@/lib/ai/ttsClient';
 
 export type PublicCursor = {
   publishedAt: string;
@@ -1709,16 +1709,6 @@ export default function EPaperPageClient({
     return activeArticleParagraphs.slice(0, 2).join(' ').trim();
   }, [activeArticle?.excerpt, activeArticleHasExcerpt, activeArticleParagraphs]);
   const shouldShowStoryReaderStopAction = isPreparingArticleListen || isPlayingArticleAudio;
-  const activeArticleListenSourceText = useMemo(() => {
-    if (!activeArticle || !activePaper) return '';
-    const parts = [
-      String(activeArticle.title || activePaper.title || '').trim(),
-      activeArticlePlainText,
-    ]
-      .filter(Boolean)
-      .join('. ');
-    return parts.slice(0, 2400);
-  }, [activeArticle, activeArticlePlainText, activePaper]);
   const handleStorySaveToggle = useCallback(() => {
     if (!activePaper || !activeArticle) return;
 
@@ -1800,8 +1790,12 @@ export default function EPaperPageClient({
     t.printBlocked,
   ]);
   const handleArticleListen = useCallback(async () => {
-    const sourceText = activeArticleListenSourceText.trim();
-    if (!sourceText) {
+    if (!activePaper || !activeArticle) {
+      setArticleListenError(t.noReadableText);
+      return;
+    }
+
+    if (!activeArticleHasContent && !activeArticleHasExcerpt) {
       setArticleListenError(t.noReadableText);
       return;
     }
@@ -1811,8 +1805,7 @@ export default function EPaperPageClient({
     stopArticleListening(true);
 
     try {
-      const payload = await requestTtsAudio({
-        text: sourceText,
+      const payload = await requestEpaperStoryTtsAudio(activePaper._id, activeArticle._id, {
         languageCode: 'hi-IN',
       });
       const src = buildTtsAudioSource(payload);
@@ -1838,13 +1831,22 @@ export default function EPaperPageClient({
     } finally {
       setIsPreparingArticleListen(false);
     }
-  }, [activeArticleListenSourceText, stopArticleListening, t.audioUnavailable, t.noReadableText]);
+  }, [
+    activeArticle,
+    activeArticleHasContent,
+    activeArticleHasExcerpt,
+    activePaper,
+    stopArticleListening,
+    t.audioUnavailable,
+    t.noReadableText,
+  ]);
   const shouldShowNoArticleState =
     Boolean(activeArticle) &&
     !activeArticleHasImage &&
     !activeArticleHasContent &&
     !activeArticleHasExcerpt;
   const hasReadableArticleText = activeArticleReadableTextState !== 'none';
+  const canListenToActiveArticle = activeArticleHasContent || activeArticleHasExcerpt;
 
   const pageTurnVariants = useMemo(
     () => ({
@@ -3171,7 +3173,7 @@ export default function EPaperPageClient({
                     <button
                       type="button"
                       onClick={() => void handleArticleListen()}
-                      disabled={isPreparingArticleListen || !hasReadableArticleText}
+                      disabled={isPreparingArticleListen || !canListenToActiveArticle}
                       className="inline-flex h-9 items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/30"
                     >
                       {isPreparingArticleListen ? (

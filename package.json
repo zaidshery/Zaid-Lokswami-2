@@ -18,6 +18,7 @@
     "start:hostinger": "npm run start",
     "start:next": "next start",
     "test": "vitest run",
+    "test:ci": "npm test && npm run test:auth-guards && npm run test:admin-credentials",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "lint:strict": "eslint app/api/admin lib/auth lib/db lib/models lib/storage --max-warnings=0",
@@ -27,6 +28,9 @@
     "test:admin-runtime": "node scripts/test-admin-runtime.js",
     "test:gemini-tts": "ts-node --files --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" scripts/test-gemini-tts.ts",
     "test:smoke": "node scripts/smoke-check-deploy.js",
+    "test:tts-smoke": "node scripts/test-tts-deploy.js",
+    "verify:prod-env": "node scripts/validate-production-env.js",
+    "verify:deploy": "node scripts/verify-deploy.js",
     "seed": "node scripts/seed.js",
     "hash-password": "ts-node --files scripts/hash-password.ts",
     "migrate:epapers": "ts-node scripts/migrate-epapers-to-v2.ts"

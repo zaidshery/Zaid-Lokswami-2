@@ -8,12 +8,26 @@ Run:
 
 ```bash
 npm run test:smoke -- https://your-domain.com
+npm run test:tts-smoke -- https://your-domain.com
+```
+
+Or run the combined deploy verification:
+
+```bash
+npm run verify:deploy -- https://your-domain.com
 ```
 
 Current production example:
 
 ```bash
 npm run test:smoke -- https://lokswami.com
+npm run test:tts-smoke -- https://lokswami.com
+```
+
+Combined example:
+
+```bash
+npm run verify:deploy -- https://lokswami.com
 ```
 
 The automated smoke script checks:
@@ -25,6 +39,12 @@ The automated smoke script checks:
 - guest access to `/admin` redirects to `/signin?redirect=%2Fadmin`
 - `/api/epapers/latest?limit=1` returns at least one item
 - the latest public e-paper PDF route returns a redirect URL
+
+The TTS smoke script checks:
+
+- the top live breaking item exposes a playable `ttsAudioUrl` when breaking items exist
+- the latest public article can return playable TTS output
+- the latest public e-paper story can return playable TTS output
 
 If the script fails, stop and fix the deploy before moving on.
 
@@ -40,6 +60,9 @@ Complete these in a real browser session:
 4. Perform one small upload through the CMS.
 5. Confirm the uploaded asset is saved and visible where expected.
 6. Open `/main/epaper` and confirm the latest edition still opens for readers.
+7. Test the breaking-news speaker on `/main`.
+8. Test article listen on one live article.
+9. Test e-paper story listen on one live story.
 
 ## Admin Runtime Follow-Up
 
@@ -49,7 +72,15 @@ After this checklist passes, run:
 npm run test:admin-runtime -- https://your-domain.com
 ```
 
+Or run:
+
+```bash
+npm run verify:deploy -- https://your-domain.com
+```
+
 Then complete the signed-in checks in `ADMIN_RUNTIME_CHECKLIST.md`.
+
+`verify:deploy` now runs the generic smoke checks, the TTS smoke checks, and the admin guest-boundary checks together.
 
 ## Upload Recommendation
 
@@ -65,5 +96,6 @@ If the deploy changed e-paper storage, Cloudinary config, or file permissions, t
 Do not mark a deploy healthy until:
 
 - the automated smoke script passes
+- the TTS smoke script passes
 - admin login works
 - one CMS upload succeeds

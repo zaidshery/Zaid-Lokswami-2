@@ -41,6 +41,7 @@ CLOUDINARY_CLOUD_NAME=
 CLOUDINARY_API_KEY=
 CLOUDINARY_API_SECRET=
 EPAPER_STORAGE_UPLOADS_BASE_DIR=storage/uploads
+EPAPER_FORCE_STORAGE=1
 ```
 
 Optional if you use Google login:
@@ -61,7 +62,7 @@ OCR_SPACE_API_KEY=
 OCR_SPACE_LANGUAGE=hin
 GEMINI_API_KEY=
 GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts
-GEMINI_TTS_VOICE=Charon
+GEMINI_TTS_VOICE=Sulafat
 ```
 
 ## Google OAuth Production Redirect
@@ -96,11 +97,12 @@ npm run start:hostinger
 Recommended release flow:
 
 1. Update production env values in Hostinger.
-2. Run `npm ci`.
-3. Run `npm run build`.
-4. Restart with `npm start` or the Hostinger app restart control.
-5. Run the smoke checks before calling the deploy complete.
-6. Run the admin runtime checks before calling admin healthy.
+2. Run `npm run verify:prod-env`.
+3. Run `npm ci`.
+4. Run `npm run build`.
+5. Restart with `npm start` or the Hostinger app restart control.
+6. Run the live deploy verification before calling the deploy complete.
+7. Run the signed-in manual checks before calling admin healthy.
 
 Rollback command:
 
@@ -153,6 +155,7 @@ After deploy, verify:
 - uploads work
 - Google sign-in works if enabled
 - article, e-paper, breaking news, and AI listen features generate Gemini audio
+- `npm run test:tts-smoke -- https://your-domain.com` passes
 
 ## Hostinger VPS
 
@@ -173,6 +176,11 @@ This app writes runtime data to:
 - `data/`
 - `storage/uploads/`
 
+Recommended for Hostinger GitHub deploys:
+
+- set `EPAPER_FORCE_STORAGE=1`
+- this keeps e-paper assets and breaking-news audio out of `public/uploads`, which is not durable across versioned release deploys
+
 If Hostinger restricts writes inside the app root, set:
 
 ```env
@@ -191,10 +199,19 @@ EPAPER_STORAGE_UPLOADS_BASE_DIR=/absolute/path/to/writable/storage/uploads
 
 ## Quick Smoke Test
 
+Before deployment or restart:
+
+1. Run `npm run verify:prod-env`
+
 After deployment:
 
-1. Run `npm run test:smoke -- https://your-domain.com`
-2. Run `npm run test:admin-runtime -- https://your-domain.com`
-3. Complete the manual checks in `DEPLOY_SMOKE_CHECKLIST.md` and `ADMIN_RUNTIME_CHECKLIST.md`
+1. Run `npm run verify:deploy -- https://your-domain.com`
+2. Complete the manual checks in `DEPLOY_SMOKE_CHECKLIST.md` and `ADMIN_RUNTIME_CHECKLIST.md`
+
+`verify:deploy` runs all three:
+
+- `npm run test:smoke -- https://your-domain.com`
+- `npm run test:tts-smoke -- https://your-domain.com`
+- `npm run test:admin-runtime -- https://your-domain.com`
 
 The smoke script now validates HTML asset integrity for `/signin`, `/main`, and `/main/epaper` by parsing the live HTML and checking that every referenced JS/CSS file under `/_next/static/*` returns `200` with the correct content type.
