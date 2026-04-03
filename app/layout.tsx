@@ -6,6 +6,13 @@ import AuthSync from '@/components/providers/AuthSync';
 import AuthSessionProvider from '@/components/providers/SessionProvider';
 import InstallAppPrompt from '@/components/ui/InstallAppPrompt';
 
+/*
+ Human overview:
+ This file is the shared shell for the entire Lokswami app. Every page uses it.
+ It restores the saved theme before React hydrates, tries to recover from stale
+ deploy assets, adds global metadata, and wraps the app with auth and theme providers.
+ Developer note for onboarding and handoff: ZaidShery.
+*/
 const THEME_INIT_SCRIPT = `
 (() => {
   const STORAGE_KEY = 'lokswami-storage';

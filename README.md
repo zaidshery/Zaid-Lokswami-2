@@ -2,6 +2,17 @@
 
 Hindi news PWA built on Next.js 15 with TypeScript, Tailwind CSS, MongoDB, Zustand, and NextAuth session auth.
 
+## Human Overview
+
+This project is the full Lokswami digital news platform.
+
+- Readers can browse Hindi news, videos, stories, and e-paper editions.
+- Admin users can sign in and manage articles, categories, stories, videos, and e-paper uploads.
+- The app also includes AI-powered search, summaries, and text-to-speech support.
+- The codebase is split so reader pages, admin tools, auth flows, and marketing pages stay organized while sharing the same data layer and UI system.
+
+Developer handoff note: this human-readable overview was added for easier onboarding by `ZaidShery`.
+
 ## Stack
 
 - Next.js 15 App Router

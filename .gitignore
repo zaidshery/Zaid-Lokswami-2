@@ -9,6 +9,7 @@ out/
 
 # Environment variables
 .env
+.env.hostinger
 .env.local
 .env.*.local
 
