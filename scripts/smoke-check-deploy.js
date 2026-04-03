@@ -1,5 +1,6 @@
 const DEFAULT_TIMEOUT_MS = 15000;
 const ASSET_INTEGRITY_ROUTES = ['/signin', '/main', '/main/epaper'];
+const ASSET_INTEGRITY_HTML_SAMPLES = 3;
 const JAVASCRIPT_CONTENT_TYPE_PATTERN =
   /\b(?:application|text)\/(?:javascript|x-javascript|ecmascript)\b/i;
 const CSS_CONTENT_TYPE_PATTERN = /\btext\/css\b/i;
@@ -265,17 +266,27 @@ async function checkAssetIntegrity(baseUrl, routePaths, timeoutMs) {
   const assetReferences = new Map();
 
   for (const routePath of routePaths) {
-    const { html, url } = await fetchHtmlPage(baseUrl, routePath, timeoutMs);
-    const assets = extractNextStaticAssets(html, url);
+    const routeAssetReferences = new Map();
 
-    assert(
-      assets.length > 0,
-      `${routePath} did not reference any Next.js JS/CSS assets under /_next/static/`
+    for (let sampleIndex = 0; sampleIndex < ASSET_INTEGRITY_HTML_SAMPLES; sampleIndex += 1) {
+      const { html, url } = await fetchHtmlPage(baseUrl, routePath, timeoutMs);
+      const assets = extractNextStaticAssets(html, url);
+
+      assert(
+        assets.length > 0,
+        `${routePath} did not reference any Next.js JS/CSS assets under /_next/static/`
+      );
+
+      for (const asset of assets) {
+        routeAssetReferences.set(asset.assetPath, asset);
+      }
+    }
+
+    logPass(
+      `${routePath} referenced ${routeAssetReferences.size} unique Next.js JS/CSS assets across ${ASSET_INTEGRITY_HTML_SAMPLES} HTML sample(s)`
     );
 
-    logPass(`${routePath} referenced ${assets.length} unique Next.js JS/CSS assets`);
-
-    for (const asset of assets) {
+    for (const asset of routeAssetReferences.values()) {
       const existing = assetReferences.get(asset.assetPath) || {
         ...asset,
         routes: [],

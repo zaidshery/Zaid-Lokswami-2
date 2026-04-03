@@ -1,6 +1,6 @@
-const CACHE_NAME = 'lokswami-app-shell-v4';
-const RUNTIME_CACHE_NAME = 'lokswami-runtime-v1';
-const EPAPER_OFFLINE_CACHE_NAME = 'lokswami-epaper-offline-v1';
+const CACHE_NAME = 'lokswami-app-shell-v5';
+const RUNTIME_CACHE_NAME = 'lokswami-runtime-v2';
+const EPAPER_OFFLINE_CACHE_NAME = 'lokswami-epaper-offline-v2';
 const APP_SHELL_URLS = [
   '/main/epaper',
   '/manifest.webmanifest',

@@ -2,7 +2,50 @@ const fs = require('fs');
 const path = require('path');
 
 const projectRoot = process.cwd();
-const hostingerRoot = path.join(projectRoot, '.hostinger');
+const DEFAULT_HOSTINGER_DIRNAME = '.hostinger';
+const HOSTINGER_GIT_CHECKOUT_SEGMENTS = ['.builds', 'source', 'repository'];
+
+function resolveConfiguredHostingerRoot() {
+  const configured = String(
+    process.env.HOSTINGER_STATE_DIR || process.env.HOSTINGER_ROOT || ''
+  ).trim();
+
+  if (!configured) {
+    return '';
+  }
+
+  return path.resolve(projectRoot, configured);
+}
+
+function isHostingerGitCheckout(targetPath) {
+  const normalizedPath = path.resolve(targetPath);
+  const pathSegments = normalizedPath.split(path.sep).filter(Boolean);
+
+  if (pathSegments.length < HOSTINGER_GIT_CHECKOUT_SEGMENTS.length) {
+    return false;
+  }
+
+  const tailSegments = pathSegments.slice(-HOSTINGER_GIT_CHECKOUT_SEGMENTS.length);
+  return HOSTINGER_GIT_CHECKOUT_SEGMENTS.every(
+    (segment, index) => tailSegments[index] === segment
+  );
+}
+
+function resolveHostingerRoot() {
+  const configuredRoot = resolveConfiguredHostingerRoot();
+  if (configuredRoot) {
+    return configuredRoot;
+  }
+
+  if (isHostingerGitCheckout(projectRoot)) {
+    return path.resolve(projectRoot, '..', '..', '..', DEFAULT_HOSTINGER_DIRNAME);
+  }
+
+  return path.join(projectRoot, DEFAULT_HOSTINGER_DIRNAME);
+}
+
+const legacyHostingerRoot = path.join(projectRoot, DEFAULT_HOSTINGER_DIRNAME);
+const hostingerRoot = resolveHostingerRoot();
 const releasesDir = path.join(hostingerRoot, 'releases');
 const staticSnapshotsDir = path.join(hostingerRoot, 'static-snapshots');
 const sharedStaticDir = path.join(hostingerRoot, 'shared-next-static');
@@ -18,6 +61,29 @@ function ensureDir(targetPath) {
 
 function exists(targetPath) {
   return fs.existsSync(targetPath);
+}
+
+function ensureHostingerStateRoot() {
+  if (
+    hostingerRoot !== legacyHostingerRoot &&
+    !exists(hostingerRoot) &&
+    exists(legacyHostingerRoot)
+  ) {
+    ensureDir(path.dirname(hostingerRoot));
+
+    try {
+      fs.renameSync(legacyHostingerRoot, hostingerRoot);
+    } catch {
+      fs.cpSync(legacyHostingerRoot, hostingerRoot, { recursive: true });
+      fs.rmSync(legacyHostingerRoot, { recursive: true, force: true });
+    }
+
+    console.log(
+      `Migrated Hostinger release state from ${legacyHostingerRoot} to ${hostingerRoot}`
+    );
+  }
+
+  ensureDir(hostingerRoot);
 }
 
 function ensureExists(targetPath, label) {
@@ -89,10 +155,12 @@ function normalizeReleaseState(rawValue) {
 }
 
 function readReleaseState() {
+  ensureHostingerStateRoot();
   return normalizeReleaseState(readJson(releaseStatePath, {}));
 }
 
 function writeReleaseState(nextState) {
+  ensureHostingerStateRoot();
   writeJsonAtomic(releaseStatePath, normalizeReleaseState(nextState));
 }
 
@@ -226,6 +294,7 @@ module.exports = {
   dedupeStrings,
   ensureDir,
   ensureExists,
+  ensureHostingerStateRoot,
   exists,
   getRecentSnapshotIds,
   getReleaseDir,

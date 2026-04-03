@@ -6,6 +6,7 @@ const {
   dedupeStrings,
   ensureDir,
   ensureExists,
+  ensureHostingerStateRoot,
   exists,
   getRecentSnapshotIds,
   getReleaseDir,
@@ -44,7 +45,7 @@ function main() {
   ensureExists(standaloneDir, 'Standalone build output');
   ensureExists(staticSourceDir, 'Next static assets');
 
-  ensureDir(hostingerRoot);
+  ensureHostingerStateRoot();
   ensureDir(releasesDir);
   ensureDir(staticSnapshotsDir);
 
@@ -145,6 +146,7 @@ function main() {
   console.log(
     [
       `Prepared Hostinger release ${releaseId}`,
+      `- state dir: ${hostingerRoot}`,
       `- release dir: ${releaseDir}`,
       `- preserved static overlap snapshots: ${overlapSnapshotIds.length}`,
       `- merged fallback asset files: ${mergedFallbackFileCount}`,

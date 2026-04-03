@@ -65,6 +65,12 @@ GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts
 GEMINI_TTS_VOICE=Sulafat
 ```
 
+Optional Hostinger release state override:
+
+```env
+HOSTINGER_STATE_DIR=
+```
+
 ## Google OAuth Production Redirect
 
 If Google login is enabled, add these in Google Cloud Console:
@@ -125,6 +131,8 @@ What `build:hostinger` does:
 - merges a short overlap window of older hashed `/_next/static/*` assets into the new release so stale HTML can still resolve its chunks during rollout
 - rebuilds a shared `.hostinger/shared-next-static` bundle so any managed release can answer recent hashed asset requests
 - records the prepared release in `.hostinger/release-state.json`
+
+On Hostinger Git deployments, the scripts now default that managed `.hostinger` state directory to a persistent path outside `.builds/source/repository/` so static overlap can survive fresh repository checkouts between deploys.
 
 What `start:hostinger` does now:
 
@@ -201,6 +209,7 @@ EPAPER_STORAGE_UPLOADS_BASE_DIR=/absolute/path/to/writable/storage/uploads
 - Do not delete `.hostinger/` between deploys. It stores the active release plus recent static snapshots for safe chunk overlap.
 - Do not delete `.hostinger/shared-next-static/`. The startup proxy uses it as the shared asset surface for both `/_next/static/*` and `/__next_static__/*`.
 - If you need to tune overlap or release retention, set `HOSTINGER_STATIC_OVERLAP_RELEASES` and `HOSTINGER_RELEASE_RETENTION`.
+- If your Hostinger setup needs a different persistent writable location, set `HOSTINGER_STATE_DIR`. Relative values resolve from the project root.
 
 ## Quick Smoke Test
 

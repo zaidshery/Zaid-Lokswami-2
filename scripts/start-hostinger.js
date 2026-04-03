@@ -10,6 +10,7 @@ const {
   getReleaseDir,
   getReleaseServerEntry,
   getReleaseStaticDir,
+  hostingerRoot,
   projectRoot,
   pruneDirectories,
   readReleaseState,
@@ -388,6 +389,7 @@ async function main() {
   console.log(
     `Starting Hostinger release ${target.releaseId} from ${releaseRoot}`
   );
+  console.log(`Hostinger state root: ${hostingerRoot}`);
   if (staticRoot && exists(staticRoot)) {
     console.log(`Shared static root: ${staticRoot}`);
   }
