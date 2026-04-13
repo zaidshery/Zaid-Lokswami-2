@@ -36,11 +36,11 @@ describe('/api/admin/analytics/alert-notifications/[id]/resolve POST', () => {
     });
   });
 
-  it('resolves a notification for an authorized leadership admin', async () => {
+  it('resolves a notification for an authorized leadership super admin', async () => {
     getAdminSessionMock.mockResolvedValue({
-      id: 'admin-1',
-      email: 'boss@lokswami.com',
-      role: 'admin',
+      id: 'super-1',
+      email: 'owner@lokswami.com',
+      role: 'super_admin',
     });
     resolveLeadershipReportAlertNotificationMock.mockResolvedValue({
       id: 'notif-1',
@@ -51,9 +51,9 @@ describe('/api/admin/analytics/alert-notifications/[id]/resolve POST', () => {
       emailRecipients: ['leader@lokswami.com'],
       webhookTargets: 1,
       acknowledgedAt: '2026-04-06T12:00:00.000Z',
-      acknowledgedByEmail: 'boss@lokswami.com',
+      acknowledgedByEmail: 'owner@lokswami.com',
       resolvedAt: '2026-04-06T12:15:00.000Z',
-      resolvedByEmail: 'boss@lokswami.com',
+      resolvedByEmail: 'owner@lokswami.com',
       createdAt: '2026-04-06T11:30:00.000Z',
     });
 
@@ -69,13 +69,13 @@ describe('/api/admin/analytics/alert-notifications/[id]/resolve POST', () => {
     expect(response.status).toBe(200);
     expect(resolveLeadershipReportAlertNotificationMock).toHaveBeenCalledWith(
       'notif-1',
-      'boss@lokswami.com'
+      'owner@lokswami.com'
     );
     expect(payload).toEqual({
       success: true,
       data: expect.objectContaining({
         id: 'notif-1',
-        resolvedByEmail: 'boss@lokswami.com',
+        resolvedByEmail: 'owner@lokswami.com',
       }),
     });
   });

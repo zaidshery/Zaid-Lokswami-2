@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildLeadershipReportDeliveryPerformanceAlerts } from '@/lib/admin/leadershipReportDeliveryPerformanceAlerts';
 import { getLeadershipReportDeliveryTrends } from '@/lib/admin/leadershipReportDeliveryTrends';
 import type { LeadershipReportRunHistoryEntry } from '@/lib/storage/leadershipReportRunHistoryFile';
@@ -116,6 +116,8 @@ function createSchedule(
 describe('maybeNotifyLeadershipReportCriticalAlerts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-06T12:00:00.000Z'));
     getLeadershipReportCriticalAlertStateMock.mockResolvedValue({
       key: 'critical_performance_alerts',
       activeAlertIds: [],
@@ -133,6 +135,10 @@ describe('maybeNotifyLeadershipReportCriticalAlerts', () => {
       sent: true,
       deliveredTo: ['https://hooks.slack.com/services/a/b/c'],
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('sends notifications for newly critical alert sets and persists the signature', async () => {

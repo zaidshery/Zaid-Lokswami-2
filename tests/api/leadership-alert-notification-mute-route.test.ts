@@ -50,11 +50,11 @@ describe('/api/admin/analytics/alert-notifications/mute PATCH', () => {
     });
   });
 
-  it('mutes alerts for an authorized leadership admin', async () => {
+  it('mutes alerts for an authorized leadership super admin', async () => {
     getAdminSessionMock.mockResolvedValue({
-      id: 'admin-1',
-      email: 'boss@lokswami.com',
-      role: 'admin',
+      id: 'super-1',
+      email: 'owner@lokswami.com',
+      role: 'super_admin',
     });
     saveLeadershipReportCriticalAlertStateMock.mockResolvedValue({
       key: 'critical_performance_alerts',
@@ -62,7 +62,7 @@ describe('/api/admin/analytics/alert-notifications/mute PATCH', () => {
       lastAlertSignature: '',
       lastNotifiedAt: '2026-04-06T12:00:00.000Z',
       mutedUntil: '2026-04-06T20:00:00.000Z',
-      mutedByEmail: 'boss@lokswami.com',
+      mutedByEmail: 'owner@lokswami.com',
       mutedReason: 'Muted for 8 hours.',
       updatedAt: '2026-04-06T12:30:00.000Z',
     });
@@ -83,14 +83,14 @@ describe('/api/admin/analytics/alert-notifications/mute PATCH', () => {
       expect.objectContaining({
         activeAlertIds: ['failure-volume-rising'],
         lastAlertSignature: '',
-        mutedByEmail: 'boss@lokswami.com',
+        mutedByEmail: 'owner@lokswami.com',
         mutedReason: 'Muted for 8 hours.',
       })
     );
     expect(payload).toEqual({
       success: true,
       data: expect.objectContaining({
-        mutedByEmail: 'boss@lokswami.com',
+        mutedByEmail: 'owner@lokswami.com',
       }),
     });
   });

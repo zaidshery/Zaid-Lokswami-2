@@ -20,7 +20,7 @@ describe('/api/auth/staff-setup', () => {
       email: 'copy@example.com',
       loginId: 'copy.desk',
       role: 'copy_editor',
-      setupTokenExpiresAt: '2026-04-11T00:00:00.000Z',
+      setupTokenExpiresAt: '2099-04-11T00:00:00.000Z',
     });
 
     const { GET } = await import('@/app/api/auth/staff-setup/route');
@@ -43,7 +43,7 @@ describe('/api/auth/staff-setup', () => {
         email: 'copy@example.com',
         loginId: 'copy.desk',
         role: 'copy_editor',
-        setupExpiresAt: '2026-04-11T00:00:00.000Z',
+        setupExpiresAt: '2099-04-11T00:00:00.000Z',
       },
     });
   });

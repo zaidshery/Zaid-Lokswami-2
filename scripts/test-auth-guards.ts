@@ -13,9 +13,8 @@ const { resolveRouteGuardDecision } = require('../lib/auth/routeGuards') as {
 type UserRole =
   | 'super_admin'
   | 'admin'
-  | 'editor'
-  | 'author'
-  | 'viewer'
+  | 'copy_editor'
+  | 'reporter'
   | 'reader';
 
 type GuardCase = {
@@ -95,7 +94,7 @@ const cases: GuardCase[] = [
     input: {
       pathname: '/admin',
       isAuthenticated: true,
-      role: 'editor',
+      role: 'admin',
       isActive: false,
     },
     expected: {
