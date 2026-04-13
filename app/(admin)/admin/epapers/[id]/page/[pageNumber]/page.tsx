@@ -13,8 +13,17 @@ import {
 } from 'react';
 import { ArrowLeft, Loader2, Plus, RefreshCw, Save, Sparkles, Trash2, Volume2 } from 'lucide-react';
 import { getAuthHeader } from '@/lib/auth/clientToken';
-import type { EPaperArticleRecord, EPaperRecord } from '@/lib/types/epaper';
+import type {
+  EPaperArticleRecord,
+  EPaperPageReviewStatus,
+  EPaperRecord,
+} from '@/lib/types/epaper';
 import { detectHotspotsFromImageClient } from '@/lib/utils/epaperHotspotDetectionClient';
+import { formatUiDate, formatUiDateTime } from '@/lib/utils/dateFormat';
+import {
+  buildEpaperPageQualitySignal,
+  getEpaperPageQualityTone,
+} from '@/lib/utils/epaperQualitySignals';
 
 type EpaperResponse = {
   success: boolean;
@@ -162,6 +171,81 @@ function toErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message.trim() ? error.message : fallback;
 }
 
+function formatProductionStatusLabel(status: string | null | undefined) {
+  return String(status || 'draft_upload')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function productionTone(status: string | null | undefined) {
+  switch (status) {
+    case 'published':
+      return 'bg-emerald-100 text-emerald-700';
+    case 'ready_to_publish':
+      return 'bg-blue-100 text-blue-700';
+    case 'qa_review':
+    case 'hotspot_mapping':
+    case 'ocr_review':
+    case 'pages_ready':
+      return 'bg-amber-100 text-amber-700';
+    case 'archived':
+      return 'bg-zinc-200 text-zinc-700';
+    default:
+      return 'bg-zinc-100 text-zinc-700';
+  }
+}
+
+function formatPageReviewStatusLabel(status: string | null | undefined) {
+  switch (status) {
+    case 'needs_attention':
+      return 'Needs Attention';
+    case 'ready':
+      return 'Ready';
+    case 'pending':
+    default:
+      return 'Pending';
+  }
+}
+
+function pageReviewTone(status: string | null | undefined) {
+  switch (status) {
+    case 'ready':
+      return 'bg-emerald-100 text-emerald-700';
+    case 'needs_attention':
+      return 'bg-red-100 text-red-700';
+    default:
+      return 'bg-amber-100 text-amber-700';
+  }
+}
+
+function formatWorkflowStatusLabel(status: string | null | undefined) {
+  return String(status || 'draft')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function workflowTone(status: string | null | undefined) {
+  switch (status) {
+    case 'published':
+      return 'bg-emerald-100 text-emerald-700';
+    case 'approved':
+    case 'scheduled':
+      return 'bg-blue-100 text-blue-700';
+    case 'copy_edit':
+    case 'in_review':
+    case 'submitted':
+    case 'assigned':
+      return 'bg-amber-100 text-amber-700';
+    case 'rejected':
+      return 'bg-red-100 text-red-700';
+    case 'archived':
+      return 'bg-zinc-200 text-zinc-700';
+    case 'draft':
+    default:
+      return 'bg-zinc-100 text-zinc-700';
+  }
+}
+
 export default function EPaperPageHotspotEditor() {
   const params = useParams();
   const epaperId = String(params.id || '');
@@ -188,6 +272,9 @@ export default function EPaperPageHotspotEditor() {
   const [storyTtsById, setStoryTtsById] = useState<Record<string, StoryTtsState>>({});
   const [savedStoryTtsSignatures, setSavedStoryTtsSignatures] = useState<Record<string, string>>({});
   const [loadingStoryTtsIds, setLoadingStoryTtsIds] = useState<Record<string, boolean>>({});
+  const [pageReviewStatus, setPageReviewStatus] = useState<EPaperPageReviewStatus>('pending');
+  const [pageReviewNote, setPageReviewNote] = useState('');
+  const [savingPageReview, setSavingPageReview] = useState(false);
 
   const pageImageMeta = useMemo(() => {
     if (!epaper) return null;
@@ -204,6 +291,22 @@ export default function EPaperPageHotspotEditor() {
     [articles]
   );
   const unreadableArticleCount = Math.max(0, articles.length - readableArticleCount);
+  const readiness = epaper?.readiness;
+  const productionStatus = epaper?.productionStatus || 'draft_upload';
+  const pageQuality = useMemo(
+    () =>
+      buildEpaperPageQualitySignal({
+        pageNumber,
+        page: pageImageMeta,
+        articles,
+      }),
+    [articles, pageImageMeta, pageNumber]
+  );
+
+  useEffect(() => {
+    setPageReviewStatus(pageImageMeta?.reviewStatus || 'pending');
+    setPageReviewNote(pageImageMeta?.reviewNote || '');
+  }, [pageImageMeta?.reviewNote, pageImageMeta?.reviewStatus, pageNumber]);
 
   const fetchStoryTtsStatus = useCallback(
     async (storyId: string): Promise<StoryTtsState> => {
@@ -586,6 +689,42 @@ export default function EPaperPageHotspotEditor() {
     }
   };
 
+  const savePageReview = async () => {
+    setSavingPageReview(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const response = await fetch(`/api/admin/epapers/${epaperId}/pages`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeader(),
+        },
+        body: JSON.stringify({
+          pages: [
+            {
+              pageNumber,
+              reviewStatus: pageReviewStatus,
+              reviewNote: pageReviewNote,
+            },
+          ],
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Failed to save page review');
+      }
+
+      setNotice(payload?.message || `Page ${pageNumber} review updated`);
+      await fetchData();
+    } catch (err: unknown) {
+      setError(toErrorMessage(err, 'Failed to save page review'));
+    } finally {
+      setSavingPageReview(false);
+    }
+  };
+
   const regenerateStoryTts = async (article: EPaperArticleRecord) => {
     setLoadingStoryTtsIds((current) => ({ ...current, [article._id]: true }));
     setError('');
@@ -737,7 +876,81 @@ export default function EPaperPageHotspotEditor() {
         </div>
       ) : null}
 
-      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Edition context
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${productionTone(
+                  productionStatus
+                )}`}
+              >
+                {formatProductionStatusLabel(productionStatus)}
+              </span>
+              {epaper.productionAssignee ? (
+                <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
+                  Desk owner {epaper.productionAssignee.name}
+                </span>
+              ) : (
+                <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                  No desk owner yet
+                </span>
+              )}
+              {epaper.qaCompletedAt ? (
+                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                  QA closed {formatUiDateTime(epaper.qaCompletedAt, formatUiDate(epaper.qaCompletedAt))}
+                </span>
+              ) : null}
+              {pageImageMeta?.reviewedBy ? (
+                <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">
+                  Reviewed by {pageImageMeta.reviewedBy.name}
+                </span>
+              ) : null}
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-medium ${pageReviewTone(
+                  pageReviewStatus
+                )}`}
+              >
+                Page QA {formatPageReviewStatusLabel(pageReviewStatus)}
+              </span>
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-medium ${getEpaperPageQualityTone(
+                  pageQuality.level
+                )}`}
+              >
+                Extraction {pageQuality.label}
+              </span>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+            <p>
+              Readiness:{' '}
+              <span className="font-semibold text-gray-900">
+                {readiness?.status === 'ready'
+                  ? 'Ready'
+                  : readiness?.status === 'needs-review'
+                    ? 'Needs review'
+                    : 'Blocked'}
+              </span>
+            </p>
+            <p className="mt-1">
+              Page {pageNumber}: <span className="font-semibold text-gray-900">{articles.length}</span> mapped stories
+            </p>
+          </div>
+        </div>
+
+        {readiness?.blockers.length ? (
+          <p className="mt-3 text-xs text-red-600">
+            Open blockers: {readiness.blockers.join(' | ')}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Mapped stories</p>
           <p className="mt-2 text-2xl font-bold text-gray-900">{articles.length}</p>
@@ -753,6 +966,107 @@ export default function EPaperPageHotspotEditor() {
           <p className="mt-2 text-2xl font-bold text-gray-900">{unreadableArticleCount}</p>
           <p className="mt-1 text-xs text-gray-600">Mapped stories still missing readable text.</p>
         </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Extraction Quality</p>
+          <p
+            className={`mt-2 text-2xl font-bold ${
+              pageQuality.level === 'good'
+                ? 'text-emerald-700'
+                : pageQuality.level === 'critical'
+                  ? 'text-red-700'
+                  : 'text-amber-700'
+            }`}
+          >
+            {pageQuality.label}
+          </p>
+          <p className="mt-1 text-xs text-gray-600">
+            Text coverage {pageQuality.textCoveragePercent}% on this page.
+          </p>
+        </div>
+      </div>
+
+      <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Page QA</p>
+            <h2 className="mt-2 text-lg font-semibold text-gray-900">Reviewer note and status</h2>
+            <p className="mt-1 text-sm text-gray-600">
+              Capture OCR issues, missing story mapping, and whether this page is clear for edition QA.
+            </p>
+          </div>
+          {pageImageMeta?.reviewedAt || pageImageMeta?.reviewedBy ? (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+              {pageImageMeta?.reviewedBy ? <p>Reviewer {pageImageMeta.reviewedBy.name}</p> : null}
+              {pageImageMeta?.reviewedAt ? (
+                <p className={pageImageMeta?.reviewedBy ? 'mt-1' : ''}>
+                  Last reviewed {formatUiDateTime(pageImageMeta.reviewedAt, formatUiDate(pageImageMeta.reviewedAt))}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
+          <label>
+            <span className="mb-1 block text-xs font-semibold text-gray-600">Review status</span>
+            <select
+              value={pageReviewStatus}
+              onChange={(event) => setPageReviewStatus(event.target.value as EPaperPageReviewStatus)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-primary-600"
+              disabled={savingPageReview}
+            >
+              <option value="pending">Pending</option>
+              <option value="needs_attention">Needs attention</option>
+              <option value="ready">Ready</option>
+            </select>
+          </label>
+
+          <label>
+            <span className="mb-1 block text-xs font-semibold text-gray-600">Reviewer note</span>
+            <textarea
+              value={pageReviewNote}
+              onChange={(event) => setPageReviewNote(event.target.value)}
+              rows={3}
+              placeholder="Example: OCR still weak on lower-right column, one hotspot missing under masthead."
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-primary-600"
+              disabled={savingPageReview}
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void savePageReview()}
+            disabled={savingPageReview}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary-600 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {savingPageReview ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save className="h-3.5 w-3.5" />
+            )}
+            Save Page QA
+          </button>
+          {unreadableArticleCount > 0 ? (
+            <p className="text-xs text-amber-700">
+              {unreadableArticleCount} mapped stor{unreadableArticleCount === 1 ? 'y still needs' : 'ies still need'} OCR review.
+            </p>
+          ) : (
+            <p className="text-xs text-emerald-700">All mapped stories on this page have readable text.</p>
+          )}
+        </div>
+
+        {pageQuality.issues.length > 0 ? (
+          <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Quality signals</p>
+            <ul className="mt-2 space-y-1 text-sm text-gray-700">
+              {pageQuality.issues.map((issue) => (
+                <li key={issue}>- {issue}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -985,7 +1299,40 @@ export default function EPaperPageHotspotEditor() {
                   key={article._id}
                   className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
                 >
-                  <p className="text-xs font-semibold text-gray-600">Article {index + 1}</p>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600">Article {index + 1}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${workflowTone(
+                            article.workflow?.status
+                          )}`}
+                        >
+                          {formatWorkflowStatusLabel(article.workflow?.status)}
+                        </span>
+                        {article.workflow?.assignedTo?.name ? (
+                          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-700">
+                            Assigned to {article.workflow.assignedTo.name}
+                          </span>
+                        ) : null}
+                        {article.workflow?.priority ? (
+                          <span className="rounded-full bg-primary-50 px-2.5 py-1 text-[11px] font-medium text-primary-700">
+                            Priority {String(article.workflow.priority).replace(/\b\w/g, (char) => char.toUpperCase())}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                    {article.workflow?.createdBy?.name ? (
+                      <p className="text-[11px] text-gray-500">
+                        Created by {article.workflow.createdBy.name}
+                      </p>
+                    ) : null}
+                  </div>
+                  {article.workflow?.rejectionReason ? (
+                    <p className="mt-2 text-xs text-red-600">
+                      Rejection note: {article.workflow.rejectionReason}
+                    </p>
+                  ) : null}
                   <div className="mt-2 space-y-2">
                     <input
                       type="text"

@@ -3,7 +3,9 @@ import { Types } from 'mongoose';
 import connectDB from '@/lib/db/mongoose';
 import Article from '@/lib/models/Article';
 import { getAdminSession } from '@/lib/auth/admin';
-import { listStoredArticleRevisions } from '@/lib/storage/articlesFile';
+import { canReadContent } from '@/lib/auth/permissions';
+import { getStoredArticleById } from '@/lib/storage/articlesFile';
+import { resolveArticleWorkflow } from '@/lib/workflow/article';
 
 async function shouldUseFileStore() {
   if (!process.env.MONGODB_URI) return true;
@@ -34,13 +36,34 @@ export async function GET(req: NextRequest, context: RouteContext) {
     const { id } = await context.params;
 
     if (await shouldUseFileStore()) {
-      const revisions = await listStoredArticleRevisions(id);
-      if (!revisions) {
+      const article = await getStoredArticleById(id);
+      if (!article) {
         return NextResponse.json(
           { success: false, error: 'Article not found' },
           { status: 404 }
         );
       }
+      if (
+        !canReadContent(
+          user,
+          {
+            legacyAuthorName: article.author,
+            workflow: resolveArticleWorkflow(article),
+          },
+          { allowViewerRead: true }
+        )
+      ) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
+
+      const revisions = [...article.revisions].sort(
+        (a, b) =>
+          new Date(String(b.savedAt || '')).getTime() -
+          new Date(String(a.savedAt || '')).getTime()
+      );
 
       return NextResponse.json({ success: true, data: revisions });
     }
@@ -52,13 +75,34 @@ export async function GET(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const article = (await Article.findById(id).select('revisions').lean()) as
-      | { revisions?: Array<{ savedAt?: string | Date }> }
+    const article = (await Article.findById(id).select('author workflow updatedAt publishedAt revisions').lean()) as
+      | {
+          author?: string;
+          workflow?: unknown;
+          updatedAt?: Date | string;
+          publishedAt?: Date | string;
+          revisions?: Array<{ savedAt?: string | Date }>;
+        }
       | null;
     if (!article) {
       return NextResponse.json(
         { success: false, error: 'Article not found' },
         { status: 404 }
+      );
+    }
+    if (
+      !canReadContent(
+        user,
+        {
+          legacyAuthorName: article.author,
+          workflow: resolveArticleWorkflow(article),
+        },
+        { allowViewerRead: true }
+      )
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
       );
     }
 

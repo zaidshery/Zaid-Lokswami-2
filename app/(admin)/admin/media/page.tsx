@@ -1,7 +1,16 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { Upload, Trash } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
+import {
+  AlertCircle,
+  Film,
+  Image as ImageIcon,
+  Loader2,
+  RefreshCw,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import { getAuthHeader } from '@/lib/auth/clientToken';
 
 interface MediaItem {
@@ -11,90 +20,412 @@ interface MediaItem {
   type: string;
 }
 
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(' ');
+}
+
+const PANEL_CLASS =
+  'admin-shell-surface-strong rounded-[30px] p-6 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.22)] dark:shadow-[0_28px_90px_-52px_rgba(0,0,0,0.45)]';
+
+const SOFT_CARD_CLASS =
+  'admin-shell-surface-muted rounded-[24px] p-4 shadow-[0_18px_48px_-40px_rgba(15,23,42,0.14)] dark:shadow-[0_18px_48px_-40px_rgba(0,0,0,0.35)]';
+
+const METRIC_CARD_CLASS =
+  'admin-shell-surface rounded-[26px] p-5 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.16)] dark:shadow-[0_22px_70px_-46px_rgba(0,0,0,0.38)]';
+
+const EMPTY_STATE_CLASS =
+  'rounded-[24px] border border-dashed border-[color:var(--admin-shell-border-strong)] bg-[color:var(--admin-shell-surface-muted)] p-6 text-sm leading-6 text-[color:var(--admin-shell-text-muted)]';
+
+const META_CHIP_CLASS =
+  'admin-shell-surface inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--admin-shell-text-muted)]';
+
+const INPUT_CLASS =
+  'w-full rounded-2xl border border-[color:var(--admin-shell-border)] bg-[color:var(--admin-shell-surface)] px-4 py-3 text-sm text-[color:var(--admin-shell-text)] outline-none transition-colors placeholder:text-[color:var(--admin-shell-text-muted)] focus:border-red-400/40';
+
+const SECONDARY_BUTTON_CLASS =
+  'admin-shell-toolbar-btn inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60';
+
+const PRIMARY_BUTTON_CLASS =
+  'inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-900 bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200';
+
+const DANGER_BUTTON_CLASS =
+  'inline-flex items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20';
+
+function formatKindLabel(type: string) {
+  if (type.startsWith('image')) return 'Image';
+  if (type.startsWith('video')) return 'Video';
+  return 'File';
+}
+
 export default function MediaLibrary() {
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [activeDeleteId, setActiveDeleteId] = useState<string | null>(null);
 
-  const fetchMedia = async () => {
+  const fetchMedia = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
-      const res = await fetch('/api/admin/media');
+      const res = await fetch('/api/admin/media', {
+        headers: {
+          ...getAuthHeader(),
+        },
+      });
       const data = await res.json();
-      if (res.ok) setMedia(data.data || []);
-    } catch {
-      setError('Failed to load media');
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to load media');
+      }
+      setMedia(Array.isArray(data.data) ? data.data : []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load media');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchMedia();
+  }, [fetchMedia]);
+
+  const selectedFileSummary = useMemo(() => {
+    if (!file) return null;
+    return {
+      name: file.name,
+      sizeMb: (file.size / (1024 * 1024)).toFixed(2),
+      type: formatKindLabel(file.type),
+    };
+  }, [file]);
+
+  const imageCount = useMemo(
+    () => media.filter((item) => item.type.startsWith('image')).length,
+    [media]
+  );
+
+  const videoCount = useMemo(
+    () => media.filter((item) => item.type.startsWith('video')).length,
+    [media]
+  );
+
+  const handleFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setFile(event.target.files?.[0] || null);
+    setError('');
+    setSuccess('');
+  };
+
+  const upload = async () => {
+    if (!file) {
+      setError('Select a file before uploading.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+
+      const uploadRes = await fetch('/api/admin/upload', {
+        method: 'POST',
+        headers: {
+          ...getAuthHeader(),
+        },
+        body: fd,
+      });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) {
+        throw new Error(uploadData.error || 'Upload failed');
+      }
+
+      const createRes = await fetch('/api/admin/media', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeader(),
+        },
+        body: JSON.stringify({
+          filename: uploadData.data.filename,
+          url: uploadData.data.url,
+          size: uploadData.data.size,
+          type: uploadData.data.type,
+        }),
+      });
+
+      const createData = await createRes.json().catch(() => null);
+      if (!createRes.ok) {
+        throw new Error(createData?.error || 'Failed to register uploaded media');
+      }
+
+      setFile(null);
+      setSuccess('Media uploaded successfully.');
+      const input = document.getElementById('media-file') as HTMLInputElement | null;
+      if (input) input.value = '';
+      await fetchMedia();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to upload media');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetchMedia(); }, []);
-
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => setFile(e.target.files?.[0] || null);
-
-  const upload = async () => {
-    if (!file) return setError('Select a file');
-    setLoading(true);
-    setError('');
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const up = await fetch('/api/admin/upload', { method: 'POST', headers: { ...getAuthHeader() }, body: fd });
-      const upd = await up.json();
-      if (!up.ok) throw new Error(upd.error || 'Upload failed');
-      const create = await fetch('/api/admin/media', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify({ filename: upd.data.filename, url: upd.data.url, size: upd.data.size, type: upd.data.type }) });
-      if (create.ok) {
-        setFile(null);
-        (document.getElementById('media-file') as HTMLInputElement).value = '';
-        fetchMedia();
-      } else {
-        const cd = await create.json();
-        throw new Error(cd.error || 'Create failed');
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to upload');
-    } finally { setLoading(false); }
-  };
-
   const remove = async (id: string) => {
-    if (!confirm('Delete this media?')) return;
+    setActiveDeleteId(id);
+    setError('');
+    setSuccess('');
+
     try {
-      const res = await fetch(`/api/admin/media/${id}`, { method: 'DELETE', headers: { ...getAuthHeader() } });
-      if (res.ok) fetchMedia();
-      else setError('Failed to delete');
-    } catch { setError('Failed to delete'); }
+      const res = await fetch(`/api/admin/media/${id}`, {
+        method: 'DELETE',
+        headers: {
+          ...getAuthHeader(),
+        },
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || 'Failed to delete media');
+      }
+
+      setSuccess('Media item deleted.');
+      await fetchMedia();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete media');
+    } finally {
+      setActiveDeleteId(null);
+    }
   };
 
   return (
-    <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">Media Library</h2>
-      <div className="mb-4 flex gap-2">
-        <input id="media-file" type="file" accept="image/*,video/*" onChange={handleFile} />
-        <button onClick={upload} disabled={loading} className="px-4 py-2 bg-spanish-red text-white rounded"> <Upload className="inline-block w-4 h-4 mr-2"/> Upload</button>
-      </div>
-      {error && <div className="mb-3 text-red-600">{error}</div>}
-      <div className="grid grid-cols-3 gap-4">
-        {media.map((m) => (
-          <div key={m._id} className="border rounded overflow-hidden">
-            <div className="h-40 bg-gray-100 overflow-hidden flex items-center justify-center">
-              {/* support images for now */}
-              {m.type.startsWith('image') ? (
-                // Media URLs can be arbitrary external/blob sources in admin.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={m.url} alt={m.filename} className="w-full h-full object-cover" />
-              ) : (
-                <div className="text-sm">{m.filename}</div>
-              )}
+    <div className="space-y-6">
+      <section className="relative overflow-hidden rounded-[36px] border border-[color:var(--admin-shell-border)] bg-[radial-gradient(circle_at_top_left,rgba(185,28,28,0.10),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.08),transparent_28%),var(--admin-bg-depth)] p-8 text-[color:var(--admin-shell-text)] shadow-[var(--admin-shell-shadow-strong)] lg:p-10">
+        <div className="pointer-events-none absolute -right-10 top-0 h-48 w-48 rounded-full bg-fuchsia-500/10 blur-3xl dark:bg-fuchsia-500/14" />
+        <div className="pointer-events-none absolute bottom-0 left-0 h-40 w-40 rounded-full bg-blue-500/10 blur-3xl dark:bg-blue-500/14" />
+        <div className="relative grid gap-8 xl:grid-cols-[1.15fr,0.9fr]">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.28em] text-red-600 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-300">
+              Media Control
             </div>
-            <div className="p-2 flex items-center justify-between">
-              <div className="text-xs truncate">{m.filename}</div>
-              <button onClick={() => remove(m._id)} className="text-red-600 hover:text-red-800"><Trash className="w-4 h-4"/></button>
+            <h1 className="mt-5 text-4xl font-black tracking-tight text-[color:var(--admin-shell-text)] sm:text-5xl">
+              Media Library
+            </h1>
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-[color:var(--admin-shell-text-muted)] sm:text-[15px]">
+              Upload, review, and clean shared image and video assets from one calmer library surface built for newsroom operations.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <div className={META_CHIP_CLASS}>
+                <span>Assets</span>
+                <strong className="text-[color:var(--admin-shell-text)]">{media.length}</strong>
+              </div>
+              <div className={META_CHIP_CLASS}>
+                <span>Images</span>
+                <strong className="text-[color:var(--admin-shell-text)]">{imageCount}</strong>
+              </div>
+              <div className={META_CHIP_CLASS}>
+                <span>Videos</span>
+                <strong className="text-[color:var(--admin-shell-text)]">{videoCount}</strong>
+              </div>
             </div>
           </div>
-        ))}
+
+          <div className={PANEL_CLASS}>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--admin-shell-text-muted)]">
+              Upload Workspace
+            </p>
+            <div className="mt-4 space-y-4">
+              <label
+                htmlFor="media-file"
+                className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[24px] border border-dashed border-[color:var(--admin-shell-border-strong)] bg-[color:var(--admin-shell-surface-muted)] px-6 py-8 text-center transition-colors hover:border-[color:var(--admin-shell-border)] hover:bg-[color:var(--admin-shell-surface)]"
+              >
+                <Upload className="h-6 w-6 text-zinc-500 dark:text-zinc-300" />
+                <div>
+                  <p className="text-sm font-semibold text-[color:var(--admin-shell-text)]">
+                    Choose media to upload
+                  </p>
+                  <p className="mt-1 text-sm text-[color:var(--admin-shell-text-muted)]">
+                    Supports image and video assets for the shared desk.
+                  </p>
+                </div>
+              </label>
+              <input
+                id="media-file"
+                type="file"
+                accept="image/*,video/*"
+                onChange={handleFile}
+                className="sr-only"
+              />
+
+              {selectedFileSummary ? (
+                <div className={SOFT_CARD_CLASS}>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className={META_CHIP_CLASS}>{selectedFileSummary.type}</span>
+                    <span className="text-sm font-medium text-[color:var(--admin-shell-text)]">
+                      {selectedFileSummary.name}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm text-[color:var(--admin-shell-text-muted)]">
+                    {`Ready to upload · ${selectedFileSummary.sizeMb} MB`}
+                  </p>
+                </div>
+              ) : (
+                <div className={EMPTY_STATE_CLASS}>
+                  No file selected yet. Pick an asset to start the upload flow.
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => void upload()}
+                  disabled={loading || !file}
+                  className={PRIMARY_BUTTON_CLASS}
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  Upload Asset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void fetchMedia()}
+                  disabled={loading}
+                  className={SECONDARY_BUTTON_CLASS}
+                >
+                  <RefreshCw className={cx('h-4 w-4', loading && 'animate-spin')} />
+                  Refresh Library
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {error ? (
+        <div className="flex items-start gap-2 rounded-[20px] border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      ) : null}
+
+      {success ? (
+        <div className="flex items-start gap-2 rounded-[20px] border border-green-200 bg-green-50 p-3 text-sm text-green-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300">
+          <Upload className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <span>{success}</span>
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className={METRIC_CARD_CLASS}>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[color:var(--admin-shell-text-muted)]">
+            Total Assets
+          </p>
+          <p className="mt-4 text-4xl font-black tracking-tight text-[color:var(--admin-shell-text)]">
+            {media.length}
+          </p>
+          <p className="mt-3 text-sm text-[color:var(--admin-shell-text-muted)]">
+            Shared items currently available to newsroom workflows.
+          </p>
+        </div>
+        <div className={METRIC_CARD_CLASS}>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[color:var(--admin-shell-text-muted)]">
+            Image Assets
+          </p>
+          <p className="mt-4 text-4xl font-black tracking-tight text-[color:var(--admin-shell-text)]">
+            {imageCount}
+          </p>
+          <p className="mt-3 text-sm text-[color:var(--admin-shell-text-muted)]">
+            Thumbnails, story cards, and general visual assets.
+          </p>
+        </div>
+        <div className={METRIC_CARD_CLASS}>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[color:var(--admin-shell-text-muted)]">
+            Video Assets
+          </p>
+          <p className="mt-4 text-4xl font-black tracking-tight text-[color:var(--admin-shell-text)]">
+            {videoCount}
+          </p>
+          <p className="mt-3 text-sm text-[color:var(--admin-shell-text-muted)]">
+            Motion assets available for video and multimedia surfaces.
+          </p>
+        </div>
       </div>
+
+      {loading && media.length === 0 ? (
+        <div className={cx(PANEL_CLASS, 'flex items-center justify-center py-16')}>
+          <Loader2 className="h-6 w-6 animate-spin text-red-600 dark:text-red-300" />
+        </div>
+      ) : media.length === 0 ? (
+        <div className={cx(PANEL_CLASS, 'py-16 text-center')}>
+          <ImageIcon className="mx-auto mb-3 h-10 w-10 text-zinc-400" />
+          <p className="text-sm text-[color:var(--admin-shell-text-muted)]">
+            No media has been uploaded yet.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {media.map((item, index) => {
+            const isImage = item.type.startsWith('image');
+            const isVideo = item.type.startsWith('video');
+
+            return (
+              <motion.article
+                key={item._id}
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.03 }}
+                className="admin-shell-surface-strong rounded-[30px] p-5 shadow-[0_22px_70px_-48px_rgba(15,23,42,0.18)] dark:shadow-[0_26px_76px_-46px_rgba(0,0,0,0.42)]"
+              >
+                <div className="relative overflow-hidden rounded-[22px] bg-zinc-100 dark:bg-zinc-900">
+                  <div className="aspect-[4/3]">
+                    {isImage ? (
+                      // Media URLs can be arbitrary external/blob sources in admin.
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={item.url} alt={item.filename} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full items-center justify-center">
+                        {isVideo ? (
+                          <Film className="h-10 w-10 text-zinc-400 dark:text-zinc-500" />
+                        ) : (
+                          <ImageIcon className="h-10 w-10 text-zinc-400 dark:text-zinc-500" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="absolute left-3 top-3">
+                    <span className={META_CHIP_CLASS}>{formatKindLabel(item.type)}</span>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-base font-semibold text-[color:var(--admin-shell-text)]">
+                      {item.filename}
+                    </h2>
+                    <p className="mt-2 break-all text-xs leading-5 text-[color:var(--admin-shell-text-muted)]">
+                      {item.url}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void remove(item._id)}
+                    disabled={activeDeleteId === item._id}
+                    className={DANGER_BUTTON_CLASS}
+                    aria-label={`Delete ${item.filename}`}
+                  >
+                    {activeDeleteId === item._id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+              </motion.article>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

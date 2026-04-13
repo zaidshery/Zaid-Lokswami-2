@@ -19,6 +19,30 @@ function toErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message.trim() ? error.message : fallback;
 }
 
+function formatProductionStatusLabel(status: string | null | undefined) {
+  return String(status || 'draft_upload')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function productionTone(status: string | null | undefined) {
+  switch (status) {
+    case 'published':
+      return 'bg-emerald-100 text-emerald-700';
+    case 'ready_to_publish':
+      return 'bg-blue-100 text-blue-700';
+    case 'qa_review':
+    case 'hotspot_mapping':
+    case 'ocr_review':
+    case 'pages_ready':
+      return 'bg-amber-100 text-amber-700';
+    case 'archived':
+      return 'bg-zinc-200 text-zinc-700';
+    default:
+      return 'bg-zinc-100 text-zinc-700';
+  }
+}
+
 export default function AdminEPaperListPage() {
   const [epapers, setEpapers] = useState<EPaperRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +50,7 @@ export default function AdminEPaperListPage() {
   const [search, setSearch] = useState('');
   const [cityFilter, setCityFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [productionFilter, setProductionFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('');
   const [deleteId, setDeleteId] = useState('');
 
@@ -62,15 +87,26 @@ export default function AdminEPaperListPage() {
     return epapers.filter((item) => {
       const cityMatch = cityFilter === 'all' || item.citySlug === cityFilter;
       const statusMatch = statusFilter === 'all' || item.status === statusFilter;
+      const productionMatch =
+        productionFilter === 'all' || item.productionStatus === productionFilter;
       const dateMatch = !dateFilter || item.publishDate === dateFilter;
       const textMatch =
         !searchValue ||
         item.title.toLowerCase().includes(searchValue) ||
         item.cityName.toLowerCase().includes(searchValue);
 
-      return cityMatch && statusMatch && dateMatch && textMatch;
+      return cityMatch && statusMatch && productionMatch && dateMatch && textMatch;
     });
-  }, [epapers, search, cityFilter, statusFilter, dateFilter]);
+  }, [epapers, search, cityFilter, statusFilter, productionFilter, dateFilter]);
+
+  const summary = useMemo(() => {
+    return {
+      total: epapers.length,
+      readyToPublish: epapers.filter((item) => item.productionStatus === 'ready_to_publish').length,
+      qaReview: epapers.filter((item) => item.productionStatus === 'qa_review').length,
+      blocked: epapers.filter((item) => item.readiness?.status === 'not-ready').length,
+    };
+  }, [epapers]);
 
   const deletePaper = async (id: string) => {
     setError('');
@@ -110,7 +146,30 @@ export default function AdminEPaperListPage() {
         </Link>
       </div>
 
-      <div className="mb-5 grid grid-cols-1 gap-3 rounded-xl border border-gray-200 bg-white p-4 md:grid-cols-4">
+      <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-4">
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Total editions</p>
+          <p className="mt-2 text-2xl font-bold text-gray-900">{summary.total}</p>
+          <p className="mt-1 text-xs text-gray-600">All draft and published e-paper records.</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Ready to publish</p>
+          <p className="mt-2 text-2xl font-bold text-blue-700">{summary.readyToPublish}</p>
+          <p className="mt-1 text-xs text-gray-600">Editions that cleared the production desk.</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">QA review</p>
+          <p className="mt-2 text-2xl font-bold text-amber-700">{summary.qaReview}</p>
+          <p className="mt-1 text-xs text-gray-600">Editions waiting on final desk checks.</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Blocked editions</p>
+          <p className="mt-2 text-2xl font-bold text-red-700">{summary.blocked}</p>
+          <p className="mt-1 text-xs text-gray-600">Readiness blockers still need work.</p>
+        </div>
+      </div>
+
+      <div className="mb-5 grid grid-cols-1 gap-3 rounded-xl border border-gray-200 bg-white p-4 md:grid-cols-5">
         <label className="md:col-span-2">
           <span className="mb-1 block text-xs font-semibold text-gray-600">Search</span>
           <span className="relative block">
@@ -151,6 +210,25 @@ export default function AdminEPaperListPage() {
             <option value="all">All</option>
             <option value="draft">Draft</option>
             <option value="published">Published</option>
+          </select>
+        </label>
+
+        <label>
+          <span className="mb-1 block text-xs font-semibold text-gray-600">Production</span>
+          <select
+            value={productionFilter}
+            onChange={(event) => setProductionFilter(event.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-primary-600"
+          >
+            <option value="all">All stages</option>
+            <option value="draft_upload">Draft upload</option>
+            <option value="pages_ready">Pages ready</option>
+            <option value="ocr_review">OCR review</option>
+            <option value="hotspot_mapping">Hotspot mapping</option>
+            <option value="qa_review">QA review</option>
+            <option value="ready_to_publish">Ready to publish</option>
+            <option value="published">Published</option>
+            <option value="archived">Archived</option>
           </select>
         </label>
 
@@ -227,18 +305,32 @@ export default function AdminEPaperListPage() {
                             Source: {epaper.automation.sourceLabel}
                           </span>
                         ) : null}
+                        {epaper.productionAssignee ? (
+                          <span className="text-[11px] text-gray-500">
+                            Desk owner: {epaper.productionAssignee.name}
+                          </span>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
 
-                  <div
-                    className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                      epaper.status === 'published'
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : 'bg-amber-100 text-amber-700'
-                    }`}
-                  >
-                    {epaper.status}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div
+                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                        epaper.status === 'published'
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-amber-100 text-amber-700'
+                      }`}
+                    >
+                      {epaper.status}
+                    </div>
+                    <div
+                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${productionTone(
+                        epaper.productionStatus
+                      )}`}
+                    >
+                      {formatProductionStatusLabel(epaper.productionStatus)}
+                    </div>
                   </div>
                 </div>
 

@@ -1,6 +1,40 @@
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import {
+  createWorkflowMeta,
+  isWorkflowCommentKind,
+  isWorkflowPriority,
+  isWorkflowStatus,
+  type WorkflowActorRef,
+  type WorkflowCommentKind,
+  type WorkflowPriority,
+  type WorkflowStatus,
+} from '@/lib/workflow/types';
+
+export interface StoredWorkflowComment {
+  id: string;
+  body: string;
+  kind: WorkflowCommentKind;
+  author: WorkflowActorRef;
+  createdAt: string;
+}
+
+export interface StoredWorkflowMeta {
+  status: WorkflowStatus;
+  priority: WorkflowPriority;
+  createdBy: WorkflowActorRef | null;
+  assignedTo: WorkflowActorRef | null;
+  reviewedBy: WorkflowActorRef | null;
+  submittedAt: string | null;
+  approvedAt: string | null;
+  rejectedAt: string | null;
+  publishedAt: string | null;
+  scheduledFor: string | null;
+  dueAt: string | null;
+  rejectionReason: string;
+  comments: StoredWorkflowComment[];
+}
 
 export interface StoredVideo {
   _id: string;
@@ -17,6 +51,7 @@ export interface StoredVideo {
   createdAt: string;
   publishedAt: string;
   updatedAt: string;
+  workflow: StoredWorkflowMeta;
 }
 
 export interface CreateVideoInput {
@@ -32,16 +67,149 @@ export interface CreateVideoInput {
   views?: number;
   createdAt?: string;
   publishedAt?: string;
+  workflow?: Partial<StoredWorkflowMeta>;
 }
 
 const dataDir = path.resolve(process.cwd(), 'data');
 const dataPath = path.join(dataDir, 'videos.json');
 
+function createId() {
+  return typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeOptionalDateString(value: unknown) {
+  if (!value) return null;
+  const parsed = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function normalizeWorkflowComment(input: unknown): StoredWorkflowComment | null {
+  const source = typeof input === 'object' && input ? (input as Record<string, unknown>) : null;
+  if (!source) return null;
+
+  const authorSource =
+    typeof source.author === 'object' && source.author
+      ? (source.author as Record<string, unknown>)
+      : null;
+  const body = typeof source.body === 'string' ? source.body.trim() : '';
+  const authorId = typeof authorSource?.id === 'string' ? authorSource.id.trim() : '';
+  const authorName = typeof authorSource?.name === 'string' ? authorSource.name.trim() : '';
+  const authorEmail = typeof authorSource?.email === 'string' ? authorSource.email.trim() : '';
+  const authorRole = authorSource?.role;
+
+  if (!body || !authorId || !authorName || !authorEmail || typeof authorRole !== 'string') {
+    return null;
+  }
+
+  return {
+    id: typeof source.id === 'string' && source.id.trim() ? source.id : createId(),
+    body,
+    kind: isWorkflowCommentKind(source.kind) ? source.kind : 'comment',
+    author: {
+      id: authorId,
+      name: authorName,
+      email: authorEmail,
+      role: authorRole as WorkflowActorRef['role'],
+    },
+    createdAt: normalizeOptionalDateString(source.createdAt) || new Date().toISOString(),
+  };
+}
+
+function normalizeWorkflowMeta(input: unknown, isPublished: boolean): StoredWorkflowMeta {
+  const source = typeof input === 'object' && input ? (input as Record<string, unknown>) : {};
+  const workflow = createWorkflowMeta({
+    status: isWorkflowStatus(source.status) ? source.status : isPublished ? 'published' : 'draft',
+    priority: isWorkflowPriority(source.priority) ? source.priority : 'normal',
+  });
+
+  const comments = Array.isArray(source.comments)
+    ? source.comments
+        .map((comment) => normalizeWorkflowComment(comment))
+        .filter((comment): comment is StoredWorkflowComment => Boolean(comment))
+    : [];
+
+  return {
+    status: workflow.status,
+    priority: workflow.priority,
+    createdBy:
+      typeof source.createdBy === 'object' && source.createdBy
+        ? (source.createdBy as WorkflowActorRef)
+        : null,
+    assignedTo:
+      typeof source.assignedTo === 'object' && source.assignedTo
+        ? (source.assignedTo as WorkflowActorRef)
+        : null,
+    reviewedBy:
+      typeof source.reviewedBy === 'object' && source.reviewedBy
+        ? (source.reviewedBy as WorkflowActorRef)
+        : null,
+    submittedAt: normalizeOptionalDateString(source.submittedAt),
+    approvedAt: normalizeOptionalDateString(source.approvedAt),
+    rejectedAt: normalizeOptionalDateString(source.rejectedAt),
+    publishedAt: normalizeOptionalDateString(source.publishedAt),
+    scheduledFor: normalizeOptionalDateString(source.scheduledFor),
+    dueAt: normalizeOptionalDateString(source.dueAt),
+    rejectionReason:
+      typeof source.rejectionReason === 'string' ? source.rejectionReason.trim() : '',
+    comments,
+  };
+}
+
+function normalizeStoredVideo(input: unknown): StoredVideo | null {
+  const source = typeof input === 'object' && input ? (input as Record<string, unknown>) : null;
+  if (!source) return null;
+
+  const title = typeof source.title === 'string' ? source.title.trim() : '';
+  const description = typeof source.description === 'string' ? source.description.trim() : '';
+  const thumbnail = typeof source.thumbnail === 'string' ? source.thumbnail.trim() : '';
+  const videoUrl = typeof source.videoUrl === 'string' ? source.videoUrl.trim() : '';
+  const category = typeof source.category === 'string' ? source.category.trim() : '';
+
+  if (!title || !description || !thumbnail || !videoUrl || !category) {
+    return null;
+  }
+
+  const isPublished = source.isPublished === false ? false : true;
+
+  return {
+    _id: typeof source._id === 'string' && source._id.trim() ? source._id : createId(),
+    title,
+    description,
+    thumbnail,
+    videoUrl,
+    duration: Number.isFinite(Number(source.duration)) ? Number(source.duration) : 0,
+    category,
+    isShort: Boolean(source.isShort),
+    isPublished,
+    shortsRank: Number.isFinite(Number(source.shortsRank)) ? Number(source.shortsRank) : 0,
+    views: Number.isFinite(Number(source.views)) ? Math.max(0, Number(source.views)) : 0,
+    createdAt:
+      typeof source.createdAt === 'string' && source.createdAt.trim()
+        ? source.createdAt
+        : new Date().toISOString(),
+    publishedAt:
+      typeof source.publishedAt === 'string' && source.publishedAt.trim()
+        ? source.publishedAt
+        : new Date().toISOString(),
+    updatedAt:
+      typeof source.updatedAt === 'string' && source.updatedAt.trim()
+        ? source.updatedAt
+        : new Date().toISOString(),
+    workflow: normalizeWorkflowMeta(source.workflow, isPublished),
+  };
+}
+
 async function readAllVideos(): Promise<StoredVideo[]> {
   try {
     const raw = await fs.readFile(dataPath, 'utf-8');
     const parsed = JSON.parse(raw || '[]');
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed)
+      ? parsed
+          .map((item) => normalizeStoredVideo(item))
+          .filter((item): item is StoredVideo => Boolean(item))
+      : [];
   } catch {
     return [];
   }
@@ -58,10 +226,11 @@ export async function listStoredVideos(params: {
   published?: boolean;
   search?: string;
   sort?: string | null;
+  workflowStatus?: string | null;
   limit: number;
   page: number;
 }) {
-  const { category, type, published, search, sort, limit, page } = params;
+  const { category, type, published, search, sort, workflowStatus, limit, page } = params;
   const all = await readAllVideos();
 
   let filtered = all;
@@ -80,6 +249,10 @@ export async function listStoredVideos(params: {
     filtered = filtered.filter((item) => item.isPublished === published);
   }
 
+  if (workflowStatus && isWorkflowStatus(workflowStatus)) {
+    filtered = filtered.filter((item) => item.workflow.status === workflowStatus);
+  }
+
   const normalizedSearch = (search || '').trim().toLowerCase();
   if (normalizedSearch) {
     filtered = filtered.filter(
@@ -93,17 +266,21 @@ export async function listStoredVideos(params: {
     filtered.sort(
       (a, b) =>
         b.views - a.views ||
-        new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+        new Date(b.updatedAt || b.publishedAt).getTime() -
+          new Date(a.updatedAt || a.publishedAt).getTime()
     );
   } else if (sort === 'shorts' || type === 'shorts') {
     filtered.sort(
       (a, b) =>
         b.shortsRank - a.shortsRank ||
-        new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+        new Date(b.updatedAt || b.publishedAt).getTime() -
+          new Date(a.updatedAt || a.publishedAt).getTime()
     );
   } else {
     filtered.sort(
-      (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+      (a, b) =>
+        new Date(b.updatedAt || b.publishedAt).getTime() -
+        new Date(a.updatedAt || a.publishedAt).getTime()
     );
   }
 
@@ -129,12 +306,10 @@ export async function getStoredVideoById(id: string) {
 export async function createStoredVideo(input: CreateVideoInput) {
   const now = new Date().toISOString();
   const all = await readAllVideos();
+  const isPublished = input.isPublished === false ? false : true;
 
   const video: StoredVideo = {
-    _id:
-      typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    _id: createId(),
     title: input.title,
     description: input.description,
     thumbnail: input.thumbnail,
@@ -142,12 +317,13 @@ export async function createStoredVideo(input: CreateVideoInput) {
     duration: input.duration,
     category: input.category,
     isShort: Boolean(input.isShort),
-    isPublished: input.isPublished === false ? false : true,
+    isPublished,
     shortsRank: Number.isFinite(input.shortsRank) ? Number(input.shortsRank) : 0,
     views: Number.isFinite(input.views) ? Number(input.views) : 0,
     createdAt: input.createdAt || input.publishedAt || now,
     publishedAt: input.publishedAt || now,
     updatedAt: now,
+    workflow: normalizeWorkflowMeta(input.workflow, isPublished),
   };
 
   all.push(video);
@@ -160,6 +336,7 @@ export async function updateStoredVideo(
   updates: Partial<CreateVideoInput> & {
     publishedAt?: string;
     updatedAt?: string;
+    workflow?: Partial<StoredWorkflowMeta>;
   }
 ) {
   const all = await readAllVideos();
@@ -167,15 +344,15 @@ export async function updateStoredVideo(
   if (index === -1) return null;
 
   const current = all[index];
+  const nextIsPublished =
+    updates.isPublished !== undefined ? Boolean(updates.isPublished) : current.isPublished;
+
   const next: StoredVideo = {
     ...current,
     ...updates,
     isShort:
       updates.isShort !== undefined ? Boolean(updates.isShort) : current.isShort,
-    isPublished:
-      updates.isPublished !== undefined
-        ? Boolean(updates.isPublished)
-        : current.isPublished,
+    isPublished: nextIsPublished,
     shortsRank:
       updates.shortsRank !== undefined && Number.isFinite(updates.shortsRank)
         ? Number(updates.shortsRank)
@@ -184,7 +361,11 @@ export async function updateStoredVideo(
       updates.views !== undefined && Number.isFinite(updates.views)
         ? Number(updates.views)
         : current.views,
-    updatedAt: new Date().toISOString(),
+    updatedAt: updates.updatedAt || new Date().toISOString(),
+    workflow:
+      updates.workflow !== undefined
+        ? normalizeWorkflowMeta({ ...current.workflow, ...updates.workflow }, nextIsPublished)
+        : current.workflow,
   };
 
   all[index] = next;

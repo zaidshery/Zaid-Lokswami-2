@@ -5,6 +5,10 @@ import EPaper from '@/lib/models/EPaper';
 import EPaperArticle from '@/lib/models/EPaperArticle';
 import { getAdminSession } from '@/lib/auth/admin';
 import {
+  buildEpaperActivityMessage,
+  recordEpaperActivity,
+} from '@/lib/server/epaperActivity';
+import {
   normalizeHotspot,
   resolveUniqueSlug,
   validateHotspot,
@@ -27,9 +31,17 @@ function asObject(value: unknown) {
     : {};
 }
 
+function toIsoDate(value: unknown) {
+  const parsed =
+    value instanceof Date ? value : value ? new Date(String(value)) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
 function mapArticle(article: unknown) {
   const source = asObject(article);
   const hotspot = asObject(source.hotspot);
+  const workflow = asObject(source.workflow);
   return {
     _id: String(source._id || ''),
     epaperId: String(source.epaperId || ''),
@@ -45,6 +57,68 @@ function mapArticle(article: unknown) {
       w: Number(hotspot.w || 0),
       h: Number(hotspot.h || 0),
     },
+    workflow:
+      Object.keys(workflow).length > 0
+        ? {
+            status: typeof workflow.status === 'string' ? workflow.status : 'draft',
+            priority: typeof workflow.priority === 'string' ? workflow.priority : 'normal',
+            createdBy:
+              typeof workflow.createdBy === 'object' && workflow.createdBy
+                ? {
+                    id: String((workflow.createdBy as { id?: unknown }).id || ''),
+                    name: String((workflow.createdBy as { name?: unknown }).name || ''),
+                    email: String((workflow.createdBy as { email?: unknown }).email || ''),
+                    role: String((workflow.createdBy as { role?: unknown }).role || ''),
+                  }
+                : null,
+            assignedTo:
+              typeof workflow.assignedTo === 'object' && workflow.assignedTo
+                ? {
+                    id: String((workflow.assignedTo as { id?: unknown }).id || ''),
+                    name: String((workflow.assignedTo as { name?: unknown }).name || ''),
+                    email: String((workflow.assignedTo as { email?: unknown }).email || ''),
+                    role: String((workflow.assignedTo as { role?: unknown }).role || ''),
+                  }
+                : null,
+            reviewedBy:
+              typeof workflow.reviewedBy === 'object' && workflow.reviewedBy
+                ? {
+                    id: String((workflow.reviewedBy as { id?: unknown }).id || ''),
+                    name: String((workflow.reviewedBy as { name?: unknown }).name || ''),
+                    email: String((workflow.reviewedBy as { email?: unknown }).email || ''),
+                    role: String((workflow.reviewedBy as { role?: unknown }).role || ''),
+                  }
+                : null,
+            submittedAt: toIsoDate(workflow.submittedAt),
+            approvedAt: toIsoDate(workflow.approvedAt),
+            rejectedAt: toIsoDate(workflow.rejectedAt),
+            publishedAt: toIsoDate(workflow.publishedAt),
+            scheduledFor: toIsoDate(workflow.scheduledFor),
+            dueAt: toIsoDate(workflow.dueAt),
+            rejectionReason:
+              typeof workflow.rejectionReason === 'string'
+                ? workflow.rejectionReason
+                : '',
+            comments: Array.isArray(workflow.comments)
+              ? workflow.comments.map((comment) => {
+                  const normalized = asObject(comment);
+                  const author = asObject(normalized.author);
+                  return {
+                    id: String(normalized.id || ''),
+                    body: String(normalized.body || ''),
+                    kind: String(normalized.kind || 'comment'),
+                    author: {
+                      id: String(author.id || ''),
+                      name: String(author.name || ''),
+                      email: String(author.email || ''),
+                      role: String(author.role || ''),
+                    },
+                    createdAt: toIsoDate(normalized.createdAt) || new Date(0).toISOString(),
+                  };
+                })
+              : [],
+          }
+        : undefined,
     createdAt: source.createdAt,
     updatedAt: source.updatedAt,
   };
@@ -210,6 +284,18 @@ export async function POST(req: NextRequest, context: RouteContext) {
       contentHtml,
       coverImagePath,
       hotspot,
+    });
+
+    await recordEpaperActivity({
+      epaperId: id,
+      actor: admin,
+      action: 'story_created',
+      message: buildEpaperActivityMessage({ action: 'story_created' }),
+      metadata: {
+        articleId: String(created._id || ''),
+        pageNumber,
+        title,
+      },
     });
 
     return NextResponse.json(

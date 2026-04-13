@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
 import {
   ArrowLeft,
   RefreshCw,
@@ -14,9 +15,25 @@ import {
   Loader,
   Volume2,
 } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import RichTextEditor from '@/components/forms/RichTextEditor';
 import { getAuthHeader } from '@/lib/auth/clientToken';
+import {
+  FACT_CHECK_STATUSES,
+  HEADLINE_STATUSES,
+  IMAGE_OPTIMIZATION_STATUSES,
+} from '@/lib/content/newsroomMetadata';
+import {
+  canManageWorkflowAssignments,
+  canTransitionContent,
+  type ContentTransitionAction,
+} from '@/lib/auth/permissions';
+import {
+  isAdminRole,
+  isCopyEditorRole,
+  isReporterDeskRole,
+  type AdminRole,
+} from '@/lib/auth/roles';
 import { NEWS_CATEGORIES } from '@/lib/constants/newsCategories';
 import { normalizeBreakingTtsMetadata, type BreakingTtsMetadata } from '@/lib/types/breaking';
 import { formatUiDateTime } from '@/lib/utils/dateFormat';
@@ -27,10 +44,45 @@ import {
   prepareArticleImageFile,
 } from '@/lib/utils/articleImageUpload';
 import { resolveArticleOgImageUrl } from '@/lib/utils/articleMedia';
+import {
+  buildWorkflowFeedbackSummary,
+  type WorkflowFeedbackTone,
+} from '@/lib/workflow/feedback';
+import { getAllowedWorkflowTransitions } from '@/lib/workflow/transitions';
+import type { WorkflowPriority, WorkflowStatus } from '@/lib/workflow/types';
 
 const DEFAULT_CATEGORIES = NEWS_CATEGORIES.map((category) => category.nameEn);
 const AUTOSAVE_INTERVAL_MS = 15000;
 const DRAFT_STORAGE_PREFIX = 'lokswami:article-draft:edit:';
+const WORKFLOW_PRIORITIES: WorkflowPriority[] = ['low', 'normal', 'high', 'urgent'];
+
+const STATUS_TO_ACTION: Partial<Record<WorkflowStatus, ContentTransitionAction>> = {
+  submitted: 'submit',
+  assigned: 'assign',
+  in_review: 'start_review',
+  copy_edit: 'move_to_copy_edit',
+  changes_requested: 'request_changes',
+  ready_for_approval: 'mark_ready_for_approval',
+  approved: 'approve',
+  rejected: 'reject',
+  scheduled: 'schedule',
+  published: 'publish',
+  archived: 'archive',
+};
+
+const ACTION_LABELS: Record<ContentTransitionAction, string> = {
+  submit: 'Submit For Review',
+  assign: 'Assign',
+  start_review: 'Start Review',
+  move_to_copy_edit: 'Move To Copy Edit',
+  request_changes: 'Request Changes',
+  mark_ready_for_approval: 'Mark Ready For Approval',
+  approve: 'Approve',
+  reject: 'Reject',
+  schedule: 'Schedule',
+  publish: 'Publish',
+  archive: 'Archive',
+};
 
 type ArticleFormState = {
   title: string;
@@ -38,6 +90,16 @@ type ArticleFormState = {
   content: string;
   category: string;
   author: string;
+  locationTag: string;
+  sourceInfo: string;
+  sourceConfidential: boolean;
+  reporterNotes: string;
+  proofreadComplete: boolean;
+  factCheckStatus: 'pending' | 'verified' | 'needs_follow_up';
+  headlineStatus: 'pending' | 'rewritten' | 'approved';
+  imageOptimizationStatus: 'pending' | 'optimized' | 'not_needed';
+  copyEditorNotes: string;
+  returnForChangesReason: string;
   isBreaking: boolean;
   isTrending: boolean;
   seoTitle: string;
@@ -51,6 +113,22 @@ type ArticleSeo = {
   metaDescription?: string;
   ogImage?: string;
   canonicalUrl?: string;
+};
+
+type ArticleReporterMeta = {
+  locationTag?: string;
+  sourceInfo?: string;
+  sourceConfidential?: boolean;
+  reporterNotes?: string;
+};
+
+type ArticleCopyEditorMeta = {
+  proofreadComplete?: boolean;
+  factCheckStatus?: ArticleFormState['factCheckStatus'];
+  headlineStatus?: ArticleFormState['headlineStatus'];
+  imageOptimizationStatus?: ArticleFormState['imageOptimizationStatus'];
+  copyEditorNotes?: string;
+  returnForChangesReason?: string;
 };
 
 type BreakingTtsResponse = {
@@ -88,18 +166,94 @@ type RevisionItem = {
   savedAt?: string;
 };
 
+type WorkflowActor = {
+  id?: string;
+  name?: string;
+  email?: string;
+  role?: AdminRole;
+};
+
+type WorkflowCommentItem = {
+  id?: string;
+  body?: string;
+  kind?: string;
+  author?: WorkflowActor | null;
+  createdAt?: string | null;
+};
+
+type WorkflowState = {
+  status: WorkflowStatus;
+  priority: WorkflowPriority;
+  createdBy: WorkflowActor | null;
+  assignedTo: WorkflowActor | null;
+  reviewedBy: WorkflowActor | null;
+  submittedAt: string | null;
+  approvedAt: string | null;
+  rejectedAt: string | null;
+  publishedAt: string | null;
+  scheduledFor: string | null;
+  dueAt: string | null;
+  rejectionReason: string;
+  comments: WorkflowCommentItem[];
+};
+
+type ArticleActivityItem = {
+  id?: string;
+  action?: string;
+  fromStatus?: WorkflowStatus | null;
+  toStatus?: WorkflowStatus | null;
+  actor?: WorkflowActor | null;
+  message?: string;
+  metadata?: Record<string, unknown>;
+  createdAt?: string | null;
+  source?: 'audit' | 'derived';
+};
+
+type AssignableUserOption = {
+  id: string;
+  name: string;
+  email: string;
+  role: AdminRole;
+};
+
 const EMPTY_FORM: ArticleFormState = {
   title: '',
   summary: '',
   content: '',
   category: 'National',
   author: '',
+  locationTag: '',
+  sourceInfo: '',
+  sourceConfidential: false,
+  reporterNotes: '',
+  proofreadComplete: false,
+  factCheckStatus: 'pending',
+  headlineStatus: 'pending',
+  imageOptimizationStatus: 'pending',
+  copyEditorNotes: '',
+  returnForChangesReason: '',
   isBreaking: false,
   isTrending: false,
   seoTitle: '',
   seoDescription: '',
   ogImage: '',
   canonicalUrl: '',
+};
+
+const EMPTY_WORKFLOW: WorkflowState = {
+  status: 'draft',
+  priority: 'normal',
+  createdBy: null,
+  assignedTo: null,
+  reviewedBy: null,
+  submittedAt: null,
+  approvedAt: null,
+  rejectedAt: null,
+  publishedAt: null,
+  scheduledFor: null,
+  dueAt: null,
+  rejectionReason: '',
+  comments: [],
 };
 
 function formatDraftTimestamp(value: string) {
@@ -124,9 +278,208 @@ function buildArticleListenSignature(input: Pick<ArticleFormState, 'title' | 'su
   return [input.title.trim(), input.summary.trim(), input.content.trim()].join('\n::\n');
 }
 
+function buildSavedFormSnapshot(formData: ArticleFormState, imagePreview: string) {
+  return JSON.stringify({
+    ...formData,
+    imagePreview: imagePreview.trim(),
+  });
+}
+
+function normalizeWorkflowState(input: unknown): WorkflowState {
+  const source = typeof input === 'object' && input ? (input as Record<string, unknown>) : {};
+  const comments = Array.isArray(source.comments)
+    ? source.comments.map((entry) => {
+        const comment = typeof entry === 'object' && entry ? (entry as Record<string, unknown>) : {};
+        const author =
+          typeof comment.author === 'object' && comment.author
+            ? (comment.author as Record<string, unknown>)
+            : {};
+
+        return {
+          id: typeof comment.id === 'string' ? comment.id : '',
+          body: typeof comment.body === 'string' ? comment.body : '',
+          kind: typeof comment.kind === 'string' ? comment.kind : 'comment',
+          author: {
+            id: typeof author.id === 'string' ? author.id : '',
+            name: typeof author.name === 'string' ? author.name : '',
+            email: typeof author.email === 'string' ? author.email : '',
+            role: typeof author.role === 'string' ? (author.role as AdminRole) : undefined,
+          },
+          createdAt: typeof comment.createdAt === 'string' ? comment.createdAt : null,
+        } satisfies WorkflowCommentItem;
+      })
+    : [];
+
+  const toActor = (value: unknown): WorkflowActor | null => {
+    const actor = typeof value === 'object' && value ? (value as Record<string, unknown>) : null;
+    if (!actor) return null;
+
+    const id = typeof actor.id === 'string' ? actor.id : '';
+    const name = typeof actor.name === 'string' ? actor.name : '';
+    const email = typeof actor.email === 'string' ? actor.email : '';
+    const role = typeof actor.role === 'string' ? (actor.role as AdminRole) : undefined;
+
+    if (!id && !email && !name) {
+      return null;
+    }
+
+    return { id, name, email, role };
+  };
+
+  return {
+    status: typeof source.status === 'string' ? (source.status as WorkflowStatus) : 'draft',
+    priority: typeof source.priority === 'string' ? (source.priority as WorkflowPriority) : 'normal',
+    createdBy: toActor(source.createdBy),
+    assignedTo: toActor(source.assignedTo),
+    reviewedBy: toActor(source.reviewedBy),
+    submittedAt: typeof source.submittedAt === 'string' ? source.submittedAt : null,
+    approvedAt: typeof source.approvedAt === 'string' ? source.approvedAt : null,
+    rejectedAt: typeof source.rejectedAt === 'string' ? source.rejectedAt : null,
+    publishedAt: typeof source.publishedAt === 'string' ? source.publishedAt : null,
+    scheduledFor: typeof source.scheduledFor === 'string' ? source.scheduledFor : null,
+    dueAt: typeof source.dueAt === 'string' ? source.dueAt : null,
+    rejectionReason: typeof source.rejectionReason === 'string' ? source.rejectionReason : '',
+    comments,
+  };
+}
+
+function toDateTimeInputValue(value: string | null | undefined) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+
+  const year = parsed.getFullYear();
+  const month = `${parsed.getMonth() + 1}`.padStart(2, '0');
+  const day = `${parsed.getDate()}`.padStart(2, '0');
+  const hours = `${parsed.getHours()}`.padStart(2, '0');
+  const minutes = `${parsed.getMinutes()}`.padStart(2, '0');
+
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function formatWorkflowStatus(status: WorkflowStatus) {
+  return status.replace(/_/g, ' ');
+}
+
+function formatActivityActionLabel(action: string | undefined) {
+  switch (action) {
+    case 'created':
+      return 'Created';
+    case 'saved':
+      return 'Saved';
+    case 'submit':
+      return 'Submitted';
+    case 'assign':
+      return 'Assigned';
+    case 'start_review':
+      return 'Review Started';
+    case 'move_to_copy_edit':
+      return 'Copy Edit';
+    case 'request_changes':
+      return 'Changes Requested';
+    case 'mark_ready_for_approval':
+      return 'Ready For Approval';
+    case 'approve':
+      return 'Approved';
+    case 'reject':
+      return 'Rejected';
+    case 'schedule':
+      return 'Scheduled';
+    case 'publish':
+      return 'Published';
+    case 'archive':
+      return 'Archived';
+    case 'restore_revision':
+      return 'Revision Restored';
+    case 'approval_note':
+      return 'Approval Note';
+    case 'rejection_note':
+      return 'Rejection Note';
+    case 'revision_request':
+      return 'Revision Request';
+    case 'comment':
+      return 'Comment';
+    default:
+      return String(action || 'Activity')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (character) => character.toUpperCase());
+  }
+}
+
+function formatNewsroomRoleLabel(role: AdminRole | undefined) {
+  switch (role) {
+    case 'super_admin':
+      return 'Super Admin';
+    case 'admin':
+      return 'Admin';
+    case 'copy_editor':
+      return 'Copy Editor';
+    case 'reporter':
+      return 'Reporter';
+    default:
+      return 'Team';
+  }
+}
+
+function getWorkflowToneClass(status: WorkflowStatus) {
+  switch (status) {
+    case 'published':
+      return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+    case 'ready_for_approval':
+    case 'approved':
+    case 'scheduled':
+      return 'border-blue-200 bg-blue-50 text-blue-700';
+    case 'submitted':
+    case 'assigned':
+    case 'in_review':
+    case 'copy_edit':
+    case 'changes_requested':
+      return 'border-amber-200 bg-amber-50 text-amber-700';
+    case 'rejected':
+      return 'border-red-200 bg-red-50 text-red-700';
+    case 'archived':
+      return 'border-gray-300 bg-gray-100 text-gray-700';
+    case 'draft':
+    default:
+      return 'border-gray-200 bg-gray-100 text-gray-700';
+  }
+}
+
+function getWorkflowFeedbackToneClass(tone: WorkflowFeedbackTone) {
+  switch (tone) {
+    case 'danger':
+      return 'border-red-200 bg-red-50 text-red-900';
+    case 'warning':
+      return 'border-amber-200 bg-amber-50 text-amber-900';
+    case 'info':
+      return 'border-blue-200 bg-blue-50 text-blue-900';
+    case 'success':
+      return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+    case 'neutral':
+    default:
+      return 'border-gray-200 bg-white text-gray-900';
+  }
+}
+
+function WorkflowPill({ status }: { status: WorkflowStatus }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${getWorkflowToneClass(status)}`}
+    >
+      {formatWorkflowStatus(status)}
+    </span>
+  );
+}
+
+function parseWorkflowActionDate(value: string) {
+  if (!value.trim()) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
 export default function EditArticle() {
+  const { data: session } = useSession();
   const params = useParams<{ id: string }>();
-  const router = useRouter();
   const routeId = Array.isArray(params?.id) ? params.id[0] || '' : params?.id || '';
   const articleId = decodeURIComponent(routeId);
   const draftStorageKey = `${DRAFT_STORAGE_PREFIX}${articleId}`;
@@ -134,6 +487,7 @@ export default function EditArticle() {
   const [formData, setFormData] = useState<ArticleFormState>(EMPTY_FORM);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState('');
+  const [savedFormSnapshot, setSavedFormSnapshot] = useState('');
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
   const [showCreateCategory, setShowCreateCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -161,6 +515,18 @@ export default function EditArticle() {
   const [isLoadingArticleTts, setIsLoadingArticleTts] = useState(false);
   const [isRegeneratingArticleTts, setIsRegeneratingArticleTts] = useState(false);
   const [savedArticleListenSignature, setSavedArticleListenSignature] = useState('');
+  const [workflow, setWorkflow] = useState<WorkflowState>(EMPTY_WORKFLOW);
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUserOption[]>([]);
+  const [isLoadingAssignableUsers, setIsLoadingAssignableUsers] = useState(false);
+  const [workflowAssigneeId, setWorkflowAssigneeId] = useState('');
+  const [workflowComment, setWorkflowComment] = useState('');
+  const [workflowRejectionReason, setWorkflowRejectionReason] = useState('');
+  const [workflowScheduledFor, setWorkflowScheduledFor] = useState('');
+  const [workflowDueAt, setWorkflowDueAt] = useState('');
+  const [workflowPriority, setWorkflowPriority] = useState<WorkflowPriority>('normal');
+  const [runningWorkflowAction, setRunningWorkflowAction] = useState<ContentTransitionAction | ''>('');
+  const [articleActivity, setArticleActivity] = useState<ArticleActivityItem[]>([]);
+  const [isLoadingActivity, setIsLoadingActivity] = useState(false);
 
   const previewContentHtml = useMemo(() => {
     const source = formData.content.trim() || formData.summary.trim();
@@ -171,6 +537,93 @@ export default function EditArticle() {
   const currentArticleListenSignature = useMemo(
     () => buildArticleListenSignature(formData),
     [formData]
+  );
+
+  const currentFormSnapshot = useMemo(
+    () => buildSavedFormSnapshot(formData, imagePreview),
+    [formData, imagePreview]
+  );
+
+  const permissionUser = useMemo(() => {
+    const sessionUser = session?.user;
+    const email = sessionUser?.email?.trim() || '';
+    const role = sessionUser?.role;
+
+    if (!sessionUser || !email || !isAdminRole(role)) {
+      return null;
+    }
+
+    return {
+      id: sessionUser.userId || sessionUser.id || email,
+      email,
+      name: sessionUser.name?.trim() || email.split('@')[0] || 'Admin',
+      role,
+    };
+  }, [session]);
+
+  const workflowPermissionRecord = useMemo(
+    () => ({
+      legacyAuthorName: formData.author,
+      workflow,
+    }),
+    [formData.author, workflow]
+  );
+
+  const canUseWorkflowDesk = canManageWorkflowAssignments(permissionUser?.role);
+  const canEditCopyDeskMeta = Boolean(
+    permissionUser?.role &&
+      (permissionUser.role === 'admin' ||
+        permissionUser.role === 'super_admin' ||
+        isCopyEditorRole(permissionUser.role))
+  );
+  const canCreateCategories =
+    permissionUser?.role === 'admin' || permissionUser?.role === 'super_admin';
+  const isReporterView = isReporterDeskRole(permissionUser?.role);
+  const hasUnsavedChanges = Boolean(imageFile) || currentFormSnapshot !== savedFormSnapshot;
+
+  const availableWorkflowActions = useMemo(() => {
+    if (!permissionUser) return [] as ContentTransitionAction[];
+
+    return getAllowedWorkflowTransitions(workflow.status)
+      .map((status) => STATUS_TO_ACTION[status])
+      .filter((action): action is ContentTransitionAction => Boolean(action))
+      .filter((action) =>
+        canTransitionContent(permissionUser, workflowPermissionRecord, action)
+      );
+  }, [permissionUser, workflow.status, workflowPermissionRecord]);
+
+  const recentWorkflowComments = useMemo(
+    () =>
+      [...workflow.comments]
+        .filter((comment) => comment.body?.trim())
+        .slice(-5)
+        .reverse(),
+    [workflow.comments]
+  );
+
+  const workflowFeedback = useMemo(
+    () =>
+      buildWorkflowFeedbackSummary({
+        contentLabel: 'Article',
+        status: workflow.status,
+        assignedToName: workflow.assignedTo?.name || workflow.assignedTo?.email || '',
+        reviewedByName: workflow.reviewedBy?.name || workflow.reviewedBy?.email || '',
+        rejectionReason: workflow.rejectionReason,
+        returnForChangesReason: formData.returnForChangesReason,
+        copyEditorNotes: formData.copyEditorNotes,
+        workflowComments: workflow.comments,
+      }),
+    [
+      formData.copyEditorNotes,
+      formData.returnForChangesReason,
+      workflow.assignedTo?.email,
+      workflow.assignedTo?.name,
+      workflow.comments,
+      workflow.rejectionReason,
+      workflow.reviewedBy?.email,
+      workflow.reviewedBy?.name,
+      workflow.status,
+    ]
   );
 
   const breakingTtsStatus = !formData.isBreaking
@@ -240,6 +693,103 @@ export default function EditArticle() {
     }
   }, [articleId]);
 
+  const fetchArticleActivity = useCallback(async () => {
+    if (!articleId) {
+      setArticleActivity([]);
+      return;
+    }
+
+    setIsLoadingActivity(true);
+    try {
+      const response = await fetch(`/api/admin/articles/${encodeURIComponent(articleId)}/activity`, {
+        headers: { ...getAuthHeader() },
+        cache: 'no-store',
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: ArticleActivityItem[];
+      };
+
+      if (!response.ok || !data.success || !Array.isArray(data.data)) {
+        setArticleActivity([]);
+        return;
+      }
+
+      setArticleActivity(
+        data.data.map((item) => ({
+          id: typeof item.id === 'string' ? item.id : '',
+          action: typeof item.action === 'string' ? item.action : 'activity',
+          fromStatus:
+            typeof item.fromStatus === 'string'
+              ? (item.fromStatus as WorkflowStatus)
+              : null,
+          toStatus:
+            typeof item.toStatus === 'string'
+              ? (item.toStatus as WorkflowStatus)
+              : null,
+          actor:
+            item.actor && typeof item.actor === 'object'
+              ? {
+                  id: typeof item.actor.id === 'string' ? item.actor.id : '',
+                  name: typeof item.actor.name === 'string' ? item.actor.name : '',
+                  email: typeof item.actor.email === 'string' ? item.actor.email : '',
+                  role:
+                    typeof item.actor.role === 'string'
+                      ? (item.actor.role as AdminRole)
+                      : undefined,
+                }
+              : null,
+          message: typeof item.message === 'string' ? item.message : '',
+          metadata:
+            item.metadata && typeof item.metadata === 'object'
+              ? (item.metadata as Record<string, unknown>)
+              : {},
+          createdAt: typeof item.createdAt === 'string' ? item.createdAt : null,
+          source: item.source === 'derived' ? 'derived' : 'audit',
+        }))
+      );
+    } catch {
+      setArticleActivity([]);
+    } finally {
+      setIsLoadingActivity(false);
+    }
+  }, [articleId]);
+
+  const fetchAssignableUsers = useCallback(async () => {
+    if (!canUseWorkflowDesk) {
+      setAssignableUsers([]);
+      return;
+    }
+
+    setIsLoadingAssignableUsers(true);
+    try {
+      const response = await fetch('/api/admin/team/options', {
+        headers: { ...getAuthHeader() },
+        cache: 'no-store',
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: AssignableUserOption[];
+      };
+
+      if (!response.ok || !data.success || !Array.isArray(data.data)) {
+        setAssignableUsers([]);
+        return;
+      }
+
+      setAssignableUsers(
+        data.data.filter(
+          (member): member is AssignableUserOption =>
+            Boolean(member.id && member.email && member.role)
+        )
+      );
+    } catch {
+      setAssignableUsers([]);
+    } finally {
+      setIsLoadingAssignableUsers(false);
+    }
+  }, [canUseWorkflowDesk]);
+
   const fetchArticle = useCallback(async () => {
     if (!articleId) {
       setIsLoading(false);
@@ -251,6 +801,7 @@ export default function EditArticle() {
     setDraftReady(false);
     try {
       const response = await fetch(`/api/admin/articles/${encodeURIComponent(articleId)}`, {
+        headers: { ...getAuthHeader() },
         cache: 'no-store',
       });
       const data = await response.json();
@@ -269,7 +820,10 @@ export default function EditArticle() {
         isBreaking?: boolean;
         isTrending?: boolean;
         seo?: ArticleSeo;
+        reporterMeta?: ArticleReporterMeta;
+        copyEditorMeta?: ArticleCopyEditorMeta;
         breakingTts?: BreakingTtsMetadata | null;
+        workflow?: unknown;
       };
 
       const baseForm: ArticleFormState = {
@@ -278,6 +832,18 @@ export default function EditArticle() {
         content: article.content || '',
         category: article.category || 'National',
         author: article.author || '',
+        locationTag: article.reporterMeta?.locationTag || '',
+        sourceInfo: article.reporterMeta?.sourceInfo || '',
+        sourceConfidential: Boolean(article.reporterMeta?.sourceConfidential),
+        reporterNotes: article.reporterMeta?.reporterNotes || '',
+        proofreadComplete: Boolean(article.copyEditorMeta?.proofreadComplete),
+        factCheckStatus: article.copyEditorMeta?.factCheckStatus || 'pending',
+        headlineStatus: article.copyEditorMeta?.headlineStatus || 'pending',
+        imageOptimizationStatus:
+          article.copyEditorMeta?.imageOptimizationStatus || 'pending',
+        copyEditorNotes: article.copyEditorMeta?.copyEditorNotes || '',
+        returnForChangesReason:
+          article.copyEditorMeta?.returnForChangesReason || '',
         isBreaking: Boolean(article.isBreaking),
         isTrending: Boolean(article.isTrending),
         seoTitle: article.seo?.metaTitle || '',
@@ -286,6 +852,7 @@ export default function EditArticle() {
         canonicalUrl: article.seo?.canonicalUrl || '',
       };
 
+      const nextWorkflow = normalizeWorkflowState(article.workflow);
       let nextForm = baseForm;
       let nextImage = article.image || '';
       let nextMode: 'write' | 'preview' = 'write';
@@ -316,7 +883,7 @@ export default function EditArticle() {
             }
           }
         } catch {
-          // ignore malformed draft payload
+          // Ignore malformed draft payload.
         }
       }
 
@@ -327,6 +894,15 @@ export default function EditArticle() {
       setDraftRestored(restored);
       setBreakingTtsInfo(normalizeBreakingTtsMetadata(article.breakingTts));
       setSavedArticleListenSignature(buildArticleListenSignature(baseForm));
+      setSavedFormSnapshot(buildSavedFormSnapshot(baseForm, article.image || ''));
+      setWorkflow(nextWorkflow);
+      setWorkflowPriority(nextWorkflow.priority);
+      setWorkflowAssigneeId(nextWorkflow.assignedTo?.id || '');
+      setWorkflowScheduledFor(toDateTimeInputValue(nextWorkflow.scheduledFor));
+      setWorkflowDueAt(toDateTimeInputValue(nextWorkflow.dueAt));
+      setWorkflowRejectionReason(nextWorkflow.rejectionReason || '');
+      setWorkflowComment('');
+      setImageFile(null);
       void fetchArticleTtsStatus();
     } catch {
       setError('Failed to load article');
@@ -337,9 +913,14 @@ export default function EditArticle() {
   }, [articleId, draftStorageKey, fetchArticleTtsStatus]);
 
   useEffect(() => {
-    fetchArticle();
-    fetchRevisions();
-  }, [fetchArticle, fetchRevisions]);
+    void fetchArticle();
+    void fetchRevisions();
+    void fetchArticleActivity();
+  }, [fetchArticle, fetchRevisions, fetchArticleActivity]);
+
+  useEffect(() => {
+    void fetchAssignableUsers();
+  }, [fetchAssignableUsers]);
 
   useEffect(() => {
     const loadCategories = async () => {
@@ -347,7 +928,7 @@ export default function EditArticle() {
         const response = await fetch('/api/admin/categories');
         const data = await response.json();
         if (response.ok && Array.isArray(data.data) && data.data.length) {
-          const nextCategories = data.data.map((c: { name: string }) => c.name);
+          const nextCategories = data.data.map((category: { name: string }) => category.name);
           setCategories(nextCategories);
           setFormData((current) => ({
             ...current,
@@ -355,10 +936,11 @@ export default function EditArticle() {
           }));
         }
       } catch {
-        // keep defaults
+        // Keep defaults.
       }
     };
-    loadCategories();
+
+    void loadCategories();
   }, []);
 
   const persistDraft = useCallback(() => {
@@ -408,18 +990,19 @@ export default function EditArticle() {
   }, [draftReady, persistDraft]);
 
   const handleInputChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
-    const { name, value, type } = e.target;
+    const { name, value, type } = event.target;
     setFormData((current) => ({
       ...current,
-      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value,
+      [name]: type === 'checkbox' ? (event.target as HTMLInputElement).checked : value,
     }));
   };
 
-  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
+
     setError('');
     setImageQualityNote('');
     if (!file.type.startsWith('image/')) {
@@ -452,14 +1035,15 @@ export default function EditArticle() {
 
   const uploadImage = async () => {
     if (!imageFile) return imagePreview;
+
     setIsLoadingImage(true);
     try {
-      const formDataToSend = new FormData();
-      formDataToSend.append('file', imageFile);
+      const uploadFormData = new FormData();
+      uploadFormData.append('file', imageFile);
       const response = await fetch('/api/admin/upload', {
         method: 'POST',
         headers: { ...getAuthHeader() },
-        body: formDataToSend,
+        body: uploadFormData,
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to upload image');
@@ -502,38 +1086,59 @@ export default function EditArticle() {
         isBreaking?: boolean;
         isTrending?: boolean;
         seo?: ArticleSeo;
+        reporterMeta?: ArticleReporterMeta;
+        copyEditorMeta?: ArticleCopyEditorMeta;
         breakingTts?: BreakingTtsMetadata | null;
+        workflow?: unknown;
       };
 
-      setFormData({
+      const restoredForm: ArticleFormState = {
         title: article.title || '',
         summary: article.summary || '',
         content: article.content || '',
         category: article.category || 'National',
         author: article.author || '',
+        locationTag: article.reporterMeta?.locationTag || '',
+        sourceInfo: article.reporterMeta?.sourceInfo || '',
+        sourceConfidential: Boolean(article.reporterMeta?.sourceConfidential),
+        reporterNotes: article.reporterMeta?.reporterNotes || '',
+        proofreadComplete: Boolean(article.copyEditorMeta?.proofreadComplete),
+        factCheckStatus: article.copyEditorMeta?.factCheckStatus || 'pending',
+        headlineStatus: article.copyEditorMeta?.headlineStatus || 'pending',
+        imageOptimizationStatus:
+          article.copyEditorMeta?.imageOptimizationStatus || 'pending',
+        copyEditorNotes: article.copyEditorMeta?.copyEditorNotes || '',
+        returnForChangesReason:
+          article.copyEditorMeta?.returnForChangesReason || '',
         isBreaking: Boolean(article.isBreaking),
         isTrending: Boolean(article.isTrending),
         seoTitle: article.seo?.metaTitle || '',
         seoDescription: article.seo?.metaDescription || '',
         ogImage: article.seo?.ogImage || '',
         canonicalUrl: article.seo?.canonicalUrl || '',
-      });
+      };
+      const restoredWorkflow = normalizeWorkflowState(article.workflow);
+
+      setFormData(restoredForm);
       setImagePreview(article.image || '');
       setImageFile(null);
       setImageQualityNote('');
       setContentMode('write');
       setBreakingTtsInfo(normalizeBreakingTtsMetadata(article.breakingTts));
-      setSavedArticleListenSignature(
-        buildArticleListenSignature({
-          title: article.title || '',
-          summary: article.summary || '',
-          content: article.content || '',
-        })
-      );
+      setSavedArticleListenSignature(buildArticleListenSignature(restoredForm));
+      setSavedFormSnapshot(buildSavedFormSnapshot(restoredForm, article.image || ''));
+      setWorkflow(restoredWorkflow);
+      setWorkflowPriority(restoredWorkflow.priority);
+      setWorkflowAssigneeId(restoredWorkflow.assignedTo?.id || '');
+      setWorkflowScheduledFor(toDateTimeInputValue(restoredWorkflow.scheduledFor));
+      setWorkflowDueAt(toDateTimeInputValue(restoredWorkflow.dueAt));
+      setWorkflowRejectionReason(restoredWorkflow.rejectionReason || '');
+      setWorkflowComment('');
       clearDraft();
       setSuccess('Revision restored successfully.');
       await fetchArticleTtsStatus();
       await fetchRevisions();
+      await fetchArticleActivity();
     } catch {
       setError('Failed to restore revision. Please try again.');
     } finally {
@@ -618,8 +1223,8 @@ export default function EditArticle() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setError('');
     setSuccess('');
     setIsSaving(true);
@@ -664,6 +1269,20 @@ export default function EditArticle() {
           content: formData.content,
           category: formData.category,
           author: formData.author,
+          reporterMeta: {
+            locationTag: formData.locationTag,
+            sourceInfo: formData.sourceInfo,
+            sourceConfidential: formData.sourceConfidential,
+            reporterNotes: formData.reporterNotes,
+          },
+          copyEditorMeta: {
+            proofreadComplete: formData.proofreadComplete,
+            factCheckStatus: formData.factCheckStatus,
+            headlineStatus: formData.headlineStatus,
+            imageOptimizationStatus: formData.imageOptimizationStatus,
+            copyEditorNotes: formData.copyEditorNotes,
+            returnForChangesReason: formData.returnForChangesReason,
+          },
           isBreaking: formData.isBreaking,
           isTrending: formData.isTrending,
           image: imageUrl,
@@ -683,18 +1302,136 @@ export default function EditArticle() {
         return;
       }
 
-      setBreakingTtsInfo(normalizeBreakingTtsMetadata(data?.data?.breakingTts));
-      setSavedArticleListenSignature(currentArticleListenSignature);
-      setSuccess('Article updated successfully! Redirecting...');
       setImageFile(null);
       clearDraft();
-      setTimeout(() => router.push('/admin/articles'), 1500);
+      setSuccess('Article updated successfully.');
+      await fetchArticle();
+      await fetchRevisions();
+      await fetchArticleActivity();
+      await fetchArticleTtsStatus();
     } catch {
       setError('Failed to update article. Please try again.');
     } finally {
       setIsSaving(false);
     }
   };
+
+  const handleWorkflowAction = async (action: ContentTransitionAction) => {
+    setError('');
+    setSuccess('');
+
+    if (hasUnsavedChanges) {
+      setError('Save article changes before moving the workflow.');
+      return;
+    }
+
+    if (action === 'assign' && !workflowAssigneeId.trim()) {
+      setError('Select an assignee before assigning this article.');
+      return;
+    }
+
+    if (action === 'reject' && !workflowRejectionReason.trim()) {
+      setError('Add a rejection reason before rejecting this article.');
+      return;
+    }
+
+    if (action === 'schedule' && !workflowScheduledFor.trim()) {
+      setError('Choose a publish time before scheduling this article.');
+      return;
+    }
+
+    const scheduledFor = parseWorkflowActionDate(workflowScheduledFor);
+    const dueAt = parseWorkflowActionDate(workflowDueAt);
+
+    if (workflowScheduledFor && !scheduledFor) {
+      setError('Scheduled publish time is invalid.');
+      return;
+    }
+
+    if (workflowDueAt && !dueAt) {
+      setError('Due date is invalid.');
+      return;
+    }
+
+    setRunningWorkflowAction(action);
+    try {
+      const response = await fetch(`/api/admin/articles/${encodeURIComponent(articleId)}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeader(),
+        },
+        body: JSON.stringify({
+          action,
+          assignedToId: workflowAssigneeId || undefined,
+          scheduledFor: scheduledFor || undefined,
+          dueAt: dueAt || undefined,
+          priority: workflowPriority,
+          rejectionReason: workflowRejectionReason.trim() || undefined,
+          comment: workflowComment.trim() || undefined,
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        message?: string;
+      };
+
+      if (!response.ok || !data.success) {
+        setError(data.error || 'Failed to update workflow');
+        return;
+      }
+
+      setWorkflowComment('');
+      if (action !== 'reject') {
+        setWorkflowRejectionReason('');
+      }
+      setSuccess(data.message || `${ACTION_LABELS[action]} completed.`);
+      await fetchArticle();
+      await fetchRevisions();
+      await fetchArticleActivity();
+      await fetchArticleTtsStatus();
+    } catch {
+      setError('Failed to update workflow. Please try again.');
+    } finally {
+      setRunningWorkflowAction('');
+    }
+  };
+
+  const workflowMetaItems = [
+    {
+      label: 'Created By',
+      value: workflow.createdBy?.name || workflow.createdBy?.email || 'Unknown',
+    },
+    {
+      label: 'Assigned To',
+      value: workflow.assignedTo?.name || workflow.assignedTo?.email || 'Unassigned',
+    },
+    {
+      label: 'Reviewed By',
+      value: workflow.reviewedBy?.name || workflow.reviewedBy?.email || 'Not started',
+    },
+    {
+      label: 'Priority',
+      value: workflowPriority,
+    },
+    {
+      label: 'Submitted',
+      value: workflow.submittedAt ? formatDraftTimestamp(workflow.submittedAt) : 'Not submitted',
+    },
+    {
+      label: 'Scheduled',
+      value: workflow.scheduledFor ? formatDraftTimestamp(workflow.scheduledFor) : 'Not scheduled',
+    },
+    {
+      label: 'Published',
+      value: workflow.publishedAt ? formatDraftTimestamp(workflow.publishedAt) : 'Not published',
+    },
+    {
+      label: 'Due',
+      value: workflow.dueAt ? formatDraftTimestamp(workflow.dueAt) : 'No due date',
+    },
+  ];
 
   if (isLoading) {
     return (
@@ -709,18 +1446,47 @@ export default function EditArticle() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-3 sm:p-6">
-      <Link href="/admin/articles" className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6 transition-colors">
+      <Link
+        href="/admin/articles"
+        className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6 transition-colors"
+      >
         <ArrowLeft className="w-5 h-5" />
         Back to Articles
       </Link>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-3xl mx-auto">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-4xl mx-auto"
+      >
         <div className="bg-white rounded-xl p-8 border border-gray-200 shadow-sm">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Edit Article</h1>
-          <p className="text-gray-600 mb-8">Update your article details and content</p>
+          <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-3xl font-bold text-gray-900">Edit Article</h1>
+                <WorkflowPill status={workflow.status} />
+                {hasUnsavedChanges ? (
+                  <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                    Unsaved changes
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-2 text-gray-600">Update your article details, workflow, and desk status</p>
+            </div>
+          </div>
 
-          {error ? <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800 flex gap-2"><AlertCircle className="w-5 h-5 shrink-0" />{error}</div> : null}
-          {success ? <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800 flex gap-2"><CheckCircle className="w-5 h-5 shrink-0" />{success}</div> : null}
+          {error ? (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800 flex gap-2">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          ) : null}
+          {success ? (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800 flex gap-2">
+              <CheckCircle className="w-5 h-5 shrink-0" />
+              <span>{success}</span>
+            </div>
+          ) : null}
 
           <div className="mb-6 rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
             <p className="font-medium">Draft & Revision Tools</p>
@@ -728,176 +1494,699 @@ export default function EditArticle() {
               Draft autosaves every {AUTOSAVE_INTERVAL_MS / 1000} seconds.
               {draftSavedAt ? ` Last saved: ${formatDraftTimestamp(draftSavedAt)}.` : ' No local draft yet.'}
             </p>
-            {draftRestored ? <p className="mt-1 text-blue-800">Local draft restored for this article.</p> : null}
+            {draftRestored ? (
+              <p className="mt-1 text-blue-800">Local draft restored for this article.</p>
+            ) : null}
+            {hasUnsavedChanges ? (
+              <p className="mt-1 text-blue-800">
+                Save article edits before running workflow actions like assign, approve, or publish.
+              </p>
+            ) : null}
             <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={persistDraft} className="rounded-md border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100">Save Draft Now</button>
-              <button type="button" onClick={clearDraft} className="rounded-md border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100">Discard Local Draft</button>
+              <button
+                type="button"
+                onClick={persistDraft}
+                className="rounded-md border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100"
+              >
+                Save Draft Now
+              </button>
+              <button
+                type="button"
+                onClick={clearDraft}
+                className="rounded-md border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100"
+              >
+                Discard Local Draft
+              </button>
             </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-900 mb-2">Article Title <span className="text-red-500">*</span></label>
-              <input type="text" name="title" value={formData.title} onChange={handleInputChange} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors" required />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-900 mb-2">Summary <span className="text-red-500">*</span></label>
-              <textarea name="summary" value={formData.summary} onChange={handleInputChange} rows={2} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors" required />
-            </div>
-
-            <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <p className="text-sm font-semibold text-gray-900">SEO Settings</p>
-              <input type="text" name="seoTitle" value={formData.seoTitle} onChange={handleInputChange} placeholder="Meta title (max 160)" maxLength={160} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors" />
-              <textarea name="seoDescription" value={formData.seoDescription} onChange={handleInputChange} placeholder="Meta description (max 320)" rows={3} maxLength={320} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors" />
-              <input type="text" name="ogImage" value={formData.ogImage} onChange={handleInputChange} placeholder="OG image URL or /local-path" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors" />
-              <p className="-mt-2 text-xs text-gray-500">
-                Leave empty to auto-use featured image as 1200x630 OG preview.
-              </p>
-              <input type="url" name="canonicalUrl" value={formData.canonicalUrl} onChange={handleInputChange} placeholder="Canonical URL" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors" />
-            </div>
-
-	            <div>
-	              <label className="block text-sm font-medium text-gray-900 mb-2">Featured Image <span className="text-red-500">*</span></label>
-	              <label className="flex items-center justify-center w-full px-4 py-6 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-spanish-red hover:bg-gray-50 transition-colors">
-                <div className="flex flex-col items-center gap-2">
-                  <ImageIcon className="w-6 h-6 text-gray-400" />
-                  <span className="text-sm font-medium text-gray-700">Click to change image</span>
+            <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">Workflow</p>
+                  <p className="mt-1 text-sm text-gray-700">
+                    Move this article through the newsroom queue without leaving the edit screen.
+                  </p>
                 </div>
-	                <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
-	              </label>
-	              <p className="mt-2 text-xs text-gray-500">{ARTICLE_IMAGE_UPLOAD_GUIDE}</p>
-	              {imageQualityNote ? (
-	                <p className="mt-1 text-xs font-medium text-amber-700">{imageQualityNote}</p>
-	              ) : null}
-	              {imagePreview ? (
-	                <div className="mt-4 rounded-lg overflow-hidden border border-gray-200">
-	                  <img src={imagePreview} alt="Preview" className="w-full h-64 object-cover" />
-	                </div>
+                <WorkflowPill status={workflow.status} />
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {workflowMetaItems.map((item) => (
+                  <div key={item.label} className="rounded-lg border border-gray-200 bg-white p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                      {item.label}
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-gray-900 capitalize">
+                      {item.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div className={`rounded-lg border p-4 ${getWorkflowFeedbackToneClass(workflowFeedback.tone)}`}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">{workflowFeedback.badge}</p>
+                    <p className="mt-1 text-sm leading-6">{workflowFeedback.summary}</p>
+                  </div>
+                  {workflowFeedback.readyToResubmit ? (
+                    <span className="inline-flex items-center rounded-full border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700">
+                      Ready to resubmit
+                    </span>
+                  ) : workflowFeedback.waitingOnDesk ? (
+                    <span className="inline-flex items-center rounded-full border border-blue-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-700">
+                      With desk
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-3 text-sm leading-6">
+                  <span className="font-semibold">Next action:</span> {workflowFeedback.nextAction}
+                </p>
+                {workflowFeedback.highlightedNote ? (
+                  <div className="mt-3 rounded-lg border border-white/70 bg-white/80 p-3 text-sm text-gray-700">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                      {workflowFeedback.highlightedNoteLabel || 'Desk feedback'}
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap">{workflowFeedback.highlightedNote}</p>
+                    {workflowFeedback.highlightedBy ? (
+                      <p className="mt-2 text-xs text-gray-500">
+                        From {workflowFeedback.highlightedBy}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
+              {canUseWorkflowDesk ? (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-900">Assignee</label>
+                    <select
+                      value={workflowAssigneeId}
+                      onChange={(event) => setWorkflowAssigneeId(event.target.value)}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 focus:border-spanish-red focus:outline-none"
+                    >
+                      <option value="">
+                        {isLoadingAssignableUsers ? 'Loading team...' : 'Select assignee'}
+                      </option>
+                      {assignableUsers.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.name} ({formatNewsroomRoleLabel(member.role)})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500">
+                      Use this when sending a submitted article to a desk owner.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-900">Priority</label>
+                    <select
+                      value={workflowPriority}
+                      onChange={(event) => setWorkflowPriority(event.target.value as WorkflowPriority)}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 capitalize focus:border-spanish-red focus:outline-none"
+                    >
+                      {WORKFLOW_PRIORITIES.map((priority) => (
+                        <option key={priority} value={priority}>
+                          {priority}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500">
+                      Priority and due date are saved with the next workflow action.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-900">Due Date</label>
+                    <input
+                      type="datetime-local"
+                      value={workflowDueAt}
+                      onChange={(event) => setWorkflowDueAt(event.target.value)}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 focus:border-spanish-red focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-900">Schedule Publish Time</label>
+                    <input
+                      type="datetime-local"
+                      value={workflowScheduledFor}
+                      onChange={(event) => setWorkflowScheduledFor(event.target.value)}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 focus:border-spanish-red focus:outline-none"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Only required when using the schedule action.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+              {availableWorkflowActions.includes('reject') || workflow.rejectionReason ? (
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-900">Rejection Reason</label>
+                  <textarea
+                    value={workflowRejectionReason}
+                    onChange={(event) => setWorkflowRejectionReason(event.target.value)}
+                    rows={3}
+                    placeholder="Explain what needs to change before this article can continue."
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 focus:border-spanish-red focus:outline-none"
+                  />
+                </div>
+              ) : null}
+
+              {availableWorkflowActions.length > 0 ? (
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-900">Workflow Note</label>
+                  <textarea
+                    value={workflowComment}
+                    onChange={(event) => setWorkflowComment(event.target.value)}
+                    rows={3}
+                    placeholder="Add an editorial note, approval note, or handoff context."
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 focus:border-spanish-red focus:outline-none"
+                  />
+                </div>
+              ) : null}
+
+              {availableWorkflowActions.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {availableWorkflowActions.map((action) => {
+                    const isRunning = runningWorkflowAction === action;
+                    const needsAssignee = action === 'assign' && !workflowAssigneeId.trim();
+                    const needsReason = action === 'reject' && !workflowRejectionReason.trim();
+                    const needsSchedule = action === 'schedule' && !workflowScheduledFor.trim();
+                    const disabled =
+                      Boolean(runningWorkflowAction) ||
+                      hasUnsavedChanges ||
+                      needsAssignee ||
+                      needsReason ||
+                      needsSchedule;
+                    const toneClass =
+                      action === 'reject'
+                        ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
+                        : action === 'publish'
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                          : action === 'approve'
+                            ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50';
+
+                    return (
+                      <button
+                        key={action}
+                        type="button"
+                        onClick={() => void handleWorkflowAction(action)}
+                        disabled={disabled}
+                        className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${toneClass}`}
+                      >
+                        {isRunning ? <Loader className="h-4 w-4 animate-spin" /> : null}
+                        {ACTION_LABELS[action]}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-600">
+                  No workflow transition is available for your role from the current state.
+                </p>
+              )}
+
+              {recentWorkflowComments.length > 0 ? (
+                <div className="space-y-3 rounded-lg border border-gray-200 bg-white p-4">
+                  <p className="text-sm font-semibold text-gray-900">Recent Workflow Notes</p>
+                  <div className="space-y-3">
+                    {recentWorkflowComments.map((comment) => (
+                      <div key={comment.id || `${comment.createdAt || 'comment'}-${comment.body || ''}`} className="border-b border-gray-100 pb-3 last:border-b-0 last:pb-0">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                          <span className="font-semibold text-gray-700">
+                            {comment.author?.name || comment.author?.email || 'Team'}
+                          </span>
+                          <span>{formatNewsroomRoleLabel(comment.author?.role)}</span>
+                          {comment.createdAt ? (
+                            <span>{formatDraftTimestamp(comment.createdAt)}</span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-sm text-gray-700">{comment.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               ) : null}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-900 mb-2">Article Content <span className="text-red-500">*</span></label>
-              <p className="mb-2 text-xs text-gray-500">Tip: Paste a YouTube link on its own line or use the YouTube button in the toolbar.</p>
+              <label className="block text-sm font-medium text-gray-900 mb-2">
+                Article Title <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="title"
+                value={formData.title}
+                onChange={handleInputChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2">
+                Summary <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                name="summary"
+                value={formData.summary}
+                onChange={handleInputChange}
+                rows={2}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+                required
+              />
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <p className="text-sm font-semibold text-gray-900">SEO Settings</p>
+              <input
+                type="text"
+                name="seoTitle"
+                value={formData.seoTitle}
+                onChange={handleInputChange}
+                placeholder="Meta title (max 160)"
+                maxLength={160}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+              />
+              <textarea
+                name="seoDescription"
+                value={formData.seoDescription}
+                onChange={handleInputChange}
+                placeholder="Meta description (max 320)"
+                rows={3}
+                maxLength={320}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+              />
+              <input
+                type="text"
+                name="ogImage"
+                value={formData.ogImage}
+                onChange={handleInputChange}
+                placeholder="OG image URL or /local-path"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+              />
+              <p className="-mt-2 text-xs text-gray-500">
+                Leave empty to auto-use featured image as 1200x630 OG preview.
+              </p>
+              <input
+                type="url"
+                name="canonicalUrl"
+                value={formData.canonicalUrl}
+                onChange={handleInputChange}
+                placeholder="Canonical URL"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2">
+                Featured Image <span className="text-red-500">*</span>
+              </label>
+              <label className="flex items-center justify-center w-full px-4 py-6 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-spanish-red hover:bg-gray-50 transition-colors">
+                <div className="flex flex-col items-center gap-2">
+                  <ImageIcon className="w-6 h-6 text-gray-400" />
+                  <span className="text-sm font-medium text-gray-700">Click to change image</span>
+                </div>
+                <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+              </label>
+              <p className="mt-2 text-xs text-gray-500">{ARTICLE_IMAGE_UPLOAD_GUIDE}</p>
+              {imageQualityNote ? (
+                <p className="mt-1 text-xs font-medium text-amber-700">{imageQualityNote}</p>
+              ) : null}
+              {imagePreview ? (
+                <div className="mt-4 rounded-lg overflow-hidden border border-gray-200">
+                  <img src={imagePreview} alt="Preview" className="w-full h-64 object-cover" />
+                </div>
+              ) : null}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2">
+                Article Content <span className="text-red-500">*</span>
+              </label>
+              <p className="mb-2 text-xs text-gray-500">
+                Tip: Paste a YouTube link on its own line or use the YouTube button in the toolbar.
+              </p>
               <div className="mb-3 inline-flex overflow-hidden rounded-lg border border-gray-300">
-                <button type="button" onClick={() => setContentMode('write')} className={`px-4 py-1.5 text-sm font-medium ${contentMode === 'write' ? 'bg-spanish-red text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}>Write</button>
-                <button type="button" onClick={() => setContentMode('preview')} className={`px-4 py-1.5 text-sm font-medium ${contentMode === 'preview' ? 'bg-spanish-red text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}>Preview</button>
+                <button
+                  type="button"
+                  onClick={() => setContentMode('write')}
+                  className={`px-4 py-1.5 text-sm font-medium ${contentMode === 'write' ? 'bg-spanish-red text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                >
+                  Write
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setContentMode('preview')}
+                  className={`px-4 py-1.5 text-sm font-medium ${contentMode === 'preview' ? 'bg-spanish-red text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                >
+                  Preview
+                </button>
               </div>
               {contentMode === 'write' ? (
-                <RichTextEditor value={formData.content} onChange={(content) => setFormData((current) => ({ ...current, content }))} />
+                <RichTextEditor
+                  value={formData.content}
+                  onChange={(content) => setFormData((current) => ({ ...current, content }))}
+                />
               ) : (
                 <div className="rounded-lg border border-gray-300 bg-white p-4">
-                  <h3 className="text-lg font-bold text-gray-900">{formData.title.trim() || 'Untitled article'}</h3>
-                  <p className="mt-1 text-sm text-gray-600">{formData.summary.trim() || 'Summary preview will appear here.'}</p>
+                  <h3 className="text-lg font-bold text-gray-900">
+                    {formData.title.trim() || 'Untitled article'}
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-600">
+                    {formData.summary.trim() || 'Summary preview will appear here.'}
+                  </p>
                   <div className="my-4 h-px bg-gray-200" />
-                  <div className="article-rich-content text-gray-800" dangerouslySetInnerHTML={{ __html: previewContentHtml }} />
+                  <div
+                    className="article-rich-content text-gray-800"
+                    dangerouslySetInnerHTML={{ __html: previewContentHtml }}
+                  />
                 </div>
               )}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-900 mb-2">Category <span className="text-red-500">*</span></label>
-              <select name="category" value={formData.category} onChange={handleInputChange} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors">
-                {categories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+              <label className="block text-sm font-medium text-gray-900 mb-2">
+                Category <span className="text-red-500">*</span>
+              </label>
+              <select
+                name="category"
+                value={formData.category}
+                onChange={handleInputChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+              >
+                {categories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
               </select>
 
-              <div className="mt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateCategory((s) => !s)}
-                  className="text-sm text-spanish-red font-medium hover:underline"
-                >
-                  {showCreateCategory ? 'Cancel' : '+ Create new category'}
-                </button>
+              {canCreateCategories ? (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateCategory((current) => !current)}
+                    className="text-sm text-spanish-red font-medium hover:underline"
+                  >
+                    {showCreateCategory ? 'Cancel' : '+ Create new category'}
+                  </button>
 
-                {showCreateCategory ? (
-                  <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
-                    {createCategoryError ? <div className="text-sm text-red-600">{createCategoryError}</div> : null}
-                    <input
-                      value={newCategoryName}
-                      onChange={(e) => setNewCategoryName(e.target.value)}
-                      placeholder="Category name"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    />
-                    <input
-                      value={newCategorySlug}
-                      onChange={(e) => setNewCategorySlug(e.target.value)}
-                      placeholder="Optional slug (auto-generated if blank)"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={isCreatingCategory}
-                        onClick={async () => {
-                          setCreateCategoryError('');
-                          if (!newCategoryName.trim()) {
-                            setCreateCategoryError('Please provide a category name');
-                            return;
-                          }
-                          setIsCreatingCategory(true);
-                          try {
-                            const response = await fetch('/api/admin/categories', {
-                              method: 'POST',
-                              headers: {
-                                'Content-Type': 'application/json',
-                                ...getAuthHeader(),
-                              },
-                              body: JSON.stringify({
-                                name: newCategoryName.trim(),
-                                slug: newCategorySlug.trim() || undefined,
-                              }),
-                            });
-                            const data = await response.json();
-                            if (!response.ok) {
-                              throw new Error(data?.error || 'Failed to create category');
+                  {showCreateCategory ? (
+                    <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
+                      {createCategoryError ? (
+                        <div className="text-sm text-red-600">{createCategoryError}</div>
+                      ) : null}
+                      <input
+                        value={newCategoryName}
+                        onChange={(event) => setNewCategoryName(event.target.value)}
+                        placeholder="Category name"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                      <input
+                        value={newCategorySlug}
+                        onChange={(event) => setNewCategorySlug(event.target.value)}
+                        placeholder="Optional slug (auto-generated if blank)"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={isCreatingCategory}
+                          onClick={async () => {
+                            setCreateCategoryError('');
+                            if (!newCategoryName.trim()) {
+                              setCreateCategoryError('Please provide a category name');
+                              return;
                             }
-                            const created = data.data as { name: string };
-                            setCategories((current) => [created.name, ...current.filter((item) => item !== created.name)]);
-                            setFormData((current) => ({ ...current, category: created.name }));
+                            setIsCreatingCategory(true);
+                            try {
+                              const response = await fetch('/api/admin/categories', {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  ...getAuthHeader(),
+                                },
+                                body: JSON.stringify({
+                                  name: newCategoryName.trim(),
+                                  slug: newCategorySlug.trim() || undefined,
+                                }),
+                              });
+                              const data = await response.json();
+                              if (!response.ok) {
+                                throw new Error(data?.error || 'Failed to create category');
+                              }
+                              const created = data.data as { name: string };
+                              setCategories((current) => [
+                                created.name,
+                                ...current.filter((item) => item !== created.name),
+                              ]);
+                              setFormData((current) => ({ ...current, category: created.name }));
+                              setNewCategoryName('');
+                              setNewCategorySlug('');
+                              setShowCreateCategory(false);
+                            } catch (requestError: unknown) {
+                              setCreateCategoryError(
+                                requestError instanceof Error
+                                  ? requestError.message
+                                  : 'Failed to create category'
+                              );
+                            } finally {
+                              setIsCreatingCategory(false);
+                            }
+                          }}
+                          className="px-4 py-2 bg-spanish-red text-white rounded-md disabled:opacity-50"
+                        >
+                          {isCreatingCategory ? 'Creating...' : 'Create'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCreateCategory(false);
                             setNewCategoryName('');
                             setNewCategorySlug('');
-                            setShowCreateCategory(false);
-                          } catch (err: unknown) {
-                            setCreateCategoryError(
-                              err instanceof Error ? err.message : 'Failed to create category'
-                            );
-                          } finally {
-                            setIsCreatingCategory(false);
-                          }
-                        }}
-                        className="px-4 py-2 bg-spanish-red text-white rounded-md disabled:opacity-50"
-                      >
-                        {isCreatingCategory ? 'Creating...' : 'Create'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowCreateCategory(false);
-                          setNewCategoryName('');
-                          setNewCategorySlug('');
-                          setCreateCategoryError('');
-                        }}
-                        className="px-4 py-2 border border-gray-300 rounded-md"
-                      >
-                        Cancel
-                      </button>
+                            setCreateCategoryError('');
+                          }}
+                          className="px-4 py-2 border border-gray-300 rounded-md"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ) : null}
-              </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-900 mb-2">Author Name <span className="text-red-500">*</span></label>
-              <input type="text" name="author" value={formData.author} onChange={handleInputChange} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors" required />
+              <label className="block text-sm font-medium text-gray-900 mb-2">
+                Author Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="author"
+                value={formData.author}
+                onChange={handleInputChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+                required
+              />
             </div>
+
+            <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Reporter Submission</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Origin, location, and handoff notes that should travel with the article.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-2">
+                  Location Tag
+                </label>
+                <input
+                  type="text"
+                  name="locationTag"
+                  value={formData.locationTag}
+                  onChange={handleInputChange}
+                  placeholder="Indore, Madhya Pradesh"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-2">
+                  Source Info
+                </label>
+                <textarea
+                  name="sourceInfo"
+                  value={formData.sourceInfo}
+                  onChange={handleInputChange}
+                  rows={3}
+                  placeholder="Source background, documents, interview trail, or bureau reference."
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+                />
+              </div>
+              <label className="flex items-center gap-3 cursor-pointer rounded-lg border border-gray-200 bg-white px-4 py-3">
+                <input
+                  type="checkbox"
+                  name="sourceConfidential"
+                  checked={formData.sourceConfidential}
+                  onChange={handleInputChange}
+                  className="w-4 h-4 rounded border-gray-300 text-spanish-red focus:ring-spanish-red"
+                />
+                <span className="text-sm text-gray-700">
+                  Source is confidential and should stay internal to the desk
+                </span>
+              </label>
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-2">
+                  Reporter Notes
+                </label>
+                <textarea
+                  name="reporterNotes"
+                  value={formData.reporterNotes}
+                  onChange={handleInputChange}
+                  rows={3}
+                  placeholder="Context for copy edit, verification, or publishing handoff."
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+                />
+              </div>
+            </div>
+
+            {canEditCopyDeskMeta ? (
+              <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">Copy Editor Review</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Proofing and quality checks before the article moves toward approval or publish.
+                  </p>
+                </div>
+                <label className="flex items-center gap-3 cursor-pointer rounded-lg border border-gray-200 bg-white px-4 py-3">
+                  <input
+                    type="checkbox"
+                    name="proofreadComplete"
+                    checked={formData.proofreadComplete}
+                    onChange={handleInputChange}
+                    className="w-4 h-4 rounded border-gray-300 text-spanish-red focus:ring-spanish-red"
+                  />
+                  <span className="text-sm text-gray-700">
+                    Proofread is complete and ready for desk review
+                  </span>
+                </label>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-2">
+                      Fact Check
+                    </label>
+                    <select
+                      name="factCheckStatus"
+                      value={formData.factCheckStatus}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+                    >
+                      {FACT_CHECK_STATUSES.map((status) => (
+                        <option key={status} value={status}>
+                          {status.replace(/_/g, ' ')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-2">
+                      Headline
+                    </label>
+                    <select
+                      name="headlineStatus"
+                      value={formData.headlineStatus}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+                    >
+                      {HEADLINE_STATUSES.map((status) => (
+                        <option key={status} value={status}>
+                          {status.replace(/_/g, ' ')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-2">
+                      Image
+                    </label>
+                    <select
+                      name="imageOptimizationStatus"
+                      value={formData.imageOptimizationStatus}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+                    >
+                      {IMAGE_OPTIMIZATION_STATUSES.map((status) => (
+                        <option key={status} value={status}>
+                          {status.replace(/_/g, ' ')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-900 mb-2">
+                    Copy Editor Notes
+                  </label>
+                  <textarea
+                    name="copyEditorNotes"
+                    value={formData.copyEditorNotes}
+                    onChange={handleInputChange}
+                    rows={3}
+                    placeholder="Headline, language, verification, or image feedback for the desk."
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-900 mb-2">
+                    Return For Changes Reason
+                  </label>
+                  <textarea
+                    name="returnForChangesReason"
+                    value={formData.returnForChangesReason}
+                    onChange={handleInputChange}
+                    rows={3}
+                    placeholder={
+                      isReporterView
+                        ? 'Visible to desk roles when changes are requested.'
+                        : 'Explain what should go back to the reporter before approval.'
+                    }
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+                  />
+                </div>
+              </div>
+            ) : null}
 
             <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
               <p className="text-sm font-medium text-gray-900">Article Status</p>
-              <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" name="isBreaking" checked={formData.isBreaking} onChange={handleInputChange} className="w-4 h-4 rounded border-gray-300 text-spanish-red focus:ring-spanish-red" /><span className="text-sm text-gray-700">Mark as Breaking News</span></label>
-              <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" name="isTrending" checked={formData.isTrending} onChange={handleInputChange} className="w-4 h-4 rounded border-gray-300 text-spanish-red focus:ring-spanish-red" /><span className="text-sm text-gray-700">Mark as Trending</span></label>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="isBreaking"
+                  checked={formData.isBreaking}
+                  onChange={handleInputChange}
+                  className="w-4 h-4 rounded border-gray-300 text-spanish-red focus:ring-spanish-red"
+                />
+                <span className="text-sm text-gray-700">Mark as Breaking News</span>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="isTrending"
+                  checked={formData.isTrending}
+                  onChange={handleInputChange}
+                  className="w-4 h-4 rounded border-gray-300 text-spanish-red focus:ring-spanish-red"
+                />
+                <span className="text-sm text-gray-700">Mark as Trending</span>
+              </label>
             </div>
 
             <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
@@ -921,7 +2210,7 @@ export default function EditArticle() {
                   ) : null}
                   {breakingTtsInfo?.voice || breakingTtsInfo?.model ? (
                     <p className="mt-1 text-xs text-gray-500">
-                      {[breakingTtsInfo?.voice, breakingTtsInfo?.model].filter(Boolean).join(' · ')}
+                      {[breakingTtsInfo.voice, breakingTtsInfo.model].filter(Boolean).join(' | ')}
                     </p>
                   ) : null}
                 </div>
@@ -981,7 +2270,7 @@ export default function EditArticle() {
                   ) : null}
                   {articleTtsInfo?.voice || articleTtsInfo?.model ? (
                     <p className="mt-1 text-xs text-gray-500">
-                      {[articleTtsInfo?.voice, articleTtsInfo?.model].filter(Boolean).join(' | ')}
+                      {[articleTtsInfo.voice, articleTtsInfo.model].filter(Boolean).join(' | ')}
                     </p>
                   ) : null}
                   {articleTtsInfo?.lastError ? (
@@ -991,7 +2280,12 @@ export default function EditArticle() {
                 <button
                   type="button"
                   onClick={handleRegenerateArticleTts}
-                  disabled={articleTtsNeedsSave || !articleTtsEligible || isLoadingArticleTts || isRegeneratingArticleTts}
+                  disabled={
+                    articleTtsNeedsSave ||
+                    !articleTtsEligible ||
+                    isLoadingArticleTts ||
+                    isRegeneratingArticleTts
+                  }
                   className="inline-flex items-center gap-2 rounded-md border border-spanish-red bg-white px-3 py-2 text-xs font-semibold text-spanish-red hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isLoadingArticleTts || isRegeneratingArticleTts ? (
@@ -1019,11 +2313,93 @@ export default function EditArticle() {
 
             <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-gray-900">Revision History</p>
-                <button type="button" onClick={fetchRevisions} className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100">{isLoadingRevisions ? 'Refreshing...' : 'Refresh'}</button>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">Activity Timeline</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Live audit trail for saves, workflow moves, and revision restores.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void fetchArticleActivity()}
+                  className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                >
+                  {isLoadingActivity ? 'Refreshing...' : 'Refresh'}
+                </button>
               </div>
-              {isLoadingRevisions ? <p className="text-sm text-gray-600">Loading revisions...</p> : null}
-              {!isLoadingRevisions && revisions.length === 0 ? <p className="text-sm text-gray-600">No revisions yet. Save article to create one.</p> : null}
+              {isLoadingActivity ? (
+                <p className="text-sm text-gray-600">Loading activity...</p>
+              ) : null}
+              {!isLoadingActivity && articleActivity.length === 0 ? (
+                <p className="text-sm text-gray-600">
+                  No article activity yet. Save or move workflow to start the timeline.
+                </p>
+              ) : null}
+              {!isLoadingActivity && articleActivity.length > 0 ? (
+                <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
+                  {articleActivity.map((activity, index) => (
+                    <div
+                      key={activity.id || `${activity.action || 'activity'}-${activity.createdAt || index}`}
+                      className="rounded-lg border border-gray-200 bg-white p-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-700">
+                              {formatActivityActionLabel(activity.action)}
+                            </span>
+                            {activity.toStatus ? <WorkflowPill status={activity.toStatus} /> : null}
+                            {activity.source === 'derived' ? (
+                              <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700">
+                                Derived
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-2 text-sm text-gray-800">
+                            {activity.message || 'Article activity recorded.'}
+                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                            <span className="font-semibold text-gray-700">
+                              {activity.actor?.name || activity.actor?.email || 'System'}
+                            </span>
+                            {activity.actor?.role ? (
+                              <span>{formatNewsroomRoleLabel(activity.actor.role)}</span>
+                            ) : null}
+                            {activity.fromStatus && activity.toStatus ? (
+                              <span>
+                                {formatWorkflowStatus(activity.fromStatus)} {'->'}{' '}
+                                {formatWorkflowStatus(activity.toStatus)}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="text-right text-xs text-gray-500">
+                          {activity.createdAt ? formatDraftTimestamp(activity.createdAt) : 'Unknown time'}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-gray-900">Revision History</p>
+                <button
+                  type="button"
+                  onClick={() => void fetchRevisions()}
+                  className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                >
+                  {isLoadingRevisions ? 'Refreshing...' : 'Refresh'}
+                </button>
+              </div>
+              {isLoadingRevisions ? (
+                <p className="text-sm text-gray-600">Loading revisions...</p>
+              ) : null}
+              {!isLoadingRevisions && revisions.length === 0 ? (
+                <p className="text-sm text-gray-600">No revisions yet. Save article to create one.</p>
+              ) : null}
               {!isLoadingRevisions && revisions.length > 0 ? (
                 <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                   {revisions.map((revision, index) => {
@@ -1033,14 +2409,25 @@ export default function EditArticle() {
                       <div key={revisionId} className="rounded-lg border border-gray-200 bg-white p-3">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-gray-900">{revision.title?.trim() || 'Untitled revision'}</p>
-                            <p className="text-xs text-gray-500">{formatDraftTimestamp(revision.savedAt || '') || 'Unknown save time'}</p>
+                            <p className="truncate text-sm font-semibold text-gray-900">
+                              {revision.title?.trim() || 'Untitled revision'}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {formatDraftTimestamp(revision.savedAt || '') || 'Unknown save time'}
+                            </p>
                           </div>
-                          <button type="button" disabled={!revision._id || isRestoring} onClick={() => revision._id && handleRestoreRevision(revision._id)} className="shrink-0 rounded-md border border-spanish-red px-3 py-1.5 text-xs font-semibold text-spanish-red hover:bg-red-50 disabled:opacity-50">
+                          <button
+                            type="button"
+                            disabled={!revision._id || isRestoring}
+                            onClick={() => revision._id && void handleRestoreRevision(revision._id)}
+                            className="shrink-0 rounded-md border border-spanish-red px-3 py-1.5 text-xs font-semibold text-spanish-red hover:bg-red-50 disabled:opacity-50"
+                          >
                             {isRestoring ? 'Restoring...' : 'Restore'}
                           </button>
                         </div>
-                        <p className="mt-1 line-clamp-2 text-xs text-gray-600">{revision.summary?.trim() || 'No summary in this revision.'}</p>
+                        <p className="mt-1 line-clamp-2 text-xs text-gray-600">
+                          {revision.summary?.trim() || 'No summary in this revision.'}
+                        </p>
                       </div>
                     );
                   })}
@@ -1049,11 +2436,30 @@ export default function EditArticle() {
             </div>
 
             <div className="flex gap-3 pt-4">
-              <button type="submit" disabled={isSaving || isLoadingImage} className="flex-1 flex items-center justify-center gap-2 py-3 bg-spanish-red text-white font-medium rounded-lg hover:bg-guardsman-red transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                {isSaving || isLoadingImage ? <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving...</> : <><Upload className="w-5 h-5" />Save Changes</>}
+              <button
+                type="submit"
+                disabled={isSaving || isLoadingImage}
+                className="flex-1 flex items-center justify-center gap-2 py-3 bg-spanish-red text-white font-medium rounded-lg hover:bg-guardsman-red transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving || isLoadingImage ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-5 h-5" />
+                    Save Changes
+                  </>
+                )}
               </button>
               <Link href="/admin/articles">
-                <button type="button" className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button
+                  type="button"
+                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
               </Link>
             </div>
           </form>

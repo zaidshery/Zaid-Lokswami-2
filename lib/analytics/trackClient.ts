@@ -58,18 +58,168 @@ type TrackClientEventInput = {
   metadata?: Record<string, unknown>;
 };
 
+function getDeviceCategory() {
+  if (typeof window === 'undefined') return 'unknown';
+
+  const userAgent = navigator.userAgent.toLowerCase();
+  const width = window.innerWidth || 0;
+
+  if (/ipad|tablet/.test(userAgent) || (width >= 768 && width < 1100)) {
+    return 'tablet';
+  }
+
+  if (/mobi|android|iphone/.test(userAgent) || width < 768) {
+    return 'mobile';
+  }
+
+  return 'desktop';
+}
+
+function getViewportBucket() {
+  if (typeof window === 'undefined') return 'unknown';
+
+  const width = window.innerWidth || 0;
+  if (width < 640) return 'sm';
+  if (width < 1024) return 'md';
+  return 'lg';
+}
+
+function getBrowserTimeZone() {
+  if (typeof Intl === 'undefined') return '';
+
+  try {
+    return String(Intl.DateTimeFormat().resolvedOptions().timeZone || '').slice(0, 80);
+  } catch {
+    return '';
+  }
+}
+
+function getReferrerMetadata() {
+  if (typeof document === 'undefined' || typeof window === 'undefined') {
+    return {
+      referrerHost: '',
+      referrerCategory: 'direct',
+    };
+  }
+
+  const rawReferrer = String(document.referrer || '').trim();
+  if (!rawReferrer) {
+    return {
+      referrerHost: '',
+      referrerCategory: 'direct',
+    };
+  }
+
+  try {
+    const referrerUrl = new URL(rawReferrer);
+    const currentHost = window.location.hostname.replace(/^www\./, '');
+    const referrerHost = referrerUrl.hostname.replace(/^www\./, '');
+
+    if (!referrerHost) {
+      return {
+        referrerHost: '',
+        referrerCategory: 'direct',
+      };
+    }
+
+    if (referrerHost === currentHost) {
+      return {
+        referrerHost,
+        referrerCategory: 'internal',
+      };
+    }
+
+    if (/(google|bing|yahoo|duckduckgo)\./i.test(referrerHost)) {
+      return {
+        referrerHost,
+        referrerCategory: 'search',
+      };
+    }
+
+    if (/(facebook|instagram|twitter|x\.com|t\.co|youtube|linkedin)\./i.test(referrerHost)) {
+      return {
+        referrerHost,
+        referrerCategory: 'social',
+      };
+    }
+
+    if (/(whatsapp|wa\.me|telegram|t\.me)\./i.test(referrerHost)) {
+      return {
+        referrerHost,
+        referrerCategory: 'messaging',
+      };
+    }
+
+    return {
+      referrerHost,
+      referrerCategory: 'referral',
+    };
+  } catch {
+    return {
+      referrerHost: '',
+      referrerCategory: 'direct',
+    };
+  }
+}
+
+function getCampaignMetadata() {
+  if (typeof window === 'undefined') {
+    return {
+      utmSource: '',
+      utmMedium: '',
+      utmCampaign: '',
+      utmTerm: '',
+      utmContent: '',
+    };
+  }
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      utmSource: String(params.get('utm_source') || '').trim().slice(0, 120),
+      utmMedium: String(params.get('utm_medium') || '').trim().slice(0, 120),
+      utmCampaign: String(params.get('utm_campaign') || '').trim().slice(0, 160),
+      utmTerm: String(params.get('utm_term') || '').trim().slice(0, 160),
+      utmContent: String(params.get('utm_content') || '').trim().slice(0, 160),
+    };
+  } catch {
+    return {
+      utmSource: '',
+      utmMedium: '',
+      utmCampaign: '',
+      utmTerm: '',
+      utmContent: '',
+    };
+  }
+}
+
 export function trackClientEvent(input: TrackClientEventInput) {
   if (typeof window === 'undefined') return;
 
   const event = String(input.event || '').trim().toLowerCase();
   if (!event) return;
 
+  const referrer = getReferrerMetadata();
+  const campaign = getCampaignMetadata();
   const payload = {
     event,
     page: String(input.page || window.location.pathname).slice(0, 200),
     source: String(input.source || 'web').slice(0, 80),
     sessionId: getSessionId(),
-    metadata: input.metadata || {},
+    metadata: {
+      ...input.metadata,
+      deviceCategory: getDeviceCategory(),
+      viewportBucket: getViewportBucket(),
+      browserTimeZone: getBrowserTimeZone(),
+      browserLanguage: String(navigator.language || '').slice(0, 32),
+      referrerHost: referrer.referrerHost,
+      referrerCategory: referrer.referrerCategory,
+      utmSource: campaign.utmSource,
+      utmMedium: campaign.utmMedium,
+      utmCampaign: campaign.utmCampaign,
+      utmTerm: campaign.utmTerm,
+      utmContent: campaign.utmContent,
+    },
   };
 
   trackGoogleTagManagerEvent(payload);

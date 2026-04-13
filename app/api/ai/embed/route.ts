@@ -5,6 +5,7 @@ import EPaper from '@/lib/models/EPaper';
 import Story from '@/lib/models/Story';
 import Video from '@/lib/models/Video';
 import { getAdminSession } from '@/lib/auth/admin';
+import { canRunGlobalAiOps } from '@/lib/auth/permissions';
 import {
   embedContent,
   generateContentSummary,
@@ -474,6 +475,12 @@ export async function GET() {
       { status: 401 }
     );
   }
+  if (!canRunGlobalAiOps(admin.role)) {
+    return NextResponse.json(
+      { success: false, error: 'Forbidden' },
+      { status: 403 }
+    );
+  }
 
   try {
     await connectDB();
@@ -498,6 +505,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { success: false, error: 'Unauthorized' },
       { status: 401 }
+    );
+  }
+  if (!canRunGlobalAiOps(admin.role)) {
+    return NextResponse.json(
+      { success: false, error: 'Forbidden' },
+      { status: 403 }
     );
   }
 

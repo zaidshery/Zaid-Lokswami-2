@@ -4,6 +4,7 @@ import connectDB from '@/lib/db/mongoose';
 import EPaper from '@/lib/models/EPaper';
 import EPaperArticle from '@/lib/models/EPaperArticle';
 import { getAdminSession } from '@/lib/auth/admin';
+import { canViewPage } from '@/lib/auth/permissions';
 import {
   getCityNameFromSlug,
   getCitySlugFromName,
@@ -15,12 +16,23 @@ import {
   buildEpaperAutomationInfo,
   buildEpaperReadiness,
 } from '@/lib/utils/epaperAdminReadiness';
+import { resolveEpaperProduction } from '@/lib/workflow/epaper';
+import { isEPaperPageReviewStatus } from '@/lib/types/epaper';
 
 type EpaperPage = {
   pageNumber: number;
   imagePath: string;
   width: number | undefined;
   height: number | undefined;
+  reviewStatus: 'pending' | 'needs_attention' | 'ready';
+  reviewNote: string;
+  reviewedAt: string | null;
+  reviewedBy: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+  } | null;
 };
 
 function parsePageParam(value: string | null, fallback: number, max: number) {
@@ -85,6 +97,27 @@ function normalizePages(value: unknown): EpaperPage[] {
           typeof source.imagePath === 'string' ? source.imagePath : '',
         width: toOptionalPositiveInt(source.width),
         height: toOptionalPositiveInt(source.height),
+        reviewStatus: isEPaperPageReviewStatus(source.reviewStatus)
+          ? source.reviewStatus
+          : 'pending',
+        reviewNote: typeof source.reviewNote === 'string' ? source.reviewNote.trim() : '',
+        reviewedAt:
+          source.reviewedAt instanceof Date
+            ? source.reviewedAt.toISOString()
+            : typeof source.reviewedAt === 'string' && source.reviewedAt.trim()
+            ? source.reviewedAt
+            : null,
+        reviewedBy:
+          typeof source.reviewedBy === 'object' &&
+          source.reviewedBy !== null &&
+          typeof (source.reviewedBy as { id?: unknown }).id === 'string'
+            ? {
+                id: String((source.reviewedBy as { id?: unknown }).id || ''),
+                name: String((source.reviewedBy as { name?: unknown }).name || ''),
+                email: String((source.reviewedBy as { email?: unknown }).email || ''),
+                role: String((source.reviewedBy as { role?: unknown }).role || ''),
+              }
+            : null,
       } satisfies EpaperPage;
     })
     .filter((page): page is EpaperPage => Boolean(page))
@@ -98,6 +131,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
+      );
+    }
+    if (!canViewPage(admin.role, 'epapers')) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
       );
     }
 
@@ -180,10 +219,17 @@ export async function GET(req: NextRequest) {
             createdAt: row.publishedAt,
             updatedAt: row.updatedAt,
           };
+          const production = resolveEpaperProduction({
+            status: 'published',
+          });
 
           return {
             ...item,
             articleCount: 0,
+            productionStatus: production.productionStatus,
+            productionAssignee: production.productionAssignee,
+            productionNotes: [],
+            qaCompletedAt: null,
             readiness: buildEpaperReadiness({ epaper: item, articles: [] }),
             automation: buildEpaperAutomationInfo(item),
           };
@@ -223,6 +269,13 @@ export async function GET(req: NextRequest) {
       const pagesWithImage = pages.filter((pageItem) =>
         Boolean(String(pageItem.imagePath || '').trim())
       ).length;
+      const production = resolveEpaperProduction({
+        productionStatus: item.productionStatus,
+        productionAssignee: item.productionAssignee,
+        productionNotes: item.productionNotes,
+        qaCompletedAt: item.qaCompletedAt,
+        status: item.status,
+      });
 
         return {
           _id: String(item._id),
@@ -235,6 +288,13 @@ export async function GET(req: NextRequest) {
           pageCount,
           pages,
           status: item.status === 'published' ? 'published' : 'draft',
+          productionStatus: production.productionStatus,
+          productionAssignee: production.productionAssignee,
+          productionNotes: production.productionNotes.map((note) => ({
+            ...note,
+            createdAt: note.createdAt.toISOString(),
+          })),
+          qaCompletedAt: production.qaCompletedAt?.toISOString() || null,
           pagesWithImage,
           pagesMissingImage: Math.max(0, pageCount - pagesWithImage),
           sourceType: firstNonEmptyString(item.sourceType),
@@ -314,9 +374,24 @@ export async function GET(req: NextRequest) {
           coverImagePath: '',
         })),
       });
+      const production = resolveEpaperProduction({
+        productionStatus: item.productionStatus,
+        productionAssignee: item.productionAssignee,
+        productionNotes: item.productionNotes,
+        qaCompletedAt: item.qaCompletedAt,
+        status: item.status,
+        readiness,
+      });
 
       return {
         ...item,
+        productionStatus: production.productionStatus,
+        productionAssignee: production.productionAssignee,
+        productionNotes: production.productionNotes.map((note) => ({
+          ...note,
+          createdAt: note.createdAt.toISOString(),
+        })),
+        qaCompletedAt: production.qaCompletedAt?.toISOString() || null,
         articleCount: stats.articleCount,
         readiness,
         automation: buildEpaperAutomationInfo(item),

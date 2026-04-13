@@ -3,10 +3,54 @@ import connectDB from '@/lib/db/mongoose';
 import Story from '@/lib/models/Story';
 import { getAdminSession } from '@/lib/auth/admin';
 import {
+  normalizeCopyEditorMeta,
+  normalizeReporterMeta,
+  validateCopyEditorMeta,
+  validateReporterMeta,
+} from '@/lib/content/newsroomMetadata';
+import {
+  canCreateContent,
+  canReadContent,
+  canTransitionContent,
+} from '@/lib/auth/permissions';
+import {
   createStoredStory,
   listStoredStories,
 } from '@/lib/storage/storiesFile';
+import {
+  buildStoryActivityMessage,
+  recordStoryActivity,
+} from '@/lib/server/storyActivity';
+import {
+  resolveStoryWorkflow,
+  toWorkflowActorRef,
+} from '@/lib/workflow/story';
+import { isWorkflowStatus } from '@/lib/workflow/types';
+
 const FILE_STORE_UNBOUNDED_LIMIT = Number.MAX_SAFE_INTEGER;
+
+type CreateIntent = 'draft' | 'submit' | 'publish';
+
+type StoryLike = {
+  _id?: string;
+  id?: string;
+  author?: string;
+  isPublished?: boolean;
+  publishedAt?: string | Date;
+  updatedAt?: string | Date;
+  priority?: number;
+  views?: number;
+  workflow?: unknown;
+  title?: string;
+  caption?: string;
+  thumbnail?: string;
+  mediaType?: 'image' | 'video';
+  mediaUrl?: string;
+  linkUrl?: string;
+  linkLabel?: string;
+  category?: string;
+  durationSeconds?: number;
+};
 
 function parsePositiveInt(value: string | null, fallback: number, max = 200) {
   const parsed = Number.parseInt(value || '', 10);
@@ -41,6 +85,14 @@ function toBoundedDuration(value: unknown, fallback = 6) {
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : '';
+}
+
+function normalizeCreateIntent(value: unknown, legacyPublished: boolean): CreateIntent {
+  if (value === 'draft' || value === 'submit' || value === 'publish') {
+    return value;
+  }
+
+  return legacyPublished ? 'publish' : 'draft';
 }
 
 function normalizeStoryInput(body: unknown) {
@@ -82,6 +134,8 @@ function normalizeStoryInput(body: unknown) {
     durationSeconds,
     isPublished,
     publishedAt: Number.isNaN(publishedAt.getTime()) ? new Date() : publishedAt,
+    reporterMeta: normalizeReporterMeta(source.reporterMeta),
+    copyEditorMeta: normalizeCopyEditorMeta(source.copyEditorMeta),
   };
 }
 
@@ -106,6 +160,16 @@ function validateStoryInput(input: ReturnType<typeof normalizeStoryInput>) {
     return 'Link URL is too long';
   }
 
+  const reporterMetaError = validateReporterMeta(input.reporterMeta);
+  if (reporterMetaError) {
+    return reporterMetaError;
+  }
+
+  const copyEditorMetaError = validateCopyEditorMeta(input.copyEditorMeta);
+  if (copyEditorMetaError) {
+    return copyEditorMetaError;
+  }
+
   return null;
 }
 
@@ -121,6 +185,121 @@ async function shouldUseFileStore() {
   }
 }
 
+function buildInitialWorkflow(
+  intent: CreateIntent,
+  user: NonNullable<Awaited<ReturnType<typeof getAdminSession>>>
+) {
+  const actor = toWorkflowActorRef(user);
+  const now = new Date();
+
+  if (intent === 'draft') {
+    return {
+      status: 'draft' as const,
+      priority: 'normal' as const,
+      createdBy: actor,
+    };
+  }
+
+  if (intent === 'submit') {
+    return {
+      status: 'submitted' as const,
+      priority: 'normal' as const,
+      createdBy: actor,
+      submittedAt: now,
+    };
+  }
+
+  return {
+    status: 'published' as const,
+    priority: 'normal' as const,
+    createdBy: actor,
+    publishedAt: now,
+  };
+}
+
+function resolveStoryRecord(story: StoryLike, createdBy?: ReturnType<typeof toWorkflowActorRef>) {
+  const workflow = resolveStoryWorkflow({
+    workflow: story.workflow,
+    isPublished: story.isPublished,
+    publishedAt: story.publishedAt,
+    updatedAt: story.updatedAt,
+    createdBy,
+  });
+
+  return {
+    ...story,
+    isPublished: workflow.status === 'published',
+    workflow,
+  };
+}
+
+function buildStoryPermissionRecord(story: ReturnType<typeof resolveStoryRecord>) {
+  return {
+    workflow: story.workflow,
+    legacyAuthorName: typeof story.author === 'string' ? story.author : '',
+  };
+}
+
+function matchesFilters(
+  story: ReturnType<typeof resolveStoryRecord>,
+  user: NonNullable<Awaited<ReturnType<typeof getAdminSession>>>,
+  filters: {
+    category: string | null;
+    search: string;
+    published?: boolean;
+    workflowStatus: string;
+  }
+) {
+  if (!canReadContent(user, buildStoryPermissionRecord(story), { allowViewerRead: true })) {
+    return false;
+  }
+
+  if (filters.category && filters.category !== 'all' && story.category !== filters.category) {
+    return false;
+  }
+
+  if (typeof filters.published === 'boolean' && story.isPublished !== filters.published) {
+    return false;
+  }
+
+  if (filters.workflowStatus && story.workflow.status !== filters.workflowStatus) {
+    return false;
+  }
+
+  if (!filters.search) return true;
+  const needle = filters.search.toLowerCase();
+  return (
+    String(story.title || '').toLowerCase().includes(needle) ||
+    String(story.caption || '').toLowerCase().includes(needle) ||
+    String(story.category || '').toLowerCase().includes(needle)
+  );
+}
+
+function sortStories(stories: ReturnType<typeof resolveStoryRecord>[], sort: string | null) {
+  return [...stories].sort((left, right) => {
+    if (sort === 'priority') {
+      return (
+        Number(right.priority || 0) - Number(left.priority || 0) ||
+        new Date(String(right.updatedAt || right.publishedAt || 0)).getTime() -
+          new Date(String(left.updatedAt || left.publishedAt || 0)).getTime()
+      );
+    }
+
+    if (sort === 'trending') {
+      return (
+        Number(right.views || 0) - Number(left.views || 0) ||
+        new Date(String(right.updatedAt || right.publishedAt || 0)).getTime() -
+          new Date(String(left.updatedAt || left.publishedAt || 0)).getTime()
+      );
+    }
+
+    return (
+      new Date(String(right.updatedAt || right.publishedAt || 0)).getTime() -
+      new Date(String(left.updatedAt || left.publishedAt || 0)).getTime()
+    );
+  });
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -134,10 +313,10 @@ export async function GET(req: NextRequest) {
 
     const category = searchParams.get('category');
     const search = (searchParams.get('search') || '').trim();
-    const sort = searchParams.get('sort'); // latest | priority | trending
+    const sort = searchParams.get('sort');
     const publishedParam = parseBooleanParam(searchParams.get('published'));
-    const effectivePublished =
-      typeof publishedParam === 'boolean' ? publishedParam : undefined;
+    const workflowStatus = String(searchParams.get('workflowStatus') || '').trim().toLowerCase();
+    const effectiveWorkflowStatus = isWorkflowStatus(workflowStatus) ? workflowStatus : '';
     const limit = parseListLimit(searchParams.get('limit'), 20, 200);
     const page = parsePositiveInt(searchParams.get('page'), 1, 100000);
     const isUnbounded = limit === null;
@@ -147,16 +326,18 @@ export async function GET(req: NextRequest) {
     if (await shouldUseFileStore()) {
       const { data, total } = await listStoredStories({
         category,
-        published: effectivePublished,
+        published: publishedParam,
         search,
         sort,
+        workflowStatus: effectiveWorkflowStatus,
         limit: effectiveLimit,
         page: effectivePage,
       });
 
+      const stories = data.map((story) => resolveStoryRecord(story));
       return NextResponse.json({
         success: true,
-        data,
+        data: stories,
         pagination: {
           total,
           page: effectivePage,
@@ -171,10 +352,6 @@ export async function GET(req: NextRequest) {
       query.category = category;
     }
 
-    if (typeof effectivePublished === 'boolean') {
-      query.isPublished = effectivePublished;
-    }
-
     if (search) {
       const safeSearch = escapeRegex(search);
       query.$or = [
@@ -184,20 +361,31 @@ export async function GET(req: NextRequest) {
       ];
     }
 
-    let sortQuery: Record<string, 1 | -1> = { publishedAt: -1 };
-    if (sort === 'priority') {
-      sortQuery = { priority: -1, publishedAt: -1 };
-    } else if (sort === 'trending') {
-      sortQuery = { views: -1, publishedAt: -1 };
-    }
+    const allStories = (await Story.find(query)
+      .sort({ updatedAt: -1, publishedAt: -1, _id: -1 })
+      .lean()) as StoryLike[];
 
-    const skip = (effectivePage - 1) * effectiveLimit;
-    let storiesQuery = Story.find(query).sort(sortQuery).skip(skip);
-    if (!isUnbounded) {
-      storiesQuery = storiesQuery.limit(effectiveLimit);
-    }
-    const stories = await storiesQuery.lean();
-    const total = await Story.countDocuments(query);
+    const filteredStories = sortStories(
+      allStories
+        .map((story) => resolveStoryRecord(story))
+        .filter((story) =>
+          matchesFilters(story, user, {
+            category,
+            search,
+            published: publishedParam,
+            workflowStatus: effectiveWorkflowStatus,
+          })
+        ),
+      sort
+    );
+
+    const total = filteredStories.length;
+    const stories = isUnbounded
+      ? filteredStories
+      : filteredStories.slice(
+          (effectivePage - 1) * effectiveLimit,
+          (effectivePage - 1) * effectiveLimit + effectiveLimit
+        );
 
     return NextResponse.json({
       success: true,
@@ -227,10 +415,36 @@ export async function POST(req: NextRequest) {
         { status: 401 }
       );
     }
+    if (!canCreateContent(user.role, 'story')) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
+      );
+    }
 
     const body = await req.json();
     const input = normalizeStoryInput(body);
     const validationError = validateStoryInput(input);
+    const intent = normalizeCreateIntent((body as Record<string, unknown>)?.intent, input.isPublished);
+    const workflow = buildInitialWorkflow(intent, user);
+
+    if (
+      intent === 'publish' &&
+      !canTransitionContent(
+        user,
+        {
+          workflow: {
+            status: 'approved',
+          },
+        },
+        'publish'
+      )
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'You do not have permission to publish stories directly.' },
+        { status: 403 }
+      );
+    }
 
     if (validationError) {
       return NextResponse.json(
@@ -242,22 +456,67 @@ export async function POST(req: NextRequest) {
     if (await shouldUseFileStore()) {
       const stored = await createStoredStory({
         ...input,
+        isPublished: workflow.status === 'published',
         publishedAt: input.publishedAt.toISOString(),
+        workflow: {
+          ...workflow,
+          submittedAt: workflow.submittedAt?.toISOString() || null,
+          publishedAt: workflow.publishedAt?.toISOString() || null,
+        },
       });
+
+      await recordStoryActivity({
+        storyId: stored._id,
+        actor: user,
+        action: 'created',
+        toStatus: stored.workflow.status,
+        message: buildStoryActivityMessage({
+          action: 'created',
+          toStatus: stored.workflow.status,
+        }),
+        metadata: {
+          intent,
+          priority: stored.workflow.priority,
+          createdById: stored.workflow.createdBy?.id || '',
+        },
+      });
+
       return NextResponse.json(
-        { success: true, data: stored, message: 'Story created successfully' },
+        { success: true, data: resolveStoryRecord(stored), message: 'Story created successfully' },
         { status: 201 }
       );
     }
 
     const story = new Story({
       ...input,
+      isPublished: workflow.status === 'published',
       updatedAt: new Date(),
+      workflow,
     });
     const saved = await story.save();
 
+    await recordStoryActivity({
+      storyId: String(saved._id),
+      actor: user,
+      action: 'created',
+      toStatus: workflow.status,
+      message: buildStoryActivityMessage({
+        action: 'created',
+        toStatus: workflow.status,
+      }),
+      metadata: {
+        intent,
+        priority: workflow.priority,
+        createdById: workflow.createdBy?.id || '',
+      },
+    });
+
     return NextResponse.json(
-      { success: true, data: saved, message: 'Story created successfully' },
+      {
+        success: true,
+        data: resolveStoryRecord(saved.toObject()),
+        message: 'Story created successfully',
+      },
       { status: 201 }
     );
   } catch (error: unknown) {
@@ -269,4 +528,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
-

@@ -1,11 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
+import { useSearchParams } from 'next/navigation';
 import {
   Edit,
   FileText,
+  ListFilter,
   Loader,
   Plus,
   RefreshCw,
@@ -14,23 +17,35 @@ import {
   Volume2,
 } from 'lucide-react';
 import { getAuthHeader } from '@/lib/auth/clientToken';
+import { isAdminRole, isReporterDeskRole, type AdminRole } from '@/lib/auth/roles';
 import { NEWS_CATEGORIES } from '@/lib/constants/newsCategories';
 import { formatUiDate } from '@/lib/utils/dateFormat';
+import type { WorkflowStatus } from '@/lib/workflow/types';
 
-interface Article {
+type ScopeFilter = 'all' | 'mine' | 'assigned' | 'review';
+type TtsVariant = 'breaking_headline' | 'article_full';
+type TtsStatus = 'pending' | 'ready' | 'failed' | 'stale';
+
+type Article = {
   _id: string;
   title: string;
   summary: string;
   category: string;
   author: string;
-  publishedAt: string;
+  publishedAt?: string;
+  updatedAt?: string;
   views: number;
   isBreaking: boolean;
   isTrending: boolean;
-}
-
-type TtsVariant = 'breaking_headline' | 'article_full';
-type TtsStatus = 'pending' | 'ready' | 'failed' | 'stale';
+  workflow?: {
+    status?: WorkflowStatus;
+    assignedTo?: { id?: string; name?: string; email?: string } | null;
+    createdBy?: { id?: string; name?: string; email?: string } | null;
+    reviewedBy?: { id?: string; name?: string; email?: string } | null;
+    rejectionReason?: string;
+    scheduledFor?: string | null;
+  } | null;
+};
 
 type TtsAssetRecord = {
   _id: string;
@@ -49,6 +64,112 @@ type TtsAssetsResponse = {
 };
 
 const FILTER_CATEGORIES = ['all', ...NEWS_CATEGORIES.map((category) => category.nameEn)];
+const WORKFLOW_FILTERS: Array<{ value: WorkflowStatus | 'all'; label: string }> = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'submitted', label: 'Submitted' },
+  { value: 'assigned', label: 'Assigned' },
+  { value: 'in_review', label: 'In Review' },
+  { value: 'copy_edit', label: 'Copy Edit' },
+  { value: 'changes_requested', label: 'Changes Requested' },
+  { value: 'ready_for_approval', label: 'Ready For Approval' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'published', label: 'Published' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'archived', label: 'Archived' },
+];
+
+const ROLE_SCOPE_OPTIONS: Record<
+  AdminRole,
+  Array<{ value: ScopeFilter; label: string }>
+> = {
+  super_admin: [
+    { value: 'all', label: 'All Articles' },
+    { value: 'review', label: 'Review Queue' },
+    { value: 'assigned', label: 'Assigned To Me' },
+    { value: 'mine', label: 'My Articles' },
+  ],
+  admin: [
+    { value: 'all', label: 'All Articles' },
+    { value: 'review', label: 'Review Queue' },
+    { value: 'assigned', label: 'Assigned To Me' },
+    { value: 'mine', label: 'My Articles' },
+  ],
+  copy_editor: [
+    { value: 'all', label: 'All Articles' },
+    { value: 'review', label: 'Review Queue' },
+    { value: 'assigned', label: 'Assigned To Me' },
+    { value: 'mine', label: 'My Articles' },
+  ],
+  reporter: [{ value: 'mine', label: 'My Articles' }],
+};
+
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(' ');
+}
+
+const PANEL_CLASS = 'admin-shell-surface-strong rounded-[30px] p-6';
+
+const SOFT_CARD_CLASS =
+  'admin-shell-surface-muted rounded-[24px] p-4 shadow-[0_18px_48px_-40px_rgba(15,23,42,0.14)] dark:shadow-[0_18px_48px_-40px_rgba(0,0,0,0.35)]';
+
+const METRIC_CARD_CLASS = 'admin-shell-surface rounded-[26px] p-5 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.16)]';
+
+const EMPTY_STATE_CLASS =
+  'rounded-[24px] border border-dashed border-[color:var(--admin-shell-border-strong)] bg-[color:var(--admin-shell-surface-muted)] p-6 text-sm leading-6 text-[color:var(--admin-shell-text-muted)]';
+
+const META_CHIP_CLASS =
+  'admin-shell-surface inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--admin-shell-text-muted)]';
+
+const FILTER_INPUT_CLASS =
+  'w-full rounded-2xl border border-[color:var(--admin-shell-border)] bg-[color:var(--admin-shell-surface)] px-4 py-3 text-sm text-[color:var(--admin-shell-text)] outline-none transition-colors placeholder:text-[color:var(--admin-shell-text-muted)] focus:border-red-400/40';
+
+const SECONDARY_BUTTON_CLASS =
+  'admin-shell-toolbar-btn inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold';
+
+const PRIMARY_BUTTON_CLASS =
+  'admin-shell-toolbar-btn inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold';
+
+const DANGER_BUTTON_CLASS =
+  'inline-flex items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20';
+
+function formatStatusLabel(status: string) {
+  return status.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function getWorkflowToneClass(status: string) {
+  switch (status) {
+    case 'published':
+      return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+    case 'approved':
+    case 'ready_for_approval':
+    case 'scheduled':
+      return 'border-blue-200 bg-blue-50 text-blue-700';
+    case 'submitted':
+    case 'assigned':
+    case 'in_review':
+    case 'copy_edit':
+    case 'changes_requested':
+      return 'border-amber-200 bg-amber-50 text-amber-700';
+    case 'rejected':
+      return 'border-red-200 bg-red-50 text-red-700';
+    default:
+      return 'border-gray-200 bg-gray-100 text-gray-700';
+  }
+}
+
+function WorkflowPill({ status }: { status: string | undefined }) {
+  const normalized = status || 'published';
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] font-semibold ${getWorkflowToneClass(normalized)}`}
+    >
+      {formatStatusLabel(normalized)}
+    </span>
+  );
+}
 
 function TtsPill({
   label,
@@ -75,18 +196,86 @@ function TtsPill({
   );
 }
 
+function StatCard({
+  label,
+  value,
+  note,
+}: {
+  label: string;
+  value: number;
+  note: string;
+}) {
+  return (
+    <div className={METRIC_CARD_CLASS}>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[color:var(--admin-shell-text-muted)]">
+        {label}
+      </p>
+      <p className="mt-4 text-4xl font-black tracking-tight text-[color:var(--admin-shell-text)]">
+        {value}
+      </p>
+      <p className="mt-3 text-sm text-[color:var(--admin-shell-text-muted)]">{note}</p>
+    </div>
+  );
+}
+
+function normalizeScopeParam(value: string | null): ScopeFilter | null {
+  return value === 'mine' || value === 'assigned' || value === 'review' || value === 'all'
+    ? value
+    : null;
+}
+
+function normalizeWorkflowParam(value: string | null): WorkflowStatus | 'all' {
+  return WORKFLOW_FILTERS.some((option) => option.value === value)
+    ? (value as WorkflowStatus | 'all')
+    : 'all';
+}
+
 export default function ArticlesManagement() {
+  const { data: session } = useSession();
+  const searchParams = useSearchParams();
+  const adminRole = isAdminRole(session?.user?.role) ? session.user.role : null;
+  const roleKey: AdminRole = adminRole || 'reporter';
+  const scopeOptions = ROLE_SCOPE_OPTIONS[roleKey];
+  const defaultScope = isReporterDeskRole(adminRole) ? 'mine' : 'all';
+  const canCreateArticles =
+    adminRole === 'super_admin' ||
+    adminRole === 'admin' ||
+    isReporterDeskRole(adminRole);
+  const canDeleteArticles = adminRole === 'super_admin' || adminRole === 'admin';
+
   const [articles, setArticles] = useState<Article[]>([]);
-  const [filteredArticles, setFilteredArticles] = useState<Article[]>([]);
   const [articleTtsById, setArticleTtsById] = useState<
     Record<string, Partial<Record<TtsVariant, TtsAssetRecord>>>
   >({});
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedScope, setSelectedScope] = useState<ScopeFilter>(defaultScope);
+  const [selectedWorkflowStatus, setSelectedWorkflowStatus] = useState<WorkflowStatus | 'all'>(
+    'all'
+  );
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [runningTtsActionKey, setRunningTtsActionKey] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const requestedScope = normalizeScopeParam(searchParams.get('scope'));
+    const requestedWorkflow = normalizeWorkflowParam(searchParams.get('workflowStatus'));
+    const requestedCategory = searchParams.get('category');
+
+    if (requestedScope && scopeOptions.some((option) => option.value === requestedScope)) {
+      setSelectedScope(requestedScope);
+    } else {
+      setSelectedScope(defaultScope);
+    }
+
+    setSelectedWorkflowStatus(requestedWorkflow);
+    setSelectedCategory(
+      requestedCategory && FILTER_CATEGORIES.includes(requestedCategory)
+        ? requestedCategory
+        : 'all'
+    );
+  }, [defaultScope, scopeOptions, searchParams]);
 
   const loadTtsAssets = useCallback(async (nextArticles: Article[]) => {
     if (!nextArticles.length) {
@@ -126,72 +315,98 @@ export default function ArticlesManagement() {
 
   const fetchArticles = useCallback(async () => {
     setIsLoading(true);
+    setError('');
+
     try {
-      const response = await fetch('/api/admin/articles?limit=all');
+      const params = new URLSearchParams({ limit: 'all' });
+      if (selectedScope !== 'all') params.set('scope', selectedScope);
+      if (selectedCategory !== 'all') params.set('category', selectedCategory);
+      if (selectedWorkflowStatus !== 'all') {
+        params.set('workflowStatus', selectedWorkflowStatus);
+      }
+
+      const response = await fetch(`/api/admin/articles?${params.toString()}`, {
+        headers: { ...getAuthHeader() },
+        cache: 'no-store',
+      });
       const data = await response.json();
 
-      if (data.success) {
-        const nextArticles = (data.data || []) as Article[];
-        setArticles(nextArticles);
-        setFilteredArticles(nextArticles);
-        await loadTtsAssets(nextArticles);
+      if (!response.ok || !data.success) {
+        setError(data.error || 'Failed to load articles');
+        setArticles([]);
+        setArticleTtsById({});
+        return;
       }
+
+      const nextArticles = (data.data || []) as Article[];
+      setArticles(nextArticles);
+      await loadTtsAssets(nextArticles);
     } catch {
       setError('Failed to load articles');
+      setArticles([]);
+      setArticleTtsById({});
     } finally {
       setIsLoading(false);
     }
-  }, [loadTtsAssets]);
+  }, [loadTtsAssets, selectedCategory, selectedScope, selectedWorkflowStatus]);
 
   useEffect(() => {
     void fetchArticles();
   }, [fetchArticles]);
 
-  const handleDelete = async (id: string) => {
-    try {
-      const response = await fetch(`/api/admin/articles/${id}`, {
-        method: 'DELETE',
-        headers: {
-          ...getAuthHeader(),
-        },
-      });
+  const filteredArticles = useMemo(() => {
+    if (!searchTerm.trim()) return articles;
 
-      if (response.ok) {
-        setArticles((current) => current.filter((article) => article._id !== id));
-        setFilteredArticles((current) => current.filter((article) => article._id !== id));
-        setArticleTtsById((current) => {
-          const next = { ...current };
-          delete next[id];
-          return next;
-        });
-        setDeleteConfirm(null);
+    const normalized = searchTerm.trim().toLowerCase();
+    return articles.filter(
+      (article) =>
+        article.title.toLowerCase().includes(normalized) ||
+        article.author.toLowerCase().includes(normalized) ||
+        article.category.toLowerCase().includes(normalized) ||
+        article.workflow?.assignedTo?.name?.toLowerCase().includes(normalized) ||
+        article.workflow?.createdBy?.name?.toLowerCase().includes(normalized)
+    );
+  }, [articles, searchTerm]);
+
+  const counts = useMemo(() => {
+    const next = {
+      total: filteredArticles.length,
+      needsReview: 0,
+      readyToPublish: 0,
+      published: 0,
+      rejected: 0,
+      drafts: 0,
+    };
+
+    for (const article of filteredArticles) {
+      const status = article.workflow?.status || 'published';
+      if (
+        status === 'submitted' ||
+        status === 'assigned' ||
+        status === 'in_review' ||
+        status === 'copy_edit' ||
+        status === 'changes_requested'
+      ) {
+        next.needsReview += 1;
       }
-    } catch {
-      setError('Failed to delete article');
-    }
-  };
-
-  useEffect(() => {
-    let filtered = articles;
-
-    if (selectedCategory !== 'all') {
-      filtered = filtered.filter((article) => article.category === selectedCategory);
-    }
-
-    if (searchTerm) {
-      filtered = filtered.filter(
-        (article) =>
-          article.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          article.author.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+      if (
+        status === 'ready_for_approval' ||
+        status === 'approved' ||
+        status === 'scheduled'
+      ) {
+        next.readyToPublish += 1;
+      }
+      if (status === 'published') next.published += 1;
+      if (status === 'rejected') next.rejected += 1;
+      if (status === 'draft') next.drafts += 1;
     }
 
-    setFilteredArticles(filtered);
-  }, [searchTerm, selectedCategory, articles]);
+    return next;
+  }, [filteredArticles]);
 
-  const getTtsState = (articleId: string, variant: TtsVariant) => {
+  const getTtsState = useCallback((articleId: string, variant: TtsVariant) => {
     return articleTtsById[articleId]?.[variant] || null;
-  };
+  }, [articleTtsById]);
 
   const handleGenerateTts = async (article: Article, variant: TtsVariant) => {
     const actionKey = `${variant}:${article._id}`;
@@ -222,90 +437,250 @@ export default function ArticlesManagement() {
       await loadTtsAssets(articles);
     } catch (requestError) {
       setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Failed to update TTS audio'
+        requestError instanceof Error ? requestError.message : 'Failed to update TTS audio'
       );
     } finally {
       setRunningTtsActionKey('');
     }
   };
 
+  const handleDelete = async (id: string) => {
+    try {
+      const response = await fetch(`/api/admin/articles/${id}`, {
+        method: 'DELETE',
+        headers: {
+          ...getAuthHeader(),
+        },
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setError(data.error || 'Failed to delete article');
+        return;
+      }
+
+      setArticles((current) => current.filter((article) => article._id !== id));
+      setArticleTtsById((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setDeleteConfirm(null);
+    } catch {
+      setError('Failed to delete article');
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Articles</h1>
-          <p className="mt-1 text-gray-600">Manage and edit your articles</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
+    <div className="space-y-6">
+      <section className="relative overflow-hidden rounded-[36px] border border-[color:var(--admin-shell-border)] bg-[radial-gradient(circle_at_top_left,rgba(185,28,28,0.10),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(37,99,235,0.08),transparent_28%),var(--admin-bg-depth)] p-8 text-[color:var(--admin-shell-text)] shadow-[var(--admin-shell-shadow-strong)] lg:p-10">
+        <div className="pointer-events-none absolute -right-10 top-0 h-48 w-48 rounded-full bg-red-500/10 blur-3xl dark:bg-red-500/14" />
+        <div className="pointer-events-none absolute bottom-0 left-0 h-40 w-40 rounded-full bg-blue-500/10 blur-3xl dark:bg-blue-500/14" />
+        <div className="relative grid gap-8 xl:grid-cols-[1.25fr,0.85fr]">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.28em] text-red-600 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-300">
+              Article Workflow
+            </div>
+            <h1 className="mt-5 text-4xl font-black tracking-tight text-[color:var(--admin-shell-text)] sm:text-5xl">
+              Article Desk
+            </h1>
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-[color:var(--admin-shell-text-muted)] sm:text-[15px]">
+              A cleaner desk for drafts, review flow, publish readiness, and article voice operations.
+              Use scope, status, and category filters to move between personal work, live review, and published output.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <div className={META_CHIP_CLASS}>
+                <span>Visible</span>
+                <strong className="text-[color:var(--admin-shell-text)]">{counts.total}</strong>
+              </div>
+              <div className={META_CHIP_CLASS}>
+                <span>Needs Review</span>
+                <strong className="text-[color:var(--admin-shell-text)]">{counts.needsReview}</strong>
+              </div>
+              <div className={META_CHIP_CLASS}>
+                <span>Ready</span>
+                <strong className="text-[color:var(--admin-shell-text)]">{counts.readyToPublish}</strong>
+              </div>
+              <div className={META_CHIP_CLASS}>
+                <span>Drafts</span>
+                <strong className="text-[color:var(--admin-shell-text)]">{counts.drafts}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div className={PANEL_CLASS}>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--admin-shell-text-muted)]">
+              Desk Actions
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+          {adminRole ? (
+            <Link
+              href="/admin/my-work"
+              className={SECONDARY_BUTTON_CLASS}
+            >
+              My Work
+            </Link>
+          ) : null}
+          {adminRole === 'super_admin' || adminRole === 'admin' || adminRole === 'copy_editor' ? (
+            <Link
+              href="/admin/review-queue"
+              className={SECONDARY_BUTTON_CLASS}
+            >
+              Review Queue
+            </Link>
+          ) : null}
           <Link
             href="/admin/ai?ttsVariant=article_full&ttsSourceType=article"
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            className={SECONDARY_BUTTON_CLASS}
           >
             Article TTS Ops
           </Link>
           <Link
             href="/admin/ai?ttsVariant=breaking_headline&ttsSourceType=article"
-            className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+            className={DANGER_BUTTON_CLASS}
           >
             Breaking TTS Ops
           </Link>
-          <Link href="/admin/articles/new">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="flex items-center gap-2 rounded-lg bg-spanish-red px-6 py-3 font-medium text-white transition-colors hover:bg-guardsman-red"
-            >
-              <Plus className="h-5 w-5" />
-              New Article
-            </motion.button>
-          </Link>
+            </div>
+            {canCreateArticles ? (
+              <div className="mt-4">
+                <Link href="/admin/articles/new" className={PRIMARY_BUTTON_CLASS}>
+                  <Plus className="h-4 w-4" />
+                  New Article
+                </Link>
+              </div>
+            ) : null}
+            <div className="mt-4 space-y-3">
+              <div className={SOFT_CARD_CLASS}>
+                <p className="text-sm font-semibold text-[color:var(--admin-shell-text)]">
+                  Current desk scope
+                </p>
+                <p className="mt-2 text-sm leading-6 text-[color:var(--admin-shell-text-muted)]">
+                  {scopeOptions.find((option) => option.value === selectedScope)?.label || 'All Articles'}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search articles..."
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 focus:border-spanish-red focus:outline-none"
-            />
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Visible Articles"
+          value={counts.total}
+          note="Matches your current desk filters and search."
+        />
+        <StatCard
+          label="Needs Review"
+          value={counts.needsReview}
+          note="Submitted, assigned, in-review, and copy-edit items."
+        />
+        <StatCard
+          label="Ready To Publish"
+          value={counts.readyToPublish}
+          note="Approved or scheduled articles waiting for release."
+        />
+        <StatCard
+          label="Published"
+          value={counts.published}
+          note="Live stories that are already out to readers."
+        />
+      </section>
+
+      <div className={PANEL_CLASS}>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-2">
+            {scopeOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setSelectedScope(option.value)}
+                className={cx(
+                  'rounded-full px-4 py-2 text-sm font-semibold transition-colors',
+                  selectedScope === option.value
+                    ? 'bg-[color:var(--admin-shell-active)] text-[color:var(--admin-shell-active-text)]'
+                    : 'bg-[color:var(--admin-shell-surface-muted)] text-[color:var(--admin-shell-text)] hover:bg-[color:var(--admin-shell-surface)]'
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
 
-          <select
-            value={selectedCategory}
-            onChange={(event) => setSelectedCategory(event.target.value)}
-            className="rounded-lg border border-gray-300 px-4 py-2 focus:border-spanish-red focus:outline-none"
-          >
-            {FILTER_CATEGORIES.map((category) => (
-              <option key={category} value={category}>
-                {category.charAt(0).toUpperCase() + category.slice(1)}
-              </option>
-            ))}
-          </select>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr),repeat(3,minmax(0,0.4fr)),auto]">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+              <input
+                type="text"
+                placeholder="Search by title, author, category, or assignee..."
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                className={cx(FILTER_INPUT_CLASS, 'pl-11')}
+              />
+            </div>
+
+            <select
+              value={selectedWorkflowStatus}
+              onChange={(event) =>
+                setSelectedWorkflowStatus(event.target.value as WorkflowStatus | 'all')
+              }
+              className={FILTER_INPUT_CLASS}
+            >
+              {WORKFLOW_FILTERS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={selectedCategory}
+              onChange={(event) => setSelectedCategory(event.target.value)}
+              className={FILTER_INPUT_CLASS}
+            >
+              {FILTER_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {category === 'all' ? 'All categories' : category}
+                </option>
+              ))}
+            </select>
+
+            <div className={cx(SOFT_CARD_CLASS, 'flex items-center gap-2 text-sm text-[color:var(--admin-shell-text-muted)]')}>
+              <ListFilter className="h-4 w-4" />
+              {counts.drafts} drafts / {counts.rejected} rejected
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void fetchArticles()}
+              className={SECONDARY_BUTTON_CLASS}
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
+          </div>
         </div>
       </div>
 
       {error ? (
-        <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
+        <div className="rounded-[24px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">
           {error}
         </div>
       ) : null}
 
       <div className="space-y-4">
         {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader className="h-6 w-6 animate-spin text-spanish-red" />
+          <div className={cx(PANEL_CLASS, 'flex flex-col items-center justify-center py-16')}>
+            <Loader className="h-6 w-6 animate-spin text-red-600 dark:text-red-300" />
+            <p className="mt-4 text-sm text-[color:var(--admin-shell-text-muted)]">Loading article desk...</p>
           </div>
         ) : filteredArticles.length === 0 ? (
-          <div className="rounded-lg border border-gray-200 bg-white p-8 text-center">
-            <FileText className="mx-auto mb-3 h-12 w-12 text-gray-400" />
-            <p className="text-gray-600">No articles found</p>
+          <div className={cx(PANEL_CLASS, 'text-center')}>
+            <FileText className="mx-auto mb-3 h-12 w-12 text-zinc-400" />
+            <p className="text-lg font-semibold text-[color:var(--admin-shell-text)]">No articles found</p>
+            <p className="mt-2 text-sm text-[color:var(--admin-shell-text-muted)]">
+              Try changing the scope, workflow status, or category filters.
+            </p>
           </div>
         ) : (
           filteredArticles.map((article, idx) => {
@@ -327,42 +702,64 @@ export default function ArticlesManagement() {
                   : breakingAsset?.status === 'failed'
                     ? 'error'
                     : 'neutral';
+            const workflowStatus = article.workflow?.status || 'published';
+            const timestamp = article.updatedAt || article.publishedAt || '';
 
             return (
               <motion.div
                 key={article._id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.05 }}
-                className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
+                transition={{ delay: idx * 0.03 }}
+                className="admin-shell-surface-strong rounded-[30px] p-5 transition-shadow hover:shadow-[0_28px_80px_-40px_rgba(15,23,42,0.28)]"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
-                    <div className="mb-1 flex items-center gap-2">
-                      <h3 className="truncate text-lg font-semibold text-gray-900">{article.title}</h3>
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <h3 className="truncate text-xl font-semibold text-[color:var(--admin-shell-text)]">{article.title}</h3>
+                      <WorkflowPill status={workflowStatus} />
                       {article.isBreaking ? (
-                        <span className="rounded bg-red-100 px-2 py-1 text-xs font-semibold text-red-800">
+                        <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">
                           Breaking
                         </span>
                       ) : null}
                       {article.isTrending ? (
-                        <span className="rounded bg-orange-100 px-2 py-1 text-xs font-semibold text-orange-800">
+                        <span className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300">
                           Trending
                         </span>
                       ) : null}
                     </div>
-                    <p className="mb-2 line-clamp-1 text-sm text-gray-600">{article.summary}</p>
-                    <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+
+                    <p className="mb-4 line-clamp-2 text-sm leading-6 text-[color:var(--admin-shell-text-muted)]">{article.summary}</p>
+
+                    <div className="flex flex-wrap gap-3 text-xs text-[color:var(--admin-shell-text-muted)]">
                       <span>By {article.author}</span>
-                      <span>|</span>
                       <span>{article.category}</span>
-                      <span>|</span>
-                      <span>{formatUiDate(article.publishedAt, article.publishedAt)}</span>
-                      <span>|</span>
+                      {article.workflow?.assignedTo?.name ? (
+                        <span>Assigned to {article.workflow.assignedTo.name}</span>
+                      ) : null}
+                      {article.workflow?.createdBy?.name ? (
+                        <span>Created by {article.workflow.createdBy.name}</span>
+                      ) : null}
+                      {timestamp ? (
+                        <span>Updated {formatUiDate(timestamp, timestamp)}</span>
+                      ) : null}
                       <span>{article.views} views</span>
                     </div>
 
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    {article.workflow?.rejectionReason ? (
+                      <div className="mt-4 rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">
+                        Rejection note: {article.workflow.rejectionReason}
+                      </div>
+                    ) : null}
+
+                    {article.workflow?.scheduledFor ? (
+                      <div className="mt-4 rounded-[20px] border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300">
+                        Scheduled for {formatUiDate(article.workflow.scheduledFor, article.workflow.scheduledFor)}
+                      </div>
+                    ) : null}
+
+                    <div className="mt-4 flex flex-wrap gap-2">
                       <TtsPill
                         label={`Listen ${listenAsset?.status || 'missing'}`}
                         tone={listenTone}
@@ -377,12 +774,12 @@ export default function ArticlesManagement() {
                       )}
                     </div>
 
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    <div className="mt-4 flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={() => void handleGenerateTts(article, 'article_full')}
                         disabled={runningTtsActionKey !== ''}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        className={cx(SECONDARY_BUTTON_CLASS, 'px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60')}
                       >
                         {runningTtsActionKey === `article_full:${article._id}` ? (
                           <Loader className="h-3.5 w-3.5 animate-spin" />
@@ -396,7 +793,7 @@ export default function ArticlesManagement() {
                           type="button"
                           onClick={() => void handleGenerateTts(article, 'breaking_headline')}
                           disabled={runningTtsActionKey !== ''}
-                          className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          className={cx(DANGER_BUTTON_CLASS, 'px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60')}
                         >
                           {runningTtsActionKey === `breaking_headline:${article._id}` ? (
                             <Loader className="h-3.5 w-3.5 animate-spin" />
@@ -408,41 +805,43 @@ export default function ArticlesManagement() {
                       ) : null}
                       <Link
                         href={`/admin/ai?ttsSourceType=article&ttsSourceId=${encodeURIComponent(article._id)}`}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                        className={cx(SECONDARY_BUTTON_CLASS, 'px-3 py-2 text-xs')}
                       >
                         TTS Ops
                       </Link>
                     </div>
 
                     {listenAsset?.lastError ? (
-                      <p className="mt-2 text-xs text-red-600">{listenAsset.lastError}</p>
+                      <p className="mt-2 text-xs text-red-600 dark:text-red-300">{listenAsset.lastError}</p>
                     ) : null}
                     {!listenAsset?.lastError && article.isBreaking && breakingAsset?.lastError ? (
-                      <p className="mt-2 text-xs text-red-600">{breakingAsset.lastError}</p>
+                      <p className="mt-2 text-xs text-red-600 dark:text-red-300">{breakingAsset.lastError}</p>
                     ) : null}
                   </div>
 
                   <div className="flex items-center gap-2">
                     <Link href={`/admin/articles/${article._id}/edit`}>
                       <motion.button
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        className="rounded-lg p-2 text-blue-600 transition-colors hover:bg-blue-50"
-                        title="Edit"
+                        whileHover={{ scale: 1.06 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="rounded-2xl p-2.5 text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-500/10"
+                        title="Open desk"
                       >
                         <Edit className="h-5 w-5" />
                       </motion.button>
                     </Link>
 
-                    <motion.button
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
-                      onClick={() => setDeleteConfirm(article._id)}
-                      className="rounded-lg p-2 text-red-600 transition-colors hover:bg-red-50"
-                      title="Delete"
-                    >
-                      <Trash2 className="h-5 w-5" />
-                    </motion.button>
+                    {canDeleteArticles ? (
+                      <motion.button
+                        whileHover={{ scale: 1.06 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setDeleteConfirm(article._id)}
+                        className="rounded-2xl p-2.5 text-red-600 transition-colors hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-500/10"
+                        title="Delete"
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </motion.button>
+                    ) : null}
                   </div>
                 </div>
 
@@ -450,21 +849,23 @@ export default function ArticlesManagement() {
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="mt-4 flex items-center justify-between rounded-lg border border-red-200 bg-red-50 p-3"
+                    className="mt-4 flex flex-col gap-3 rounded-[22px] border border-red-200 bg-red-50 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-red-500/20 dark:bg-red-500/10"
                   >
-                    <p className="text-sm text-red-800">
+                    <p className="text-sm text-red-800 dark:text-red-300">
                       Are you sure you want to delete this article?
                     </p>
                     <div className="flex gap-2">
                       <button
+                        type="button"
                         onClick={() => void handleDelete(article._id)}
-                        className="rounded bg-red-600 px-3 py-1 text-sm text-white transition-colors hover:bg-red-700"
+                        className={cx(DANGER_BUTTON_CLASS, 'px-3 py-2 text-xs')}
                       >
                         Delete
                       </button>
                       <button
+                        type="button"
                         onClick={() => setDeleteConfirm(null)}
-                        className="rounded bg-gray-300 px-3 py-1 text-sm text-gray-700 transition-colors hover:bg-gray-400"
+                        className={cx(SECONDARY_BUTTON_CLASS, 'px-3 py-2 text-xs')}
                       >
                         Cancel
                       </button>

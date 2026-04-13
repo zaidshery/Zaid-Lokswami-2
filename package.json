@@ -25,6 +25,8 @@
     "test:auth-guards": "ts-node --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" scripts/test-auth-guards.ts",
     "test:admin-credentials": "ts-node --files --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" scripts/test-admin-credentials.ts",
     "test:admin-runtime": "node scripts/test-admin-runtime.js",
+    "test:governance": "npm run typecheck && vitest run tests/deployment-safeguards.test.ts tests/permissions-governance.test.ts tests/permission-review.test.ts tests/operational-diagnostics.test.ts",
+    "test:four-role-newsroom": "npm run typecheck && vitest run tests/api/admin-team-routes.test.ts tests/api/admin-team-setup-link-route.test.ts tests/api/staff-setup-route.test.ts tests/permissions-governance.test.ts tests/newsroom-workflow-transitions.test.ts tests/newsroom-metadata.test.ts",
     "test:gemini-tts": "ts-node --files --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" scripts/test-gemini-tts.ts",
     "test:smoke": "node scripts/smoke-check-deploy.js",
     "test:tts-smoke": "node scripts/test-tts-deploy.js",
@@ -32,7 +34,9 @@
     "verify:deploy": "node scripts/verify-deploy.js",
     "seed": "node scripts/seed.js",
     "hash-password": "ts-node --files scripts/hash-password.ts",
-    "migrate:epapers": "ts-node scripts/migrate-epapers-to-v2.ts"
+    "migrate:epapers": "ts-node scripts/migrate-epapers-to-v2.ts",
+    "migrate:four-role-admin": "node scripts/migrate-four-role-admin.js",
+    "migrate:four-role-admin:write": "node scripts/migrate-four-role-admin.js --write"
   },
   "dependencies": {
     "@auth/mongodb-adapter": "^3.11.1",

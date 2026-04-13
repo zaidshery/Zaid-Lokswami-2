@@ -45,6 +45,16 @@ type SettingsResponse = {
   error?: string;
 };
 
+function cx(...classes: Array<string | undefined | false>) {
+  return classes.filter(Boolean).join(' ');
+}
+
+const PANEL_CLASS =
+  'rounded-[32px] border border-zinc-200/80 bg-white/92 p-8 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.38)] dark:border-white/10 dark:bg-zinc-950/60';
+
+const FIELD_CLASS =
+  'mt-2 w-full rounded-2xl border border-zinc-300/90 bg-white px-3 py-2.5 text-sm text-zinc-900 shadow-sm outline-none transition focus:border-red-300 focus:ring-2 focus:ring-red-200/60 dark:border-white/10 dark:bg-zinc-950/70 dark:text-zinc-100 dark:focus:border-red-500/40 dark:focus:ring-red-500/20';
+
 const SURFACE_LABELS: Record<SurfaceKey, string> = {
   breaking: 'Breaking ticker',
   article: 'Article listen',
@@ -155,7 +165,7 @@ export default function TtsSettingsPanel() {
 
   if (loading && !payload) {
     return (
-      <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <div className={PANEL_CLASS}>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">Loading TTS settings...</p>
       </div>
     );
@@ -163,7 +173,7 @@ export default function TtsSettingsPanel() {
 
   if (!payload) {
     return (
-      <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <div className={PANEL_CLASS}>
         <p className="text-sm text-red-600 dark:text-red-400">
           {error || 'Unable to load TTS settings.'}
         </p>
@@ -173,7 +183,7 @@ export default function TtsSettingsPanel() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <div className={PANEL_CLASS}>
         <p className="text-sm font-semibold uppercase tracking-[0.18em] text-red-600 dark:text-red-400">
           Global TTS
         </p>
@@ -185,7 +195,7 @@ export default function TtsSettingsPanel() {
         </p>
 
         <div className="mt-6 grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
+          <div className="rounded-[24px] border border-zinc-200/80 bg-zinc-50/95 p-4 shadow-sm dark:border-white/10 dark:bg-white/5">
             <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               Runtime
             </p>
@@ -197,7 +207,7 @@ export default function TtsSettingsPanel() {
             </p>
           </div>
 
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
+          <div className="rounded-[24px] border border-zinc-200/80 bg-zinc-50/95 p-4 shadow-sm dark:border-white/10 dark:bg-white/5">
             <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               Storage
             </p>
@@ -209,7 +219,7 @@ export default function TtsSettingsPanel() {
             </p>
           </div>
 
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
+          <div className="rounded-[24px] border border-zinc-200/80 bg-zinc-50/95 p-4 shadow-sm dark:border-white/10 dark:bg-white/5">
             <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               Limits
             </p>
@@ -235,9 +245,9 @@ export default function TtsSettingsPanel() {
         ) : null}
       </div>
 
-      <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <div className={PANEL_CLASS}>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <label className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+          <label className="rounded-[24px] border border-zinc-200/80 bg-zinc-50/95 p-4 shadow-sm dark:border-white/10 dark:bg-white/5">
             <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               Retention days
             </span>
@@ -259,11 +269,11 @@ export default function TtsSettingsPanel() {
                     : current
                 )
               }
-              className="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              className={FIELD_CLASS}
             />
           </label>
 
-          <label className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+          <label className="rounded-[24px] border border-zinc-200/80 bg-zinc-50/95 p-4 shadow-sm dark:border-white/10 dark:bg-white/5">
             <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               Breaking prewarm
             </span>
@@ -273,11 +283,11 @@ export default function TtsSettingsPanel() {
               max={1000}
               value={payload.config.prewarm.latestBreakingLimit}
               onChange={(event) => updatePrewarm('latestBreakingLimit', event.target.value)}
-              className="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              className={FIELD_CLASS}
             />
           </label>
 
-          <label className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+          <label className="rounded-[24px] border border-zinc-200/80 bg-zinc-50/95 p-4 shadow-sm dark:border-white/10 dark:bg-white/5">
             <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               Article prewarm
             </span>
@@ -287,11 +297,11 @@ export default function TtsSettingsPanel() {
               max={1000}
               value={payload.config.prewarm.latestArticleLimit}
               onChange={(event) => updatePrewarm('latestArticleLimit', event.target.value)}
-              className="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              className={FIELD_CLASS}
             />
           </label>
 
-          <label className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+          <label className="rounded-[24px] border border-zinc-200/80 bg-zinc-50/95 p-4 shadow-sm dark:border-white/10 dark:bg-white/5">
             <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               E-paper prewarm
             </span>
@@ -301,13 +311,13 @@ export default function TtsSettingsPanel() {
               max={5000}
               value={payload.config.prewarm.latestEpaperStoryLimit}
               onChange={(event) => updatePrewarm('latestEpaperStoryLimit', event.target.value)}
-              className="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              className={FIELD_CLASS}
             />
           </label>
         </div>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <label className="flex items-start gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+          <label className="flex items-start gap-3 rounded-[24px] border border-zinc-200/80 bg-zinc-50/95 p-4 shadow-sm dark:border-white/10 dark:bg-white/5">
             <input
               type="checkbox"
               checked={payload.config.regenerateMissingFiles}
@@ -331,7 +341,7 @@ export default function TtsSettingsPanel() {
             </span>
           </label>
 
-          <label className="flex items-start gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+          <label className="flex items-start gap-3 rounded-[24px] border border-zinc-200/80 bg-zinc-50/95 p-4 shadow-sm dark:border-white/10 dark:bg-white/5">
             <input
               type="checkbox"
               checked={payload.config.forceStorage}
@@ -357,13 +367,13 @@ export default function TtsSettingsPanel() {
         </div>
       </div>
 
-      <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <div className={PANEL_CLASS}>
         <h2 className="text-xl font-black text-zinc-900 dark:text-zinc-100">Surface defaults</h2>
         <div className="mt-6 grid gap-4 xl:grid-cols-3">
           {(['breaking', 'article', 'epaper'] as SurfaceKey[]).map((surface) => (
             <div
               key={surface}
-              className="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800"
+              className="rounded-[24px] border border-zinc-200/80 bg-zinc-50/95 p-5 shadow-sm dark:border-white/10 dark:bg-white/5"
             >
               <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
                 {SURFACE_LABELS[surface]}
@@ -403,7 +413,7 @@ export default function TtsSettingsPanel() {
                     onChange={(event) =>
                       updateSurface(surface, { defaultLanguageCode: event.target.value })
                     }
-                    className="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                    className={FIELD_CLASS}
                   >
                     {payload.runtime.supportedLanguages.map((option) => (
                       <option key={option.code} value={option.code}>
@@ -422,7 +432,7 @@ export default function TtsSettingsPanel() {
                     onChange={(event) =>
                       updateSurface(surface, { defaultVoice: event.target.value })
                     }
-                    className="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                    className={FIELD_CLASS}
                   >
                     {payload.runtime.voices.map((option) => (
                       <option key={option.id} value={option.id}>
@@ -441,7 +451,7 @@ export default function TtsSettingsPanel() {
             type="button"
             onClick={() => void loadSettings()}
             disabled={loading || saving}
-            className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+            className="rounded-2xl border border-zinc-200/80 bg-white/85 px-4 py-2.5 text-sm font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-50 disabled:opacity-60 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200 dark:hover:bg-white/10"
           >
             Refresh
           </button>

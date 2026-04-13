@@ -1,4 +1,8 @@
 import connectDB from '@/lib/db/mongoose';
+import {
+  getArticleWorkflowSummary,
+  type ArticleWorkflowSummary,
+} from '@/lib/admin/articleWorkflowOverview';
 import Article from '@/lib/models/Article';
 import ContactMessage from '@/lib/models/ContactMessage';
 import EPaper from '@/lib/models/EPaper';
@@ -40,6 +44,7 @@ export type AdminDashboardData = {
     inProgress: number;
     resolved: number;
   };
+  workflow: ArticleWorkflowSummary;
   popularArticles: DashboardArticle[];
   recentArticles: DashboardArticle[];
   recentVideos: DashboardVideo[];
@@ -164,6 +169,7 @@ async function loadFromMongo(): Promise<AdminDashboardData> {
     popularArticleDocs,
     recentArticleDocs,
     recentVideoDocs,
+    workflow,
   ] = await Promise.all([
     Article.countDocuments({}),
     Video.countDocuments({ isPublished: true }),
@@ -187,6 +193,7 @@ async function loadFromMongo(): Promise<AdminDashboardData> {
       .sort({ publishedAt: -1, _id: -1 })
       .limit(3)
       .lean(),
+    getArticleWorkflowSummary(),
   ]);
 
   return {
@@ -203,6 +210,7 @@ async function loadFromMongo(): Promise<AdminDashboardData> {
       inProgress: inProgressMessages,
       resolved: resolvedMessages,
     },
+    workflow,
     popularArticles: popularArticleDocs
       .map((item) => normalizeDashboardArticle(item))
       .filter((item): item is DashboardArticle => Boolean(item)),
@@ -216,11 +224,12 @@ async function loadFromMongo(): Promise<AdminDashboardData> {
 }
 
 async function loadFromFileStore(): Promise<AdminDashboardData> {
-  const [articles, videos, epapers, contactResult] = await Promise.all([
+  const [articles, videos, epapers, contactResult, workflow] = await Promise.all([
     listAllStoredArticles(),
     listAllStoredVideos(),
     listAllStoredEPapers(),
     listStoredContactMessages({ page: 1, limit: 1, status: 'all' }),
+    getArticleWorkflowSummary(),
   ]);
 
   const normalizedArticles = articles
@@ -263,6 +272,7 @@ async function loadFromFileStore(): Promise<AdminDashboardData> {
       inProgress: contactResult.counts.in_progress,
       resolved: contactResult.counts.resolved,
     },
+    workflow,
     popularArticles,
     recentArticles,
     recentVideos,
@@ -326,6 +336,14 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
         fileData.inbox.resolved
       ),
     },
+    workflow:
+      mongoData.workflow.needsReview ||
+      mongoData.workflow.readyToPublish ||
+      mongoData.workflow.published ||
+      mongoData.workflow.drafts ||
+      mongoData.workflow.rejected
+        ? mongoData.workflow
+        : fileData.workflow,
     popularArticles: pickPreferredList(
       mongoData.popularArticles,
       fileData.popularArticles

@@ -1,13 +1,20 @@
 import { redirect } from 'next/navigation';
-import { getSuperAdminSession } from '@/lib/auth/admin';
+import { getAdminSession } from '@/lib/auth/admin';
+import { canViewPage } from '@/lib/auth/permissions';
+import { getAssignableAdminRoles } from '@/lib/auth/permissions';
 import TeamManagementClient from './TeamManagementClient';
 
 export default async function TeamPage() {
-  const admin = await getSuperAdminSession();
+  const admin = await getAdminSession();
 
-  if (!admin) {
+  if (!admin || !canViewPage(admin.role, 'team')) {
     redirect('/admin');
   }
 
-  return <TeamManagementClient />;
+  return (
+    <TeamManagementClient
+      viewerRole={admin.role}
+      assignableRoles={getAssignableAdminRoles(admin.role)}
+    />
+  );
 }

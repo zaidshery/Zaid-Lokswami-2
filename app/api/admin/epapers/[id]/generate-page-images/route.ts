@@ -4,6 +4,10 @@ import connectDB from '@/lib/db/mongoose';
 import EPaper from '@/lib/models/EPaper';
 import { getAdminSession } from '@/lib/auth/admin';
 import { generatePageImagesFromPdf } from '@/lib/utils/epaperPageImageGeneration';
+import {
+  buildEpaperActivityMessage,
+  recordEpaperActivity,
+} from '@/lib/server/epaperActivity';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -127,6 +131,18 @@ export async function POST(req: NextRequest, context: RouteContext) {
         },
         { new: true, runValidators: true }
       ).lean();
+
+      await recordEpaperActivity({
+        epaperId: id,
+        actor: admin,
+        action: 'page_images_generated',
+        message: buildEpaperActivityMessage({ action: 'page_images_generated' }),
+        metadata: {
+          generatedCount: generated.generatedPages.length,
+          converter: generated.converter,
+          requestedPageCount: targetPageCount,
+        },
+      });
 
       return NextResponse.json({
         success: true,

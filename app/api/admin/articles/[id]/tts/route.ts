@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Types } from 'mongoose';
 import connectDB from '@/lib/db/mongoose';
 import { getAdminSession } from '@/lib/auth/admin';
+import { canEditContent, canReadContent } from '@/lib/auth/permissions';
 import Article from '@/lib/models/Article';
+import { resolveArticleWorkflow } from '@/lib/workflow/article';
 import {
   buildArticleFullTtsText,
   ensureTtsAsset,
@@ -75,7 +77,9 @@ async function loadArticleSource(articleId: string) {
     return null;
   }
 
-  const article = await Article.findById(articleId).select('_id title summary content');
+  const article = await Article.findById(articleId).select(
+    '_id title summary content author workflow updatedAt publishedAt'
+  );
   if (!article) {
     return null;
   }
@@ -85,6 +89,12 @@ async function loadArticleSource(articleId: string) {
     title: String(article.title || '').trim(),
     summary: String(article.summary || '').trim(),
     content: String(article.content || '').trim(),
+    author: String(article.author || '').trim(),
+    workflow: resolveArticleWorkflow({
+      workflow: article.workflow,
+      updatedAt: article.updatedAt,
+      publishedAt: article.publishedAt,
+    }),
   };
 }
 
@@ -114,6 +124,18 @@ export async function GET(_req: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { success: false, error: 'Article not found' },
         { status: 404 }
+      );
+    }
+    if (
+      !canReadContent(
+        admin,
+        { legacyAuthorName: article.author, workflow: article.workflow },
+        { allowViewerRead: true }
+      )
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
       );
     }
 
@@ -188,6 +210,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { success: false, error: 'Article not found' },
         { status: 404 }
+      );
+    }
+    if (!canEditContent(admin, { legacyAuthorName: article.author, workflow: article.workflow })) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
       );
     }
 

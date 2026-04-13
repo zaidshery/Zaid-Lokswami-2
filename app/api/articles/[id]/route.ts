@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Types } from 'mongoose';
 import connectDB from '@/lib/db/mongoose';
+import { isPubliclyPublishedArticle } from '@/lib/content/articlePublication';
 import Article from '@/lib/models/Article';
 import { getStoredArticleById } from '@/lib/storage/articlesFile';
 
@@ -36,7 +37,7 @@ export async function GET(_: Request, context: RouteContext) {
 
     if (await shouldUseFileStore()) {
       const stored = await getStoredArticleById(articleId);
-      if (!stored) {
+      if (!stored || !isPubliclyPublishedArticle(stored)) {
         return NextResponse.json(
           { success: false, error: 'Article not found' },
           { status: 404 }
@@ -54,7 +55,7 @@ export async function GET(_: Request, context: RouteContext) {
     }
 
     const article = await Article.findById(articleId).lean();
-    if (!article) {
+    if (!article || !isPubliclyPublishedArticle(article)) {
       return NextResponse.json(
         { success: false, error: 'Article not found' },
         { status: 404 }

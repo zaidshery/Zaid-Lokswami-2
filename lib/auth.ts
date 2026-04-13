@@ -3,10 +3,11 @@ import GoogleProvider from 'next-auth/providers/google';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { LOKSWAMI_SESSION_COOKIE } from '@/lib/auth/cookies';
 import { authorizeAdminCredentials } from '@/lib/auth/adminCredentials';
+import { authorizeStaffCredentials } from '@/lib/auth/staffCredentials';
 import { normalizeRedirectPath } from '@/lib/auth/redirect';
 import {
   isAdminRole,
-  isReaderRole,
+  normalizeUserRole,
   type UserRole,
 } from '@/lib/auth/roles';
 import { getJwtSecretOrNull } from '@/lib/auth/jwtSecret';
@@ -107,11 +108,7 @@ function normalizeSavedArticles(value: unknown): string[] {
 }
 
 function normalizeRole(value: unknown): UserRole | null {
-  if (isReaderRole(value) || isAdminRole(value)) {
-    return value;
-  }
-
-  return null;
+  return normalizeUserRole(value);
 }
 
 function normalizeCreatedAt(value: Date | string | undefined) {
@@ -214,8 +211,12 @@ function buildProviders(): NonNullable<NextAuthConfig['providers']> {
           typeof credentials?.loginId === 'string' ? credentials.loginId : '';
         const password =
           typeof credentials?.password === 'string' ? credentials.password : '';
+        const envAdmin = await authorizeAdminCredentials({ loginId, password });
+        if (envAdmin) {
+          return envAdmin;
+        }
 
-        return authorizeAdminCredentials({ loginId, password });
+        return authorizeStaffCredentials({ loginId, password });
       },
     }),
   ];

@@ -4,6 +4,7 @@ import Category from '@/lib/models/Category';
 import fs from 'fs/promises';
 import path from 'path';
 import { getAdminSession } from '@/lib/auth/admin';
+import { canViewPage } from '@/lib/auth/permissions';
 import { NEWS_CATEGORIES } from '@/lib/constants/newsCategories';
 
 type CategoryRecord = {
@@ -140,6 +141,9 @@ export async function POST(req: NextRequest) {
   try {
     const user = await getAdminSession();
     if (!user) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    if (!canViewPage(user.role, 'categories')) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+    }
     const body = await req.json();
     const { name, description } = body;
     if (!name) return NextResponse.json({ success: false, error: 'Name required' }, { status: 400 });

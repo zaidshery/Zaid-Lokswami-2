@@ -1,17 +1,21 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import {
   AlertCircle,
   ArrowLeft,
   CheckCircle,
   Image as ImageIcon,
+  Loader2,
+  Send,
   Upload,
 } from 'lucide-react';
 import { getAuthHeader } from '@/lib/auth/clientToken';
+import { isAdminRole, isReporterDeskRole } from '@/lib/auth/roles';
 import { NEWS_CATEGORIES } from '@/lib/constants/newsCategories';
 
 interface StoryFormData {
@@ -24,36 +28,48 @@ interface StoryFormData {
   linkLabel: string;
   category: string;
   author: string;
+  locationTag: string;
+  sourceInfo: string;
+  sourceConfidential: boolean;
+  reporterNotes: string;
   durationSeconds: string;
   priority: string;
-  isPublished: boolean;
 }
+
+type StoryCreateIntent = 'draft' | 'submit' | 'publish';
 
 const categories = ['General', ...NEWS_CATEGORIES.map((category) => category.nameEn)];
 const THUMBNAIL_MAX_SIZE = 5 * 1024 * 1024;
 
-const initialFormData: StoryFormData = {
-  title: '',
-  caption: '',
-  thumbnail: '',
-  mediaType: 'image',
-  mediaUrl: '',
-  linkUrl: '',
-  linkLabel: '',
-  category: 'General',
-  author: 'Desk',
-  durationSeconds: '6',
-  priority: '0',
-  isPublished: true,
-};
+function createInitialFormData(author = 'Desk'): StoryFormData {
+  return {
+    title: '',
+    caption: '',
+    thumbnail: '',
+    mediaType: 'image',
+    mediaUrl: '',
+    linkUrl: '',
+    linkLabel: '',
+    category: 'General',
+    author,
+    locationTag: '',
+    sourceInfo: '',
+    sourceConfidential: false,
+    reporterNotes: '',
+    durationSeconds: '6',
+    priority: '0',
+  };
+}
 
 export default function CreateStoryPage() {
   const router = useRouter();
-  const [formData, setFormData] = useState<StoryFormData>(initialFormData);
+  const { data: session } = useSession();
+  const [formData, setFormData] = useState<StoryFormData>(() => createInitialFormData());
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
   const [thumbnailPreview, setThumbnailPreview] = useState('');
   const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [runningIntent, setRunningIntent] = useState<StoryCreateIntent | ''>('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -61,6 +77,32 @@ export default function CreateStoryPage() {
     () => thumbnailPreview || formData.thumbnail.trim(),
     [formData.thumbnail, thumbnailPreview]
   );
+
+  const role = session?.user?.role;
+  const sessionName = session?.user?.name?.trim() || '';
+  const canPublishNow = role === 'admin' || role === 'super_admin';
+  const canUseDesk = isAdminRole(role);
+  const isReporterFlow = isReporterDeskRole(role);
+  const defaultAuthor = isReporterFlow && sessionName ? sessionName : 'Desk';
+
+  useEffect(() => {
+    if (!isReporterFlow || !sessionName) {
+      return;
+    }
+
+    setFormData((current) => {
+      const currentAuthor = current.author.trim();
+      if (currentAuthor === sessionName) {
+        return current;
+      }
+
+      if (currentAuthor && currentAuthor !== 'Desk') {
+        return current;
+      }
+
+      return { ...current, author: sessionName };
+    });
+  }, [isReporterFlow, sessionName]);
 
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -124,23 +166,21 @@ export default function CreateStoryPage() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (intent: StoryCreateIntent) => {
     setError('');
     setSuccess('');
     setIsLoading(true);
+    setRunningIntent(intent);
 
     try {
       if (!formData.title.trim()) {
         setError('Story title is required');
-        setIsLoading(false);
         return;
       }
 
       const thumbnail = await uploadThumbnail();
       if (!thumbnail) {
         setError('Please provide a story thumbnail');
-        setIsLoading(false);
         return;
       }
 
@@ -149,19 +189,16 @@ export default function CreateStoryPage() {
 
       if (!Number.isFinite(durationSeconds) || durationSeconds < 2 || durationSeconds > 180) {
         setError('Duration must be between 2 and 180 seconds');
-        setIsLoading(false);
         return;
       }
 
       if (!Number.isFinite(priority)) {
         setError('Priority must be a valid number');
-        setIsLoading(false);
         return;
       }
 
       if (formData.mediaType === 'video' && !formData.mediaUrl.trim()) {
         setError('Video media URL is required for video stories');
-        setIsLoading(false);
         return;
       }
 
@@ -180,10 +217,16 @@ export default function CreateStoryPage() {
           linkUrl: formData.linkUrl.trim(),
           linkLabel: formData.linkLabel.trim(),
           category: formData.category,
-          author: formData.author.trim() || 'Desk',
+          author: formData.author.trim() || defaultAuthor,
+          reporterMeta: {
+            locationTag: formData.locationTag,
+            sourceInfo: formData.sourceInfo,
+            sourceConfidential: formData.sourceConfidential,
+            reporterNotes: formData.reporterNotes,
+          },
           durationSeconds,
           priority,
-          isPublished: formData.isPublished,
+          intent,
         }),
       });
 
@@ -192,8 +235,14 @@ export default function CreateStoryPage() {
         throw new Error(data.error || 'Failed to create story');
       }
 
-      setSuccess('Story created successfully! Redirecting...');
-      setFormData(initialFormData);
+      setSuccess(
+        intent === 'draft'
+          ? 'Story draft saved successfully.'
+          : intent === 'submit'
+            ? 'Story submitted for review.'
+            : 'Story published successfully.'
+      );
+      setFormData(createInitialFormData(defaultAuthor));
       setThumbnailFile(null);
       setThumbnailPreview('');
 
@@ -204,6 +253,7 @@ export default function CreateStoryPage() {
       setError(err instanceof Error ? err.message : 'Failed to create story');
     } finally {
       setIsLoading(false);
+      setRunningIntent('');
     }
   };
 
@@ -224,7 +274,13 @@ export default function CreateStoryPage() {
       >
         <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
           <h1 className="mb-2 text-3xl font-bold text-gray-900">Create Story</h1>
-          <p className="mb-6 text-gray-600">Publish fullscreen stories for homepage rails</p>
+          <p className="mb-6 text-gray-600">Save a draft, hand it into review, or publish when allowed</p>
+
+          {!canUseDesk ? (
+            <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              Your session is still loading role permissions. Publishing actions may stay hidden until it resolves.
+            </div>
+          ) : null}
 
           {error ? (
             <div className="mb-6 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
@@ -240,7 +296,13 @@ export default function CreateStoryPage() {
             </div>
           ) : null}
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleSubmit('submit');
+            }}
+            className="space-y-6"
+          >
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-900">
                 Story Title <span className="text-red-500">*</span>
@@ -338,8 +400,6 @@ export default function CreateStoryPage() {
 
             {previewThumbnail ? (
               <div className="overflow-hidden rounded-lg border border-gray-200">
-                {/* Admin preview supports blob/object URLs from file input. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={previewThumbnail}
                   alt="Story thumbnail preview"
@@ -405,7 +465,26 @@ export default function CreateStoryPage() {
                   name="author"
                   value={formData.author}
                   onChange={handleInputChange}
-                  placeholder="Desk"
+                  placeholder={defaultAuthor}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 transition-colors focus:border-primary-600 focus:outline-none"
+                />
+                {isReporterFlow ? (
+                  <p className="mt-2 text-xs text-gray-500">
+                    Your reporter byline is prefilled from the signed-in session.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-2 block text-sm font-medium text-gray-900">
+                  Location Tag
+                </label>
+                <input
+                  type="text"
+                  name="locationTag"
+                  value={formData.locationTag}
+                  onChange={handleInputChange}
+                  placeholder="Bhopal, MP"
                   className="w-full rounded-lg border border-gray-300 px-4 py-2 transition-colors focus:border-primary-600 focus:outline-none"
                 />
               </div>
@@ -437,37 +516,115 @@ export default function CreateStoryPage() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <label className="flex cursor-pointer items-center justify-between gap-4">
-                <span className="text-sm font-medium text-gray-900">Publish now</span>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Reporter Submission</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Capture source and desk context before this story enters review.
+                </p>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-900">
+                  Source Info
+                </label>
+                <textarea
+                  name="sourceInfo"
+                  value={formData.sourceInfo}
+                  onChange={handleInputChange}
+                  rows={3}
+                  placeholder="Who supplied this story, clip, or visual?"
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 transition-colors focus:border-primary-600 focus:outline-none"
+                />
+              </div>
+              <label className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 cursor-pointer">
                 <input
                   type="checkbox"
-                  name="isPublished"
-                  checked={formData.isPublished}
+                  name="sourceConfidential"
+                  checked={formData.sourceConfidential}
                   onChange={handleInputChange}
-                  className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-600"
+                  className="h-4 w-4 rounded border-gray-300 text-spanish-red focus:ring-spanish-red"
                 />
+                <span className="text-sm text-gray-700">
+                  Source is confidential and should remain internal
+                </span>
               </label>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-900">
+                  Reporter Notes
+                </label>
+                <textarea
+                  name="reporterNotes"
+                  value={formData.reporterNotes}
+                  onChange={handleInputChange}
+                  rows={3}
+                  placeholder="Editing notes, verification context, or publishing hints."
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 transition-colors focus:border-primary-600 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+              Draft keeps the story private, submit sends it into review, and publish is only shown for desk roles with release authority.
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
               <button
-                type="submit"
+                type="button"
                 disabled={isLoading || isUploadingThumbnail}
-                className="inline-flex min-w-[180px] items-center justify-center gap-2 rounded-lg bg-primary-600 px-5 py-3 font-medium text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void handleSubmit('draft')}
+                className="inline-flex min-w-[160px] items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-5 py-3 font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isLoading || isUploadingThumbnail ? (
+                {runningIntent === 'draft' ? (
                   <>
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                    {isUploadingThumbnail ? 'Uploading...' : 'Publishing...'}
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Saving...
                   </>
                 ) : (
                   <>
                     <Upload className="h-5 w-5" />
-                    Publish Story
+                    Save Draft
                   </>
                 )}
               </button>
+
+              <button
+                type="submit"
+                disabled={isLoading || isUploadingThumbnail}
+                className="inline-flex min-w-[180px] items-center justify-center gap-2 rounded-lg bg-spanish-red px-5 py-3 font-medium text-white transition-colors hover:bg-guardsman-red disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {runningIntent === 'submit' ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-5 w-5" />
+                    Submit For Review
+                  </>
+                )}
+              </button>
+
+              {canPublishNow ? (
+                <button
+                  type="button"
+                  disabled={isLoading || isUploadingThumbnail}
+                  onClick={() => void handleSubmit('publish')}
+                  className="inline-flex min-w-[160px] items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 py-3 font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {runningIntent === 'publish' ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Publishing...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-5 w-5" />
+                      Publish Now
+                    </>
+                  )}
+                </button>
+              ) : null}
 
               <Link
                 href="/admin/stories"

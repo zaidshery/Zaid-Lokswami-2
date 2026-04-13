@@ -65,6 +65,15 @@ GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts
 GEMINI_TTS_VOICE=Sulafat
 ```
 
+Optional leadership report delivery:
+
+```env
+LEADERSHIP_REPORT_CRON_SECRET=
+LEADERSHIP_REPORT_FROM_EMAIL=
+RESEND_API_KEY=
+RESEND_FROM_EMAIL=
+```
+
 Optional Hostinger release state override:
 
 ```env
@@ -168,6 +177,8 @@ After deploy, verify:
 - Google sign-in works if enabled
 - article, e-paper, breaking news, and AI listen features generate Gemini audio
 - `npm run test:tts-smoke -- https://your-domain.com` passes
+- leadership report schedules can run from `/admin/analytics`
+- the due-run endpoint works with the configured cron secret
 
 ## Hostinger VPS
 
@@ -229,3 +240,26 @@ After deployment:
 - `npm run test:admin-runtime -- https://your-domain.com`
 
 The smoke script now validates HTML asset integrity for `/signin`, `/main`, and `/main/epaper` by parsing the live HTML and checking that every referenced JS/CSS file under `/_next/static/*` returns `200` with the correct content type.
+
+## Leadership Report Cron
+
+If you want daily, weekly, or monthly leadership briefings to run automatically:
+
+1. Set:
+   - `LEADERSHIP_REPORT_CRON_SECRET`
+   - `LEADERSHIP_REPORT_FROM_EMAIL` if using email delivery
+   - `RESEND_API_KEY` and `RESEND_FROM_EMAIL` if using email delivery
+2. Configure schedules in `/admin/analytics`
+3. Add a Hostinger cron command like:
+
+```bash
+wget -qO- "https://your-domain.com/api/admin/analytics/briefing-schedules/run-due?secret=YOUR_SECRET"
+```
+
+Recommended cron frequency:
+
+- every `15 minutes`
+
+Full setup guide:
+
+- `LEADERSHIP_REPORTS_HOSTINGER.md`

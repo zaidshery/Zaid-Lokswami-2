@@ -3,6 +3,12 @@ import { Types } from 'mongoose';
 import connectDB from '@/lib/db/mongoose';
 import EPaper from '@/lib/models/EPaper';
 import { getAdminSession } from '@/lib/auth/admin';
+import { canViewPage } from '@/lib/auth/permissions';
+import {
+  buildEpaperActivityMessage,
+  recordEpaperActivity,
+} from '@/lib/server/epaperActivity';
+import { isEPaperPageReviewStatus } from '@/lib/types/epaper';
 import {
   EPAPER_IMAGE_MAX_BYTES,
   formatPublishDateFolder,
@@ -51,7 +57,21 @@ function isImageFile(file: File) {
 }
 
 function mapPages(
-  currentPages: Array<{ pageNumber: number; imagePath?: string; width?: number; height?: number }>,
+  currentPages: Array<{
+    pageNumber: number;
+    imagePath?: string;
+    width?: number;
+    height?: number;
+    reviewStatus?: string;
+    reviewNote?: string;
+    reviewedAt?: Date | string | null;
+    reviewedBy?: {
+      id?: string;
+      name?: string;
+      email?: string;
+      role?: string;
+    } | null;
+  }>,
   pageCount: number
 ) {
   const byPage = new Map<number, (typeof currentPages)[number]>();
@@ -68,6 +88,29 @@ function mapPages(
       imagePath: existing?.imagePath || '',
       width: existing?.width,
       height: existing?.height,
+      reviewStatus: isEPaperPageReviewStatus(existing?.reviewStatus)
+        ? existing.reviewStatus
+        : 'pending',
+      reviewNote: typeof existing?.reviewNote === 'string' ? existing.reviewNote : '',
+      reviewedAt:
+        existing?.reviewedAt instanceof Date
+          ? existing.reviewedAt
+          : existing?.reviewedAt
+            ? new Date(String(existing.reviewedAt))
+            : null,
+      reviewedBy:
+        existing?.reviewedBy &&
+        typeof existing.reviewedBy.id === 'string' &&
+        typeof existing.reviewedBy.name === 'string' &&
+        typeof existing.reviewedBy.email === 'string' &&
+        typeof existing.reviewedBy.role === 'string'
+          ? {
+              id: existing.reviewedBy.id,
+              name: existing.reviewedBy.name,
+              email: existing.reviewedBy.email,
+              role: existing.reviewedBy.role,
+            }
+          : null,
     };
   });
 }
@@ -75,7 +118,20 @@ function mapPages(
 function updateSinglePage(
   pages: ReturnType<typeof mapPages>,
   pageNumber: number,
-  updates: { imagePath?: string; width?: number; height?: number }
+  updates: {
+    imagePath?: string;
+    width?: number;
+    height?: number;
+    reviewStatus?: 'pending' | 'needs_attention' | 'ready';
+    reviewNote?: string;
+    reviewedAt?: Date | null;
+    reviewedBy?: {
+      id: string;
+      name: string;
+      email: string;
+      role: string;
+    } | null;
+  }
 ) {
   const next = pages.slice();
   const target = next.find((page) => page.pageNumber === pageNumber);
@@ -84,6 +140,10 @@ function updateSinglePage(
   if (updates.imagePath !== undefined) target.imagePath = updates.imagePath;
   if (updates.width !== undefined) target.width = updates.width;
   if (updates.height !== undefined) target.height = updates.height;
+  if (updates.reviewStatus !== undefined) target.reviewStatus = updates.reviewStatus;
+  if (updates.reviewNote !== undefined) target.reviewNote = updates.reviewNote;
+  if (updates.reviewedAt !== undefined) target.reviewedAt = updates.reviewedAt;
+  if (updates.reviewedBy !== undefined) target.reviewedBy = updates.reviewedBy;
 
   return next;
 }
@@ -93,6 +153,9 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     const admin = await getAdminSession();
     if (!admin) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+    if (!canViewPage(admin.role, 'epaper_edit')) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
     }
 
     await connectDB();
@@ -189,6 +252,17 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         await deleteCloudinaryAssetByUrl(previous).catch(() => undefined);
       }
 
+      await recordEpaperActivity({
+        epaperId: id,
+        actor: admin,
+        action: 'page_image_uploaded',
+        message: buildEpaperActivityMessage({ action: 'page_image_uploaded' }),
+        metadata: {
+          pageNumber,
+          replacedExistingImage: Boolean(previous),
+        },
+      });
+
       return NextResponse.json({
         success: true,
         message: 'Page image updated',
@@ -206,13 +280,31 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 
     let nextPageCount = Number(epaper.pageCount || 0);
     let pages = mapPages(Array.isArray(epaper.pages) ? epaper.pages : [], Math.max(nextPageCount, 1));
+    const imageUpdatedPages: number[] = [];
+    const reviewUpdatedPages: number[] = [];
 
     for (const item of updates) {
       const entry = typeof item === 'object' && item ? (item as Record<string, unknown>) : {};
       const pageNumber = parsePageNumber(entry.pageNumber);
-      const imagePath = typeof entry.imagePath === 'string' ? entry.imagePath.trim() : '';
-      const width = parseOptionalDimension(entry.width);
-      const height = parseOptionalDimension(entry.height);
+      const hasImagePathField = Object.prototype.hasOwnProperty.call(entry, 'imagePath');
+      const hasWidthField = Object.prototype.hasOwnProperty.call(entry, 'width');
+      const hasHeightField = Object.prototype.hasOwnProperty.call(entry, 'height');
+      const hasReviewStatusField = Object.prototype.hasOwnProperty.call(entry, 'reviewStatus');
+      const hasReviewNoteField = Object.prototype.hasOwnProperty.call(entry, 'reviewNote');
+      const imagePath =
+        hasImagePathField && typeof entry.imagePath === 'string'
+          ? entry.imagePath.trim()
+          : undefined;
+      const width = hasWidthField ? parseOptionalDimension(entry.width) : undefined;
+      const height = hasHeightField ? parseOptionalDimension(entry.height) : undefined;
+      const rawReviewStatus = hasReviewStatusField ? entry.reviewStatus : undefined;
+      const reviewStatus =
+        rawReviewStatus === undefined || rawReviewStatus === null || rawReviewStatus === ''
+          ? undefined
+          : isEPaperPageReviewStatus(rawReviewStatus)
+            ? rawReviewStatus
+            : null;
+      const reviewNote = hasReviewNoteField ? String(entry.reviewNote || '').trim() : undefined;
 
       if (!pageNumber) {
         return NextResponse.json(
@@ -232,16 +324,57 @@ export async function PUT(req: NextRequest, context: RouteContext) {
           { status: 400 }
         );
       }
+      if (reviewStatus === null) {
+        return NextResponse.json(
+          { success: false, error: `Invalid reviewStatus for page ${pageNumber}` },
+          { status: 400 }
+        );
+      }
+      if (
+        reviewStatus === 'needs_attention' &&
+        !(typeof reviewNote === 'string' && reviewNote.trim().length > 0)
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `reviewNote is required when page ${pageNumber} is marked needs_attention`,
+          },
+          { status: 400 }
+        );
+      }
 
       if (pageNumber > nextPageCount) {
         nextPageCount = pageNumber;
         pages = mapPages(pages, nextPageCount);
       }
+      const hasImageUpdate = hasImagePathField || hasWidthField || hasHeightField;
+      const hasReviewUpdate = hasReviewStatusField || hasReviewNoteField;
+
       pages = updateSinglePage(pages, pageNumber, {
-        imagePath: imagePath || '',
-        width,
-        height,
+        ...(hasImagePathField ? { imagePath: imagePath || '' } : {}),
+        ...(hasWidthField ? { width } : {}),
+        ...(hasHeightField ? { height } : {}),
+        ...(reviewStatus !== undefined ? { reviewStatus } : {}),
+        ...(hasReviewNoteField ? { reviewNote } : {}),
+        ...(hasReviewUpdate ? { reviewedAt: new Date() } : {}),
+        ...(hasReviewUpdate
+          ? {
+              reviewedBy: {
+                id: admin.id,
+                name: admin.name,
+                email: admin.email,
+                role: admin.role,
+              },
+            }
+          : {}),
       });
+
+      if (hasImageUpdate) {
+        imageUpdatedPages.push(pageNumber);
+      }
+      if (hasReviewUpdate) {
+        reviewUpdatedPages.push(pageNumber);
+      }
     }
 
     const updated = await EPaper.findByIdAndUpdate(
@@ -253,9 +386,40 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       { new: true, runValidators: true }
     ).lean();
 
+    if (imageUpdatedPages.length > 0) {
+      await recordEpaperActivity({
+        epaperId: id,
+        actor: admin,
+        action: 'page_image_uploaded',
+        message: buildEpaperActivityMessage({ action: 'page_image_uploaded' }),
+        metadata: {
+          updatedPages: imageUpdatedPages,
+        },
+      });
+    }
+
+    if (reviewUpdatedPages.length > 0) {
+      await recordEpaperActivity({
+        epaperId: id,
+        actor: admin,
+        action: 'page_review_updated',
+        message: buildEpaperActivityMessage({ action: 'page_review_updated' }),
+        metadata: {
+          reviewedPages: reviewUpdatedPages,
+          reviewedById: admin.id,
+          reviewedByName: admin.name,
+        },
+      });
+    }
+
     return NextResponse.json({
       success: true,
-      message: 'Page images updated',
+      message:
+        imageUpdatedPages.length > 0 && reviewUpdatedPages.length > 0
+          ? 'Page images and review details updated'
+          : reviewUpdatedPages.length > 0
+            ? 'Page review updated'
+            : 'Page images updated',
       data: updated,
     });
   } catch (error: unknown) {

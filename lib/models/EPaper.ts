@@ -1,4 +1,11 @@
 import mongoose from 'mongoose';
+import {
+  EPaperProductionStatusSchema,
+  WorkflowActorRefSchema,
+  WorkflowCommentSchema,
+} from '@/lib/models/schemas/workflow';
+import { EPAPER_PAGE_REVIEW_STATUSES, type EPaperPageReviewStatus } from '@/lib/types/epaper';
+import type { EPaperProductionStatus, WorkflowActorRef, WorkflowComment } from '@/lib/workflow/types';
 
 export type EPaperStatus = 'draft' | 'published';
 
@@ -7,6 +14,10 @@ export interface IEPaperPage {
   imagePath?: string;
   width?: number;
   height?: number;
+  reviewStatus?: EPaperPageReviewStatus;
+  reviewNote?: string;
+  reviewedAt?: Date | null;
+  reviewedBy?: WorkflowActorRef | null;
 }
 
 export interface IEPaper {
@@ -25,6 +36,10 @@ export interface IEPaper {
   pageCount: number;
   pages: IEPaperPage[];
   status: EPaperStatus;
+  productionStatus: EPaperProductionStatus;
+  productionAssignee: WorkflowActorRef | null;
+  productionNotes: WorkflowComment[];
+  qaCompletedAt: Date | null;
   sourceType?: 'manual-upload' | 'drive-import' | 'remote-import' | 'legacy' | 'unknown';
   sourceLabel?: string;
   sourceUrl?: string;
@@ -41,6 +56,14 @@ const EPaperPageSchema = new mongoose.Schema<IEPaperPage>(
     imagePath: { type: String, default: '' },
     width: { type: Number, min: 1 },
     height: { type: Number, min: 1 },
+    reviewStatus: {
+      type: String,
+      enum: EPAPER_PAGE_REVIEW_STATUSES,
+      default: 'pending',
+    },
+    reviewNote: { type: String, trim: true, maxlength: 2000, default: '' },
+    reviewedAt: { type: Date, default: null },
+    reviewedBy: { type: WorkflowActorRefSchema, default: null },
   },
   { _id: false }
 );
@@ -60,6 +83,10 @@ const EPaperSchema = new mongoose.Schema<IEPaper>(
     pageCount: { type: Number, required: true, min: 1, max: 1000 },
     pages: { type: [EPaperPageSchema], default: [] },
     status: { type: String, enum: ['draft', 'published'], default: 'draft' },
+    productionStatus: EPaperProductionStatusSchema,
+    productionAssignee: { type: WorkflowActorRefSchema, default: null },
+    productionNotes: { type: [WorkflowCommentSchema], default: [] },
+    qaCompletedAt: { type: Date, default: null },
     sourceType: {
       type: String,
       enum: ['manual-upload', 'drive-import', 'remote-import', 'legacy', 'unknown'],
@@ -76,6 +103,8 @@ const EPaperSchema = new mongoose.Schema<IEPaper>(
 
 EPaperSchema.index({ citySlug: 1, publishDate: 1 }, { unique: true });
 EPaperSchema.index({ status: 1, publishDate: -1 });
+EPaperSchema.index({ productionStatus: 1, publishDate: -1 });
+EPaperSchema.index({ 'productionAssignee.id': 1, productionStatus: 1, updatedAt: -1 });
 // Cursor pagination maps logical editionDate to publishDate in this schema.
 EPaperSchema.index({ publishDate: -1, _id: -1 });
 

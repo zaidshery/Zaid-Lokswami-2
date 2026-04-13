@@ -14,6 +14,12 @@ export interface IUser extends mongoose.Document {
   email: string;
   image: string;
   role: UserRole;
+  loginId?: string;
+  passwordHash?: string;
+  passwordSetAt?: Date;
+  setupTokenHash?: string;
+  setupTokenExpiresAt?: Date;
+  setupTokenIssuedAt?: Date;
   isActive: boolean;
   lastLoginAt?: Date;
   lastActiveAt?: Date;
@@ -56,6 +62,18 @@ const UserSchema = new mongoose.Schema<IUser>(
     },
     image: { type: String, default: '' },
     role: { type: String, enum: USER_ROLES, default: 'reader' },
+    loginId: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      unique: true,
+      sparse: true,
+    },
+    passwordHash: { type: String, default: '' },
+    passwordSetAt: { type: Date },
+    setupTokenHash: { type: String, default: '' },
+    setupTokenExpiresAt: { type: Date },
+    setupTokenIssuedAt: { type: Date },
     isActive: { type: Boolean, default: true },
     lastLoginAt: { type: Date },
     lastActiveAt: { type: Date },
@@ -86,8 +104,74 @@ const UserSchema = new mongoose.Schema<IUser>(
   }
 );
 
-const User: Model<IUser> =
-  (mongoose.models.User as Model<IUser>) ||
-  mongoose.model<IUser>('User', UserSchema);
+function ensureUserSchemaCompatibility(schema: mongoose.Schema<IUser>) {
+  const additions: Record<string, unknown> = {};
+
+  const optionalFields: Record<string, unknown> = {
+    loginId: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      unique: true,
+      sparse: true,
+    },
+    passwordHash: { type: String, default: '' },
+    passwordSetAt: { type: Date },
+    setupTokenHash: { type: String, default: '' },
+    setupTokenExpiresAt: { type: Date },
+    setupTokenIssuedAt: { type: Date },
+    isActive: { type: Boolean, default: true },
+    lastLoginAt: { type: Date },
+    lastActiveAt: { type: Date },
+    readCount: { type: Number, default: 0, min: 0 },
+    readHistory: {
+      type: [ReadHistorySchema],
+      default: [],
+      set: (value: IUserReadHistoryEntry[]) => (Array.isArray(value) ? value.slice(-50) : []),
+    },
+    savedArticles: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Article' }],
+      default: [],
+    },
+    preferredLanguage: { type: String, enum: ['hi', 'en'], default: 'hi' },
+    preferredCategories: {
+      type: [{ type: String }],
+      default: [],
+    },
+    state: { type: String, trim: true, default: '' },
+    district: { type: String, trim: true, default: '' },
+    pushEnabled: { type: Boolean, default: false },
+    notifPromptShown: { type: Boolean, default: false },
+    notificationsEnabled: { type: Boolean, default: false },
+  };
+
+  for (const [field, definition] of Object.entries(optionalFields)) {
+    if (!schema.path(field)) {
+      additions[field] = definition;
+    }
+  }
+
+  if (Object.keys(additions).length > 0) {
+    schema.add(additions);
+  }
+
+  const hasLoginIdIndex = schema
+    .indexes()
+    .some(([fields]) => Object.keys(fields).length === 1 && Object.prototype.hasOwnProperty.call(fields, 'loginId'));
+
+  if (!hasLoginIdIndex) {
+    schema.index({ loginId: 1 }, { unique: true, sparse: true });
+  }
+}
+
+ensureUserSchemaCompatibility(UserSchema);
+
+const existingUserModel = mongoose.models.User as Model<IUser> | undefined;
+
+if (existingUserModel) {
+  ensureUserSchemaCompatibility(existingUserModel.schema as mongoose.Schema<IUser>);
+}
+
+const User: Model<IUser> = existingUserModel || mongoose.model<IUser>('User', UserSchema);
 
 export default User;

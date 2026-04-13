@@ -1,8 +1,12 @@
 import { Types } from 'mongoose';
 import connectDB from '@/lib/db/mongoose';
+import { isPubliclyPublishedArticle } from '@/lib/content/articlePublication';
 import Article from '@/lib/models/Article';
 import type { ArticleSeo, StoredArticle } from '@/lib/storage/articlesFile';
-import { getStoredArticleById, listStoredArticles } from '@/lib/storage/articlesFile';
+import {
+  getStoredArticleById,
+  listAllStoredArticles,
+} from '@/lib/storage/articlesFile';
 
 export type ServerArticle = {
   id: string;
@@ -122,6 +126,9 @@ export async function getArticleForMetadata(id: string) {
       await connectDB();
       if (Types.ObjectId.isValid(id)) {
         const article = await Article.findById(id).lean();
+        if (!isPubliclyPublishedArticle(article)) {
+          return null;
+        }
         const normalized = normalizeFromUnknown(article);
         if (normalized) return normalized;
       }
@@ -131,7 +138,7 @@ export async function getArticleForMetadata(id: string) {
   }
 
   const fileArticle = await getStoredArticleById(id);
-  if (!fileArticle) return null;
+  if (!fileArticle || !isPubliclyPublishedArticle(fileArticle)) return null;
   return normalizeFromStored(fileArticle);
 }
 
@@ -165,22 +172,25 @@ export async function listArticlesForSitemap(limit = 500) {
     try {
       await connectDB();
       const records = await Article.find({})
-        .select('_id updatedAt')
+        .select('_id updatedAt publishedAt workflow')
         .sort({ updatedAt: -1 })
-        .limit(limit)
         .lean();
 
       const normalized = records
+        .filter((item) => isPubliclyPublishedArticle(item))
         .map((item) => toSitemapItem(item))
-        .filter((item): item is ServerArticleSitemapItem => Boolean(item));
+        .filter((item): item is ServerArticleSitemapItem => Boolean(item))
+        .slice(0, limit);
       if (normalized.length) return normalized;
     } catch (error) {
       console.error('Failed to load sitemap articles from MongoDB, falling back.', error);
     }
   }
 
-  const fallback = await listStoredArticles({ limit, page: 1 });
-  return fallback.data
+  const fallback = await listAllStoredArticles();
+  return fallback
+    .filter((item) => isPubliclyPublishedArticle(item))
     .map((item) => toSitemapItem(item))
-    .filter((item): item is ServerArticleSitemapItem => Boolean(item));
+    .filter((item): item is ServerArticleSitemapItem => Boolean(item))
+    .slice(0, limit);
 }

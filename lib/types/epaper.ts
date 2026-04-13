@@ -1,11 +1,41 @@
 export type EPaperStatus = 'draft' | 'published';
 export type EPaperReadinessStatus = 'ready' | 'needs-review' | 'not-ready';
+export const EPAPER_PAGE_REVIEW_STATUSES = ['pending', 'needs_attention', 'ready'] as const;
+export type EPaperPageReviewStatus = (typeof EPAPER_PAGE_REVIEW_STATUSES)[number];
+export type EPaperProductionStatus =
+  | 'draft_upload'
+  | 'pages_ready'
+  | 'ocr_review'
+  | 'hotspot_mapping'
+  | 'qa_review'
+  | 'ready_to_publish'
+  | 'published'
+  | 'archived';
+
+export interface EPaperWorkflowActor {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
+export interface EPaperWorkflowComment {
+  id: string;
+  body: string;
+  kind: string;
+  author: EPaperWorkflowActor;
+  createdAt: string;
+}
 
 export interface EPaperPageData {
   pageNumber: number;
   imagePath?: string;
   width?: number;
   height?: number;
+  reviewStatus?: EPaperPageReviewStatus;
+  reviewNote?: string;
+  reviewedAt?: string | null;
+  reviewedBy?: EPaperWorkflowActor | null;
 }
 
 export interface EPaperReadiness {
@@ -52,6 +82,10 @@ export interface EPaperRecord {
   pageCount: number;
   pages: EPaperPageData[];
   status: EPaperStatus;
+  productionStatus?: EPaperProductionStatus;
+  productionAssignee?: EPaperWorkflowActor | null;
+  productionNotes?: EPaperWorkflowComment[];
+  qaCompletedAt?: string | null;
   articleCount?: number;
   pagesWithImage?: number;
   pagesMissingImage?: number;
@@ -81,6 +115,27 @@ export interface EPaperArticleRecord {
   contentHtml?: string;
   coverImagePath?: string;
   hotspot: EPaperArticleHotspot;
+  workflow?: {
+    status?: string;
+    priority?: string;
+    createdBy?: EPaperWorkflowActor | null;
+    assignedTo?: EPaperWorkflowActor | null;
+    reviewedBy?: EPaperWorkflowActor | null;
+    submittedAt?: string | null;
+    approvedAt?: string | null;
+    rejectedAt?: string | null;
+    publishedAt?: string | null;
+    scheduledFor?: string | null;
+    dueAt?: string | null;
+    rejectionReason?: string;
+    comments?: EPaperWorkflowComment[];
+  };
   createdAt?: string;
   updatedAt?: string;
+}
+
+const epaperPageReviewStatusSet = new Set<string>(EPAPER_PAGE_REVIEW_STATUSES);
+
+export function isEPaperPageReviewStatus(value: unknown): value is EPaperPageReviewStatus {
+  return typeof value === 'string' && epaperPageReviewStatusSet.has(value);
 }

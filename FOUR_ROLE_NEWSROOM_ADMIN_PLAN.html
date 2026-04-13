@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Four-Role Newsroom Admin Plan</title>
+    <style>
+      :root {
+        --bg: #f5f1ea;
+        --page: #ffffff;
+        --ink: #18181b;
+        --muted: #5b6170;
+        --border: #dfd8ce;
+        --accent: #b91c1c;
+        --accent-soft: #fef2f2;
+        --panel: #faf7f3;
+        --shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+      }
+
+      @page {
+        size: A4;
+        margin: 16mm;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: linear-gradient(180deg, #f6f1e8 0%, #efe7db 100%);
+        color: var(--ink);
+        font-family: "Segoe UI", Arial, sans-serif;
+        line-height: 1.5;
+      }
+
+      .page {
+        width: 100%;
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 28px;
+      }
+
+      .sheet {
+        background: var(--page);
+        border: 1px solid var(--border);
+        border-radius: 28px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .hero {
+        padding: 32px 36px 28px;
+        background:
+          radial-gradient(circle at top left, rgba(185, 28, 28, 0.11), transparent 34%),
+          radial-gradient(circle at top right, rgba(59, 130, 246, 0.08), transparent 28%),
+          linear-gradient(135deg, #fffaf5 0%, #fff 54%, #faf6f2 100%);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .eyebrow {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        border: 1px solid rgba(185, 28, 28, 0.15);
+        color: var(--accent);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 18px 0 12px;
+        font-size: 36px;
+        line-height: 1.1;
+      }
+
+      .lead {
+        margin: 0;
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: 1.4fr 1fr;
+        gap: 20px;
+        margin-top: 22px;
+      }
+
+      .chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .chip {
+        padding: 10px 14px;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.86);
+        min-width: 140px;
+      }
+
+      .chip strong {
+        display: block;
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+
+      .chip span {
+        font-weight: 700;
+      }
+
+      .focus-card {
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 22px;
+        padding: 18px;
+      }
+
+      .focus-card h3 {
+        margin: 0 0 12px;
+        font-size: 12px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .focus-card ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      .content {
+        padding: 28px 36px 36px;
+      }
+
+      section {
+        margin-bottom: 28px;
+        break-inside: avoid;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        font-size: 22px;
+      }
+
+      h3 {
+        margin: 18px 0 10px;
+        font-size: 16px;
+      }
+
+      p,
+      li {
+        color: #2b3240;
+        font-size: 14px;
+      }
+
+      ul,
+      ol {
+        margin: 10px 0 0;
+        padding-left: 22px;
+      }
+
+      hr {
+        border: 0;
+        height: 1px;
+        margin: 22px 0;
+        background: linear-gradient(90deg, transparent, var(--border), transparent);
+      }
+
+      .summary-box {
+        padding: 18px 20px;
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        background: var(--panel);
+      }
+
+      .role-table,
+      .access-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 14px;
+        overflow: hidden;
+        border-radius: 20px;
+      }
+
+      .role-table th,
+      .role-table td,
+      .access-table th,
+      .access-table td {
+        border: 1px solid var(--border);
+        padding: 12px 14px;
+        text-align: left;
+        vertical-align: top;
+        font-size: 13px;
+      }
+
+      .role-table th,
+      .access-table th {
+        background: #f8f4ee;
+        color: #3d4654;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .grid-two {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+      }
+
+      .card {
+        border: 1px solid var(--border);
+        background: var(--panel);
+        border-radius: 22px;
+        padding: 18px;
+      }
+
+      .card h3 {
+        margin-top: 0;
+      }
+
+      .phase-list {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      .phase {
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        background: #fff;
+        padding: 16px 18px;
+      }
+
+      .phase strong {
+        color: var(--accent);
+      }
+
+      .footer-note {
+        margin-top: 30px;
+        padding-top: 18px;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      code {
+        padding: 2px 6px;
+        border-radius: 8px;
+        background: #f4f4f5;
+        font-family: Consolas, monospace;
+        font-size: 12px;
+      }
+
+      @media print {
+        body {
+          background: #fff;
+        }
+
+        .page {
+          max-width: none;
+          padding: 0;
+        }
+
+        .sheet {
+          border: 0;
+          border-radius: 0;
+          box-shadow: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="sheet">
+        <header class="hero">
+          <span class="eyebrow">Lokswami Planning</span>
+          <h1>Four-Role Newsroom Admin Plan</h1>
+          <p class="lead">
+            A locked newsroom operating model for Lokswami that separates business control,
+            newsroom operations, reporting, and copy-editing into four clear admin roles.
+          </p>
+
+          <div class="hero-grid">
+            <div>
+              <div class="chip-row">
+                <div class="chip">
+                  <strong>Roles</strong>
+                  <span>Super Admin, Admin, Reporter, Copy Editor</span>
+                </div>
+                <div class="chip">
+                  <strong>Core Rule</strong>
+                  <span>Only Super Admin can access System Settings</span>
+                </div>
+                <div class="chip">
+                  <strong>Operations Owner</strong>
+                  <span>Admin owns full newsroom user management</span>
+                </div>
+              </div>
+            </div>
+            <aside class="focus-card">
+              <h3>Immediate Focus</h3>
+              <ul>
+                <li>Reduce admin roles to the final four-role newsroom model.</li>
+                <li>Move day-to-day staff management into the Admin panel.</li>
+                <li>Keep business, revenue, and system controls with Super Admin only.</li>
+              </ul>
+            </aside>
+          </div>
+        </header>
+
+        <main class="content">
+          <section>
+            <h2>Summary</h2>
+            <div class="summary-box">
+              <p>
+                Lock the admin app to <strong>four newsroom roles only</strong>:
+                <code>super_admin</code>, <code>admin</code>, <code>reporter</code>, and
+                <code>copy_editor</code>.
+              </p>
+              <ul>
+                <li><strong>Super Admin</strong>: business and platform control only</li>
+                <li><strong>Admin</strong>: full newsroom operations and user management</li>
+                <li><strong>Reporter</strong>: create and submit content</li>
+                <li><strong>Copy Editor</strong>: quality and editing desk</li>
+              </ul>
+              <p>
+                Hard rule: <strong>only Super Admin can access System Settings</strong>. Admin gets
+                full newsroom user management, but cannot create, edit, or remove a Super Admin.
+              </p>
+            </div>
+          </section>
+
+          <section>
+            <h2>Final Role Model</h2>
+            <table class="role-table">
+              <thead>
+                <tr>
+                  <th>Role</th>
+                  <th>Main Purpose</th>
+                  <th>Allowed Panels</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>super_admin</strong></td>
+                  <td>Owner, business, and platform control</td>
+                  <td>Analytics Dashboard, Revenue &amp; Ads Control, System Settings, Audit Log, Permission Review, Operations Diagnostics</td>
+                </tr>
+                <tr>
+                  <td><strong>admin</strong></td>
+                  <td>Newsroom operations boss</td>
+                  <td>User Management, Story Approval, Assignment Desk, Content Queue, Push Alerts, Newsroom Settings</td>
+                </tr>
+                <tr>
+                  <td><strong>reporter</strong></td>
+                  <td>Submission desk</td>
+                  <td>Submit Stories, Upload Media, Location Tagging, Source Info, My Drafts, My Submissions</td>
+                </tr>
+                <tr>
+                  <td><strong>copy_editor</strong></td>
+                  <td>Quality desk</td>
+                  <td>Edit &amp; Proofread, Fact Checking, Headline Writing, Image Optimization, Return for Changes</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h3>User-Management Boundary</h3>
+            <ul>
+              <li><strong>super_admin</strong> can create and manage all roles, including <code>super_admin</code></li>
+              <li><strong>admin</strong> can create and manage only <code>admin</code>, <code>reporter</code>, and <code>copy_editor</code></li>
+              <li><strong>admin</strong> cannot create or edit <code>super_admin</code>, demote the last <code>super_admin</code>, access System Settings, or access Revenue &amp; Ads Control</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>Newsroom Workflow</h2>
+            <div class="grid-two">
+              <div class="card">
+                <h3>Workflow States</h3>
+                <ul>
+                  <li><code>draft</code></li>
+                  <li><code>submitted</code></li>
+                  <li><code>assigned</code></li>
+                  <li><code>copy_edit</code></li>
+                  <li><code>changes_requested</code></li>
+                  <li><code>ready_for_approval</code></li>
+                  <li><code>approved</code></li>
+                  <li><code>scheduled</code></li>
+                  <li><code>published</code></li>
+                  <li><code>rejected</code></li>
+                  <li><code>archived</code></li>
+                </ul>
+              </div>
+              <div class="card">
+                <h3>Role Actions</h3>
+                <p><strong>Reporter</strong>: create draft, upload media, fill location tagging, fill source info, submit, revise on changes requested.</p>
+                <p><strong>Copy Editor</strong>: proofread, fact check, rewrite headline, optimize image, return for changes, mark ready for approval.</p>
+                <p><strong>Admin</strong>: review, assign, manage queue, approve/reject, schedule/publish, send push alerts, manage newsroom users.</p>
+                <p><strong>Super Admin</strong>: analytics, ads/revenue, system state, audits, permissions, emergency override.</p>
+              </div>
+            </div>
+
+            <h3>Workflow Path</h3>
+            <ol>
+              <li><code>super_admin</code> creates the first newsroom staff</li>
+              <li><code>admin</code> manages day-to-day newsroom users</li>
+              <li><code>reporter</code> creates content and submits it</li>
+              <li><code>admin</code> receives it in Content Queue</li>
+              <li><code>admin</code> assigns it to <code>copy_editor</code> or handles directly</li>
+              <li><code>copy_editor</code> either returns <code>changes_requested</code> or marks <code>ready_for_approval</code></li>
+              <li><code>admin</code> approves, schedules, and publishes</li>
+              <li><code>admin</code> optionally sends push alerts</li>
+              <li><code>super_admin</code> monitors via analytics, audit, and system panels</li>
+            </ol>
+          </section>
+
+          <section>
+            <h2>Implementation Changes</h2>
+
+            <h3>1. Role and Permission Contract</h3>
+            <ul>
+              <li>Admin surfaces should only recognize <code>super_admin</code>, <code>admin</code>, <code>reporter</code>, and <code>copy_editor</code></li>
+              <li>Migration defaults: current <code>author → reporter</code>, current <code>editor → copy_editor</code>, current <code>viewer → reader</code></li>
+              <li><code>team</code> page becomes accessible to <code>admin</code> and <code>super_admin</code></li>
+              <li><code>system_settings</code> becomes <code>super_admin</code> only</li>
+              <li><code>newsroom_settings</code> becomes <code>admin + super_admin</code></li>
+            </ul>
+
+            <h3>2. Panel Structure</h3>
+            <div class="grid-two">
+              <div class="card">
+                <h3>Super Admin</h3>
+                <ul>
+                  <li><code>/admin</code></li>
+                  <li><code>/admin/analytics</code></li>
+                  <li><code>/admin/revenue</code></li>
+                  <li><code>/admin/settings/system</code></li>
+                  <li><code>/admin/audit-log</code></li>
+                  <li><code>/admin/permission-review</code></li>
+                  <li><code>/admin/operations-diagnostics</code></li>
+                </ul>
+              </div>
+              <div class="card">
+                <h3>Admin</h3>
+                <ul>
+                  <li><code>/admin</code></li>
+                  <li><code>/admin/team</code></li>
+                  <li><code>/admin/review-queue</code></li>
+                  <li><code>/admin/assignments</code></li>
+                  <li><code>/admin/content-queue</code></li>
+                  <li><code>/admin/push-alerts</code></li>
+                  <li><code>/admin/settings/newsroom</code></li>
+                </ul>
+              </div>
+              <div class="card">
+                <h3>Reporter</h3>
+                <ul>
+                  <li><code>/admin</code></li>
+                  <li><code>/admin/my-work</code></li>
+                  <li><code>/admin/articles?scope=mine</code></li>
+                  <li><code>/admin/articles/new</code></li>
+                  <li><code>/admin/media</code></li>
+                </ul>
+              </div>
+              <div class="card">
+                <h3>Copy Editor</h3>
+                <ul>
+                  <li><code>/admin</code></li>
+                  <li><code>/admin/review-queue</code></li>
+                  <li><code>/admin/copy-desk</code></li>
+                  <li><code>/admin/articles/[id]/edit</code></li>
+                </ul>
+              </div>
+            </div>
+
+            <h3>3. Team and Auth Flow</h3>
+            <ul>
+              <li>Team invite dropdown shows <code>admin</code>, <code>reporter</code>, <code>copy_editor</code>, plus <code>super_admin</code> only when the acting user is a Super Admin</li>
+              <li>Setup/reset link flow remains the same</li>
+              <li>Login continues through <code>/signin?redirect=/admin</code></li>
+              <li><code>loginId</code> or <code>email</code> + password remains valid</li>
+            </ul>
+
+            <h3>4. Reporter Submission Data</h3>
+            <ul>
+              <li>Reporter forms must support media upload, location tagging, and source info</li>
+              <li>Minimum content additions: <code>locationTag</code>, <code>sourceInfo</code>, optional <code>sourceConfidential</code>, optional <code>reporterNotes</code></li>
+            </ul>
+
+            <h3>5. Copy-Editor Quality Data</h3>
+            <ul>
+              <li>Track proofread completion, fact-check status, headline revision status, image optimization status, copy editor notes, and return-for-changes reason</li>
+            </ul>
+
+            <h3>6. Admin Operations Surfaces</h3>
+            <ul>
+              <li>Story Approval</li>
+              <li>Assignment Desk</li>
+              <li>Content Queue</li>
+              <li>Push Alerts</li>
+              <li>User Management</li>
+              <li>Newsroom Settings</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>Important API and Type Changes</h2>
+            <ul>
+              <li>Replace old admin role vocabulary with the four-role model</li>
+              <li>Add <code>ready_for_approval</code> and <code>changes_requested</code> to the shared workflow contract</li>
+              <li>Split settings permissions into <code>system_settings</code> and <code>newsroom_settings</code></li>
+              <li>Restrict team-management APIs so only <code>super_admin</code> can manage <code>super_admin</code></li>
+              <li>Extend content submission/update payloads with <code>locationTag</code>, <code>sourceInfo</code>, and copy-edit review metadata</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>Phase-by-Phase Build Order</h2>
+            <div class="phase-list">
+              <div class="phase">
+                <strong>Phase 1: Role Cleanup</strong>
+                <p>Remove viewer from admin access, map author to reporter, map editor to copy editor, update labels, keep backward-compatible user migration.</p>
+              </div>
+              <div class="phase">
+                <strong>Phase 2: Permission Enforcement</strong>
+                <p>Rewrite page access and action permissions, move Team/User Management to admin + super_admin, keep System Settings super_admin only, add Newsroom Settings for admin.</p>
+              </div>
+              <div class="phase">
+                <strong>Phase 3: Dashboard Split</strong>
+                <p>Build distinct dashboards for Super Admin, Admin, Reporter, and Copy Editor.</p>
+              </div>
+              <div class="phase">
+                <strong>Phase 4: Workflow Enforcement</strong>
+                <p>Implement reporter submission, admin assignment and approval, copy-editor review, and push-alert handling.</p>
+              </div>
+              <div class="phase">
+                <strong>Phase 5: Form and Queue Upgrades</strong>
+                <p>Add reporter metadata, copy-editor review metadata, content queue, assignment desk, and push-alert panels.</p>
+              </div>
+              <div class="phase">
+                <strong>Phase 6: Migration and QA</strong>
+                <p>Migrate old roles, validate access per role, verify invite/setup/login flows, and close leftover old labels/routes.</p>
+              </div>
+            </div>
+          </section>
+
+          <section>
+            <h2>Test Plan</h2>
+            <div class="grid-two">
+              <div class="card">
+                <h3>Permissions</h3>
+                <ul>
+                  <li>Super Admin can access system settings and revenue panels</li>
+                  <li>Admin cannot access system settings or revenue panels</li>
+                  <li>Admin can manage admin, reporter, and copy_editor</li>
+                  <li>Admin cannot create, edit, or remove super_admin</li>
+                  <li>Reporter cannot access review queue, team, analytics, or settings</li>
+                  <li>Copy Editor cannot access team, push alerts, or system settings</li>
+                </ul>
+              </div>
+              <div class="card">
+                <h3>Workflow and Auth</h3>
+                <ul>
+                  <li>Reporter can create and submit only their own content</li>
+                  <li>Copy Editor can edit assigned items and mark ready for approval</li>
+                  <li>Copy Editor can return changes requested</li>
+                  <li>Admin can approve, reject, schedule, publish, and push alert</li>
+                  <li>Super Admin is not required for normal publishing flow</li>
+                  <li>Generated setup links, login IDs, and password reset links all work</li>
+                </ul>
+              </div>
+            </div>
+          </section>
+
+          <section>
+            <h2>Assumptions and Defaults</h2>
+            <ul>
+              <li><strong>Revenue &amp; Ads Control</strong> is a dedicated Super-Admin-only surface, even if initially delivered as a placeholder</li>
+              <li><strong>Newsroom Settings</strong> is separate from <strong>System Settings</strong></li>
+              <li><strong>Admin</strong> has full newsroom user management, but not platform-owner control</li>
+              <li><strong>Reporter</strong> is submission-focused, not approval-focused</li>
+              <li><strong>Copy Editor</strong> is quality-focused, not publishing-focused</li>
+              <li><strong>reader</strong> remains the non-admin public-site role</li>
+            </ul>
+          </section>
+
+          <p class="footer-note">
+            Prepared for Lokswami newsroom-admin restructuring. This document is intended as the
+            implementation reference for role cleanup, workflow enforcement, and panel separation.
+          </p>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

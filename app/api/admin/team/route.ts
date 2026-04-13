@@ -1,7 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db/mongoose';
-import { getSuperAdminSession } from '@/lib/auth/admin';
-import { isAdminRole } from '@/lib/auth/roles';
+import { getAdminSession } from '@/lib/auth/admin';
+import {
+  canManageTargetAdminRole,
+  canManageTeam,
+  getAssignableAdminRoles,
+} from '@/lib/auth/permissions';
+import {
+  getStaffCredentialStatus,
+  issueStaffSetupToken,
+  reserveUniqueStaffLoginId,
+} from '@/lib/auth/staffCredentials';
+import {
+  ADMIN_ROLE_QUERY_VALUES,
+  isAdminRole,
+  normalizeAdminRole,
+} from '@/lib/auth/roles';
 import User from '@/lib/models/User';
 
 type TeamMemberRecord = {
@@ -10,10 +24,27 @@ type TeamMemberRecord = {
   email?: string;
   image?: string;
   role?: string;
+  loginId?: string;
+  passwordHash?: string;
+  passwordSetAt?: Date | string | null;
+  setupTokenExpiresAt?: Date | string | null;
   isActive?: boolean;
   lastLoginAt?: Date | string | null;
   createdAt?: Date | string;
 };
+
+function getRequestOrigin(req: Pick<NextRequest, 'url'> & { nextUrl?: { origin?: string } }) {
+  const nextOrigin = typeof req.nextUrl?.origin === 'string' ? req.nextUrl.origin.trim() : '';
+  if (nextOrigin) {
+    return nextOrigin;
+  }
+
+  try {
+    return new URL(req.url).origin;
+  } catch {
+    return 'http://localhost:3000';
+  }
+}
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
@@ -24,13 +55,27 @@ function isValidEmail(value: string) {
 }
 
 function toTeamMember(record: TeamMemberRecord) {
+  const normalizedRole = normalizeAdminRole(record.role);
+  if (!normalizedRole) {
+    return null;
+  }
+
   return {
     id: typeof record._id?.toString === 'function' ? record._id.toString() : '',
     name: typeof record.name === 'string' ? record.name.trim() : '',
     email: typeof record.email === 'string' ? record.email.trim() : '',
     image: typeof record.image === 'string' ? record.image.trim() : '',
-    role: typeof record.role === 'string' ? record.role : 'reader',
+    role: normalizedRole,
+    loginId: typeof record.loginId === 'string' ? record.loginId.trim() : '',
     isActive: record.isActive !== false,
+    credentialStatus: getStaffCredentialStatus({
+      passwordHash: typeof record.passwordHash === 'string' ? record.passwordHash : '',
+      setupTokenExpiresAt: record.setupTokenExpiresAt || null,
+    }),
+    passwordSetAt: record.passwordSetAt ? new Date(record.passwordSetAt).toISOString() : null,
+    setupExpiresAt: record.setupTokenExpiresAt
+      ? new Date(record.setupTokenExpiresAt).toISOString()
+      : null,
     lastLoginAt: record.lastLoginAt ? new Date(record.lastLoginAt).toISOString() : null,
     createdAt: record.createdAt ? new Date(record.createdAt).toISOString() : null,
   };
@@ -38,19 +83,29 @@ function toTeamMember(record: TeamMemberRecord) {
 
 export async function GET() {
   try {
-    const admin = await getSuperAdminSession();
-    if (!admin) {
+    const admin = await getAdminSession();
+    if (!admin || !canManageTeam(admin.role)) {
       return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
     }
 
     await connectDB();
-    const members = (await User.find({ role: { $ne: 'reader' } })
+    const members = (await User.find({ role: { $in: ADMIN_ROLE_QUERY_VALUES } })
       .sort({ createdAt: 1 })
       .lean()) as unknown as TeamMemberRecord[];
 
+    const assignableRoles = new Set(getAssignableAdminRoles(admin.role));
+
     return NextResponse.json({
       success: true,
-      data: members.map(toTeamMember),
+      data: members
+        .map(toTeamMember)
+        .filter((member): member is NonNullable<ReturnType<typeof toTeamMember>> => {
+          if (!member) {
+            return false;
+          }
+
+          return assignableRoles.has(member.role);
+        }),
     });
   } catch (error) {
     console.error('Team GET failed:', error);
@@ -63,8 +118,8 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const admin = await getSuperAdminSession();
-    if (!admin) {
+    const admin = await getAdminSession();
+    if (!admin || !canManageTeam(admin.role)) {
       return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
     }
 
@@ -87,6 +142,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!canManageTargetAdminRole(admin.role, role)) {
+      return NextResponse.json(
+        { success: false, error: 'You cannot assign that role' },
+        { status: 403 }
+      );
+    }
+
     await connectDB();
 
     const existingUser = await User.findOne({ email });
@@ -95,19 +157,42 @@ export async function POST(req: NextRequest) {
       existingUser.name = name || existingUser.name || email.split('@')[0] || 'Team Member';
       existingUser.role = role;
       existingUser.isActive = true;
+      existingUser.loginId =
+        typeof existingUser.loginId === 'string' && existingUser.loginId.trim()
+          ? existingUser.loginId.trim().toLowerCase()
+          : await reserveUniqueStaffLoginId({
+              email,
+              name: existingUser.name,
+              excludeUserId:
+                typeof existingUser._id?.toString === 'function'
+                  ? existingUser._id.toString()
+                  : undefined,
+            });
       await existingUser.save();
+
+      const updatedUser = existingUser.toObject();
+      const userId =
+        typeof updatedUser._id?.toString === 'function' ? updatedUser._id.toString() : '';
+      const setup = userId
+        ? await issueStaffSetupToken({ userId, origin: getRequestOrigin(req) })
+        : null;
 
       return NextResponse.json({
         success: true,
-        data: toTeamMember(existingUser.toObject()),
+        data: {
+          ...toTeamMember(updatedUser),
+          setupLink: setup?.setupLink || '',
+        },
       });
     }
 
+    const loginId = await reserveUniqueStaffLoginId({ email, name });
     const createdUser = await User.create({
       email,
       name: name || email.split('@')[0] || 'Team Member',
       image: '',
       role,
+      loginId,
       isActive: true,
       savedArticles: [],
       preferredLanguage: 'hi',
@@ -115,10 +200,20 @@ export async function POST(req: NextRequest) {
       notificationsEnabled: false,
     });
 
+    const createdObject = createdUser.toObject();
+    const userId =
+      typeof createdObject._id?.toString === 'function' ? createdObject._id.toString() : '';
+    const setup = userId
+      ? await issueStaffSetupToken({ userId, origin: getRequestOrigin(req) })
+      : null;
+
     return NextResponse.json(
       {
         success: true,
-        data: toTeamMember(createdUser.toObject()),
+        data: {
+          ...toTeamMember(createdObject),
+          setupLink: setup?.setupLink || '',
+        },
       },
       { status: 201 }
     );

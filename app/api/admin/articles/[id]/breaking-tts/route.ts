@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Types } from 'mongoose';
 import connectDB from '@/lib/db/mongoose';
 import { getAdminSession } from '@/lib/auth/admin';
+import { canEditContent } from '@/lib/auth/permissions';
 import Article from '@/lib/models/Article';
+import { resolveArticleWorkflow } from '@/lib/workflow/article';
 import {
   ensureBreakingTtsForArticle,
   resolveReusableBreakingTts,
@@ -48,6 +50,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
           { status: 404 }
         );
       }
+      if (
+        !canEditContent(user, {
+          legacyAuthorName: article.author,
+          workflow: resolveArticleWorkflow(article),
+        })
+      ) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
 
       if (!article.isBreaking) {
         return NextResponse.json(
@@ -91,6 +104,21 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { success: false, error: 'Article not found' },
         { status: 404 }
+      );
+    }
+    if (
+      !canEditContent(user, {
+        legacyAuthorName: article.author,
+        workflow: resolveArticleWorkflow({
+          workflow: article.workflow,
+          updatedAt: article.updatedAt,
+          publishedAt: article.publishedAt,
+        }),
+      })
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
       );
     }
 

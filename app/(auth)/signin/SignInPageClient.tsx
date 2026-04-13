@@ -18,7 +18,7 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   OAuthError: 'Google sign-in failed. Please try again.',
   OAuthSignin: 'Google sign-in failed. Please try again.',
   OAuthCallback: 'Google sign-in failed. Please try again.',
-  CredentialsSignin: 'Invalid admin ID or password.',
+  CredentialsSignin: 'Invalid login ID, email, or password.',
   no_admin_access: 'This account cannot access the admin panel.',
   Default: 'Sign-in failed. Please try again.',
 };
@@ -153,15 +153,22 @@ const formItemVariants = {
 
 function ThemeToggleButton({ className = '' }: { className?: string }) {
   const { theme, toggleTheme } = useAppStore();
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  const resolvedTheme = isHydrated ? theme : 'light';
 
   return (
     <button
       type="button"
       onClick={toggleTheme}
       className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 shadow-sm transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700 ${className}`}
-      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      aria-label={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
     >
-      {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+      {resolvedTheme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
     </button>
   );
 }
@@ -212,7 +219,7 @@ function AuthFormContent({
   onAdminCredentialsSignIn: () => Promise<void>;
 }) {
   const forgotPasswordHref = `mailto:${COMPANY_INFO.contact.email}?subject=${encodeURIComponent(
-    'Lokswami admin password help'
+    'Lokswami staff password help'
   )}&body=${encodeURIComponent(
     `Hello Lokswami team,\n\nI need help accessing the admin account.${
       adminLoginId.trim() ? `\n\nAdmin ID or email: ${adminLoginId.trim()}` : ''
@@ -228,17 +235,17 @@ function AuthFormContent({
     >
       <motion.div variants={formItemVariants}>
         <h1 className="text-center text-2xl font-black text-zinc-900 dark:text-zinc-100">
-          {showAdminCredentialsLogin ? 'Admin Sign In' : 'Welcome to Lokswami'}
+          {showAdminCredentialsLogin ? 'Staff Sign In' : 'Welcome to Lokswami'}
         </h1>
       </motion.div>
 
       <motion.div variants={formItemVariants}>
         <p className="mb-6 mt-1 text-center text-sm text-zinc-500 dark:text-zinc-400">
           {showAdminCredentialsLogin && showGoogleSignIn
-            ? 'Continue with Google or use your admin ID and password to access the control panel.'
+            ? 'Continue with Google or use your login ID and password to access the newsroom panel.'
             : showAdminCredentialsLogin
-              ? 'Use your admin ID and password to access the control panel.'
-            : 'Sign in to continue to your account.'}
+              ? 'Use your login ID or email and password to access the newsroom panel.'
+              : 'Sign in to continue to your account.'}
         </p>
       </motion.div>
 
@@ -276,7 +283,7 @@ function AuthFormContent({
         <motion.div variants={formItemVariants} className="my-5 flex items-center gap-3">
           <span className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
           <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
-            or use admin credentials
+            or use staff credentials
           </span>
           <span className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
         </motion.div>
@@ -298,7 +305,7 @@ function AuthFormContent({
           <div className="space-y-3">
             <label className="block">
               <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                Admin ID or email
+                Login ID or email
               </span>
               <input
                 type="text"
@@ -306,7 +313,7 @@ function AuthFormContent({
                 onChange={(event) => onAdminLoginIdChange(event.target.value)}
                 autoComplete="username"
                 className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                placeholder="admin"
+                placeholder="staff.login"
               />
             </label>
 
@@ -350,7 +357,7 @@ function AuthFormContent({
               {isCredentialSigningIn ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : null}
-              <span>{isCredentialSigningIn ? 'Signing in...' : 'Sign in as Admin'}</span>
+              <span>{isCredentialSigningIn ? 'Signing in...' : 'Sign in to Newsroom'}</span>
             </motion.button>
 
             <div className="flex items-center justify-between gap-3 text-xs">
@@ -590,7 +597,7 @@ function SignInPageContent({
 
   async function handleAdminCredentialsSignIn(): Promise<void> {
     if (!adminLoginId.trim() || !adminPassword) {
-      setErrorMessage('Enter your admin ID and password.');
+        setErrorMessage('Enter your login ID or email and password.');
       return;
     }
 

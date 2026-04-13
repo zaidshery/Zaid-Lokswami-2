@@ -4,7 +4,26 @@ import connectDB from '@/lib/db/mongoose';
 import Article from '@/lib/models/Article';
 import EPaper from '@/lib/models/EPaper';
 import EPaperArticle from '@/lib/models/EPaperArticle';
+import User from '@/lib/models/User';
 import { getAdminSession } from '@/lib/auth/admin';
+import {
+  createEmptyCopyEditorMeta,
+  createEmptyReporterMeta,
+  normalizeCopyEditorMeta,
+  normalizeCopyEditorMetaPartial,
+  normalizeReporterMeta,
+  normalizeReporterMetaPartial,
+  validateCopyEditorMeta,
+  validateReporterMeta,
+} from '@/lib/content/newsroomMetadata';
+import {
+  canDeleteContent,
+  canEditContent,
+  canReadContent,
+  canTransitionContent,
+  canViewPage,
+  type ContentTransitionAction,
+} from '@/lib/auth/permissions';
 import {
   deleteStoredBreakingAudio,
   ensureBreakingTtsForArticle,
@@ -15,12 +34,21 @@ import {
   updateStoredArticle,
 } from '@/lib/storage/articlesFile';
 import {
+  buildArticleActivityMessage,
+  recordArticleActivity,
+} from '@/lib/server/articleActivity';
+import {
   normalizeHotspot,
   resolveUniqueSlug,
   validateHotspot,
 } from '@/lib/utils/epaperArticles';
 import { isAllowedAssetPath } from '@/lib/utils/epaperStorage';
 import { resolveArticleOgImageUrl } from '@/lib/utils/articleMedia';
+import {
+  applyArticleWorkflowAction,
+  resolveArticleWorkflow,
+} from '@/lib/workflow/article';
+import { isWorkflowPriority } from '@/lib/workflow/types';
 
 type NormalizedSeo = {
   metaTitle: string;
@@ -32,6 +60,139 @@ type NormalizedSeo = {
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
+
+type LeanArticleRecord = Record<string, unknown> & {
+  author?: string;
+  breakingTts?: { audioUrl?: string } | null;
+  isBreaking?: boolean;
+  revisions?: unknown[];
+  workflow?: Record<string, unknown> | null;
+  publishedAt?: string | Date;
+  updatedAt?: string | Date;
+};
+
+const WORKFLOW_ACTIONS = new Set<ContentTransitionAction>([
+  'submit',
+  'assign',
+  'start_review',
+  'move_to_copy_edit',
+  'request_changes',
+  'mark_ready_for_approval',
+  'approve',
+  'reject',
+  'schedule',
+  'publish',
+  'archive',
+]);
+
+type WorkflowActionBody = {
+  action?: ContentTransitionAction;
+  assignedToId?: string;
+  scheduledFor?: string;
+  dueAt?: string;
+  priority?: string;
+  rejectionReason?: string;
+  comment?: string;
+};
+
+function buildArticlePermissionRecord(article: {
+  author?: unknown;
+  workflow?: unknown;
+  publishedAt?: unknown;
+  updatedAt?: unknown;
+}) {
+  const workflow = resolveArticleWorkflow({
+    workflow:
+      typeof article.workflow === 'object' && article.workflow
+        ? (article.workflow as Record<string, unknown>)
+        : null,
+    publishedAt: article.publishedAt,
+    updatedAt: article.updatedAt,
+  });
+
+  return {
+    legacyAuthorName: typeof article.author === 'string' ? article.author : '',
+    workflow,
+  };
+}
+
+function resolveArticleResponse(
+  article: (Record<string, unknown> & {
+    author?: string;
+    workflow?: unknown;
+    publishedAt?: unknown;
+    updatedAt?: unknown;
+  }) | LeanArticleRecord
+) {
+  return {
+    ...article,
+    workflow: resolveArticleWorkflow({
+      workflow:
+        typeof article.workflow === 'object' && article.workflow
+          ? (article.workflow as Record<string, unknown>)
+          : null,
+      publishedAt: article.publishedAt,
+      updatedAt: article.updatedAt,
+    }),
+  };
+}
+
+function isWorkflowAction(value: unknown): value is ContentTransitionAction {
+  return typeof value === 'string' && WORKFLOW_ACTIONS.has(value as ContentTransitionAction);
+}
+
+function compactMetadata(value: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => {
+      if (entry === null || entry === undefined) return false;
+      if (typeof entry === 'string') return entry.trim().length > 0;
+      if (Array.isArray(entry)) return entry.length > 0;
+      return true;
+    })
+  );
+}
+
+function parseOptionalDate(value: unknown) {
+  if (!value) return null;
+  const parsed = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function toStoredWorkflowUpdate(workflow: ReturnType<typeof resolveArticleWorkflow>) {
+  return {
+    ...workflow,
+    submittedAt: workflow.submittedAt?.toISOString() || null,
+    approvedAt: workflow.approvedAt?.toISOString() || null,
+    rejectedAt: workflow.rejectedAt?.toISOString() || null,
+    publishedAt: workflow.publishedAt?.toISOString() || null,
+    scheduledFor: workflow.scheduledFor?.toISOString() || null,
+    dueAt: workflow.dueAt?.toISOString() || null,
+    comments: workflow.comments.map((comment) => ({
+      ...comment,
+      createdAt: comment.createdAt.toISOString(),
+    })),
+  };
+}
+
+async function resolveAssignee(assignedToId: string) {
+  const normalized = assignedToId.trim();
+  if (!normalized) return null;
+
+  const query = Types.ObjectId.isValid(normalized)
+    ? { _id: normalized }
+    : { email: normalized.toLowerCase() };
+  const assignee = await User.findOne(query).select('_id name email role').lean();
+  if (!assignee || typeof assignee.role !== 'string' || assignee.role === 'reader') {
+    return null;
+  }
+
+  return {
+    id: String(assignee._id || ''),
+    name: String(assignee.name || '').trim() || String(assignee.email || '').trim(),
+    email: String(assignee.email || '').trim(),
+    role: assignee.role,
+  };
+}
 
 function normalizeSeo(input: unknown): NormalizedSeo {
   const source = typeof input === 'object' && input ? (input as Record<string, unknown>) : {};
@@ -81,6 +242,8 @@ function normalizePartialInput(body: unknown) {
   const source = typeof body === 'object' && body ? (body as Record<string, unknown>) : {};
   const seo = normalizeSeoPartial(source.seo);
   const hasSeo = Object.keys(seo).length > 0;
+  const reporterMeta = normalizeReporterMetaPartial(source.reporterMeta);
+  const copyEditorMeta = normalizeCopyEditorMetaPartial(source.copyEditorMeta);
   return {
     ...(typeof source.title === 'string' ? { title: source.title.trim() } : {}),
     ...(typeof source.summary === 'string' ? { summary: source.summary.trim() } : {}),
@@ -91,6 +254,8 @@ function normalizePartialInput(body: unknown) {
     ...(source.isBreaking !== undefined ? { isBreaking: Boolean(source.isBreaking) } : {}),
     ...(source.isTrending !== undefined ? { isTrending: Boolean(source.isTrending) } : {}),
     ...(hasSeo ? { seo } : {}),
+    ...(Object.keys(reporterMeta).length > 0 ? { reporterMeta } : {}),
+    ...(Object.keys(copyEditorMeta).length > 0 ? { copyEditorMeta } : {}),
   };
 }
 
@@ -133,6 +298,34 @@ function validateLengths(input: Record<string, unknown>) {
     }
   }
 
+  const reporterMeta =
+    typeof input.reporterMeta === 'object' && input.reporterMeta
+      ? normalizeReporterMeta({
+          ...createEmptyReporterMeta(),
+          ...input.reporterMeta,
+        })
+      : null;
+  if (reporterMeta) {
+    const reporterMetaError = validateReporterMeta(reporterMeta);
+    if (reporterMetaError) {
+      return reporterMetaError;
+    }
+  }
+
+  const copyEditorMeta =
+    typeof input.copyEditorMeta === 'object' && input.copyEditorMeta
+      ? normalizeCopyEditorMeta({
+          ...createEmptyCopyEditorMeta(),
+          ...input.copyEditorMeta,
+        })
+      : null;
+  if (copyEditorMeta) {
+    const copyEditorMetaError = validateCopyEditorMeta(copyEditorMeta);
+    if (copyEditorMetaError) {
+      return copyEditorMetaError;
+    }
+  }
+
   return null;
 }
 
@@ -154,6 +347,8 @@ function normalizeFullInput(body: unknown) {
     isBreaking: Boolean(source.isBreaking),
     isTrending: Boolean(source.isTrending),
     seo,
+    reporterMeta: normalizeReporterMeta(source.reporterMeta),
+    copyEditorMeta: normalizeCopyEditorMeta(source.copyEditorMeta),
   };
 }
 
@@ -187,6 +382,8 @@ function buildRevisionSnapshot(article: Record<string, unknown>) {
     isBreaking: Boolean(article.isBreaking),
     isTrending: Boolean(article.isTrending),
     seo,
+    reporterMeta: normalizeReporterMeta(article.reporterMeta),
+    copyEditorMeta: normalizeCopyEditorMeta(article.copyEditorMeta),
     savedAt: new Date(),
   };
 }
@@ -395,6 +592,12 @@ export async function GET(
     const { id } = await context.params;
 
     if (isEpaperKind(req)) {
+      if (!canViewPage(user.role, 'epapers')) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
       await connectDB();
       const epaperArticle = await findEpaperArticle(id);
       if (!epaperArticle) {
@@ -414,7 +617,27 @@ export async function GET(
           { status: 404 }
         );
       }
-      return NextResponse.json({ success: true, data: article });
+      if (
+        !canReadContent(user, buildArticlePermissionRecord(article), {
+          allowViewerRead: true,
+        })
+      ) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
+      return NextResponse.json({
+        success: true,
+        data: resolveArticleResponse(
+          article as unknown as Record<string, unknown> & {
+            author?: string;
+            workflow?: unknown;
+            publishedAt?: unknown;
+            updatedAt?: unknown;
+          }
+        ),
+      });
     }
 
     if (!Types.ObjectId.isValid(id)) {
@@ -424,13 +647,29 @@ export async function GET(
       );
     }
 
-    const article = await Article.findById(id).lean();
+    const article = (await Article.findById(id).lean()) as LeanArticleRecord | null;
     if (article) {
-      return NextResponse.json({ success: true, data: article });
+      if (
+        !canReadContent(user, buildArticlePermissionRecord(article), {
+          allowViewerRead: true,
+        })
+      ) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
+      return NextResponse.json({ success: true, data: resolveArticleResponse(article) });
     }
 
     const epaperArticle = await findEpaperArticle(id);
     if (epaperArticle) {
+      if (!canViewPage(user.role, 'epapers')) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
       return NextResponse.json({ success: true, data: mapEpaperArticle(epaperArticle) });
     }
 
@@ -465,8 +704,239 @@ export async function PATCH(
     const body = await req.json();
 
     if (isEpaperKind(req)) {
+      if (!canViewPage(user.role, 'epapers')) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
       const result = await updateEpaperArticleById(id, body, false);
       return NextResponse.json(result.payload, { status: result.status });
+    }
+
+    if (isWorkflowAction((body as WorkflowActionBody).action)) {
+      const actionBody = body as WorkflowActionBody;
+      const action = actionBody.action;
+
+      if (await shouldUseFileStore()) {
+        const currentArticle = await getStoredArticleById(id);
+        if (!currentArticle) {
+          return NextResponse.json(
+            { success: false, error: 'Article not found' },
+            { status: 404 }
+          );
+        }
+
+        const permissionRecord = buildArticlePermissionRecord(currentArticle);
+        if (!action || !canTransitionContent(user, permissionRecord, action)) {
+          return NextResponse.json(
+            { success: false, error: 'Forbidden' },
+            { status: 403 }
+          );
+        }
+
+        let assignedTo = null;
+        if (action === 'assign') {
+          if (!process.env.MONGODB_URI?.trim()) {
+            return NextResponse.json(
+              { success: false, error: 'Assignments require MongoDB-backed users.' },
+              { status: 503 }
+            );
+          }
+
+          await connectDB();
+          assignedTo = await resolveAssignee(String(actionBody.assignedToId || ''));
+          if (!assignedTo) {
+            return NextResponse.json(
+              { success: false, error: 'Valid assignedToId is required' },
+              { status: 400 }
+            );
+          }
+        }
+
+        try {
+          const { fromStatus, toStatus, nextWorkflow } = applyArticleWorkflowAction({
+            action,
+            actor: user,
+            currentWorkflow: resolveArticleWorkflow(currentArticle),
+            assignedTo,
+            scheduledFor: parseOptionalDate(actionBody.scheduledFor),
+            dueAt: parseOptionalDate(actionBody.dueAt),
+            priority: isWorkflowPriority(actionBody.priority) ? actionBody.priority : undefined,
+            comment: actionBody.comment,
+            rejectionReason: actionBody.rejectionReason,
+          });
+
+          const article = await updateStoredArticle(
+            id,
+            {
+              workflow: toStoredWorkflowUpdate(nextWorkflow),
+              ...(toStatus === 'published'
+                ? { publishedAt: new Date().toISOString() }
+                : {}),
+            },
+            { skipRevision: true }
+          );
+
+          if (!article) {
+            return NextResponse.json(
+              { success: false, error: 'Article not found' },
+              { status: 404 }
+            );
+          }
+
+          await recordArticleActivity({
+            articleId: id,
+            actor: user,
+            action,
+            fromStatus,
+            toStatus,
+            message: buildArticleActivityMessage({
+              action,
+              toStatus,
+              assignedTo: nextWorkflow.assignedTo,
+              rejectionReason: nextWorkflow.rejectionReason,
+            }),
+            metadata: compactMetadata({
+              assignedToId: nextWorkflow.assignedTo?.id || '',
+              assignedToName: nextWorkflow.assignedTo?.name || '',
+              priority: nextWorkflow.priority,
+              dueAt: nextWorkflow.dueAt?.toISOString() || '',
+              scheduledFor: nextWorkflow.scheduledFor?.toISOString() || '',
+              rejectionReason: nextWorkflow.rejectionReason || '',
+              comment: actionBody.comment?.trim() || '',
+            }),
+          });
+
+          return NextResponse.json({
+            success: true,
+            data: article,
+            message: `Article moved to ${toStatus}.`,
+          });
+        } catch (workflowError) {
+          return NextResponse.json(
+            {
+              success: false,
+              error:
+                workflowError instanceof Error
+                  ? workflowError.message
+                  : 'Failed to update article workflow',
+            },
+            { status: 400 }
+          );
+        }
+      }
+
+      if (!Types.ObjectId.isValid(id)) {
+        return NextResponse.json(
+          { success: false, error: 'Invalid article ID' },
+          { status: 400 }
+        );
+      }
+
+      const current = (await Article.findById(id).lean()) as LeanArticleRecord | null;
+      if (!current) {
+        if (!canViewPage(user.role, 'epapers')) {
+          return NextResponse.json(
+            { success: false, error: 'Forbidden' },
+            { status: 403 }
+          );
+        }
+        const fallback = await updateEpaperArticleById(id, body, false);
+        return NextResponse.json(fallback.payload, { status: fallback.status });
+      }
+
+      const permissionRecord = buildArticlePermissionRecord(current);
+      if (!action || !canTransitionContent(user, permissionRecord, action)) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
+
+      let assignedTo = null;
+      if (action === 'assign') {
+        assignedTo = await resolveAssignee(String(actionBody.assignedToId || ''));
+        if (!assignedTo) {
+          return NextResponse.json(
+            { success: false, error: 'Valid assignedToId is required' },
+            { status: 400 }
+          );
+        }
+      }
+
+      try {
+        const { fromStatus, toStatus, nextWorkflow } = applyArticleWorkflowAction({
+          action,
+          actor: user,
+          currentWorkflow: resolveArticleWorkflow(current),
+          assignedTo,
+          scheduledFor: parseOptionalDate(actionBody.scheduledFor),
+          dueAt: parseOptionalDate(actionBody.dueAt),
+          priority: isWorkflowPriority(actionBody.priority) ? actionBody.priority : undefined,
+          comment: actionBody.comment,
+          rejectionReason: actionBody.rejectionReason,
+        });
+
+        const article = await Article.findByIdAndUpdate(
+          id,
+          {
+            $set: {
+              workflow: nextWorkflow,
+              updatedAt: new Date(),
+              ...(toStatus === 'published' ? { publishedAt: new Date() } : {}),
+            },
+          },
+          { new: true, runValidators: true }
+        );
+
+        if (!article) {
+          return NextResponse.json(
+            { success: false, error: 'Article not found' },
+            { status: 404 }
+          );
+        }
+
+        await recordArticleActivity({
+          articleId: id,
+          actor: user,
+          action,
+          fromStatus,
+          toStatus,
+          message: buildArticleActivityMessage({
+            action,
+            toStatus,
+            assignedTo: nextWorkflow.assignedTo,
+            rejectionReason: nextWorkflow.rejectionReason,
+          }),
+          metadata: compactMetadata({
+            assignedToId: nextWorkflow.assignedTo?.id || '',
+            assignedToName: nextWorkflow.assignedTo?.name || '',
+            priority: nextWorkflow.priority,
+            dueAt: nextWorkflow.dueAt?.toISOString() || '',
+            scheduledFor: nextWorkflow.scheduledFor?.toISOString() || '',
+            rejectionReason: nextWorkflow.rejectionReason || '',
+            comment: actionBody.comment?.trim() || '',
+          }),
+        });
+
+        return NextResponse.json({
+          success: true,
+          data: article,
+          message: `Article moved to ${toStatus}.`,
+        });
+      } catch (workflowError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              workflowError instanceof Error
+                ? workflowError.message
+                : 'Failed to update article workflow',
+          },
+          { status: 400 }
+        );
+      }
     }
 
     const updates = normalizePartialInput(body);
@@ -479,6 +949,20 @@ export async function PATCH(
     }
 
     if (await shouldUseFileStore()) {
+      const currentArticle = await getStoredArticleById(id);
+      if (!currentArticle) {
+        return NextResponse.json(
+          { success: false, error: 'Article not found' },
+          { status: 404 }
+        );
+      }
+      if (!canEditContent(user, buildArticlePermissionRecord(currentArticle))) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
+
       const article = await updateStoredArticle(id, updates);
       if (!article) {
         return NextResponse.json(
@@ -513,6 +997,20 @@ export async function PATCH(
         console.error('Failed to cache breaking TTS after article patch:', ttsError);
       }
 
+      const changedFields = Object.keys(updates);
+      if (changedFields.length > 0) {
+        await recordArticleActivity({
+          articleId: id,
+          actor: user,
+          action: 'saved',
+          toStatus: resolveArticleWorkflow(article).status,
+          message: buildArticleActivityMessage({ action: 'saved' }),
+          metadata: {
+            changedFields,
+          },
+        });
+      }
+
       return NextResponse.json({ success: true, data: article });
     }
 
@@ -523,10 +1021,22 @@ export async function PATCH(
       );
     }
 
-    const current = await Article.findById(id).lean();
+    const current = (await Article.findById(id).lean()) as LeanArticleRecord | null;
     if (!current) {
+      if (!canViewPage(user.role, 'epapers')) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
       const fallback = await updateEpaperArticleById(id, body, false);
       return NextResponse.json(fallback.payload, { status: fallback.status });
+    }
+    if (!canEditContent(user, buildArticlePermissionRecord(current))) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
+      );
     }
 
     const revision = buildRevisionSnapshot(current as Record<string, unknown>);
@@ -571,6 +1081,20 @@ export async function PATCH(
       console.error('Failed to cache breaking TTS after article patch:', ttsError);
     }
 
+    const changedFields = Object.keys(updates);
+    if (changedFields.length > 0) {
+      await recordArticleActivity({
+        articleId: id,
+        actor: user,
+        action: 'saved',
+        toStatus: resolveArticleWorkflow(article.toObject()).status,
+        message: buildArticleActivityMessage({ action: 'saved' }),
+        metadata: {
+          changedFields,
+        },
+      });
+    }
+
     return NextResponse.json({ success: true, data: article });
   } catch (error) {
     console.error('Error patching article:', error);
@@ -599,6 +1123,12 @@ export async function PUT(
     const body = await req.json();
 
     if (isEpaperKind(req)) {
+      if (!canViewPage(user.role, 'epapers')) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
       const result = await updateEpaperArticleById(id, body, true);
       return NextResponse.json(result.payload, { status: result.status });
     }
@@ -613,6 +1143,20 @@ export async function PUT(
     }
 
     if (await shouldUseFileStore()) {
+      const currentArticle = await getStoredArticleById(id);
+      if (!currentArticle) {
+        return NextResponse.json(
+          { success: false, error: 'Article not found' },
+          { status: 404 }
+        );
+      }
+      if (!canEditContent(user, buildArticlePermissionRecord(currentArticle))) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
+
       const article = await updateStoredArticle(id, input);
       if (!article) {
         return NextResponse.json(
@@ -647,6 +1191,17 @@ export async function PUT(
         console.error('Failed to cache breaking TTS after article put:', ttsError);
       }
 
+      await recordArticleActivity({
+        articleId: id,
+        actor: user,
+        action: 'saved',
+        toStatus: resolveArticleWorkflow(article).status,
+        message: buildArticleActivityMessage({ action: 'saved' }),
+        metadata: {
+          changedFields: Object.keys(input),
+        },
+      });
+
       return NextResponse.json({
         success: true,
         data: article,
@@ -661,10 +1216,22 @@ export async function PUT(
       );
     }
 
-    const current = await Article.findById(id).lean();
+    const current = (await Article.findById(id).lean()) as LeanArticleRecord | null;
     if (!current) {
+      if (!canViewPage(user.role, 'epapers')) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
       const fallback = await updateEpaperArticleById(id, body, true);
       return NextResponse.json(fallback.payload, { status: fallback.status });
+    }
+    if (!canEditContent(user, buildArticlePermissionRecord(current))) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
+      );
     }
 
     const revision = buildRevisionSnapshot(current as Record<string, unknown>);
@@ -709,6 +1276,17 @@ export async function PUT(
       console.error('Failed to cache breaking TTS after article put:', ttsError);
     }
 
+    await recordArticleActivity({
+      articleId: id,
+      actor: user,
+      action: 'saved',
+      toStatus: resolveArticleWorkflow(article.toObject()).status,
+      message: buildArticleActivityMessage({ action: 'saved' }),
+      metadata: {
+        changedFields: Object.keys(input),
+      },
+    });
+
     return NextResponse.json({
       success: true,
       data: article,
@@ -737,8 +1315,20 @@ export async function DELETE(
         { status: 401 }
       );
     }
+    if (!canDeleteContent(user)) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
+      );
+    }
 
     if (isEpaperKind(req)) {
+      if (!canViewPage(user.role, 'epapers')) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
       await connectDB();
       if (!Types.ObjectId.isValid(id)) {
         return NextResponse.json(
@@ -761,6 +1351,12 @@ export async function DELETE(
 
     if (await shouldUseFileStore()) {
       const existing = await getStoredArticleById(id);
+      if (!existing) {
+        return NextResponse.json(
+          { success: false, error: 'Article not found' },
+          { status: 404 }
+        );
+      }
       const deleted = await deleteStoredArticle(id);
       if (!deleted) {
         return NextResponse.json(

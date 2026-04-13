@@ -2,14 +2,48 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db/mongoose';
 import Video from '@/lib/models/Video';
 import { getAdminSession } from '@/lib/auth/admin';
+import {
+  canCreateContent,
+  canReadContent,
+} from '@/lib/auth/permissions';
 import { NEWS_CATEGORIES } from '@/lib/constants/newsCategories';
+import type { CreateVideoInput } from '@/lib/storage/videosFile';
 import {
   createStoredVideo,
   listStoredVideos,
 } from '@/lib/storage/videosFile';
+import {
+  buildVideoActivityMessage,
+  recordVideoActivity,
+} from '@/lib/server/videoActivity';
+import {
+  resolveVideoWorkflow,
+  toWorkflowActorRef,
+} from '@/lib/workflow/video';
+import { isWorkflowStatus } from '@/lib/workflow/types';
 
 const VIDEO_CATEGORIES = NEWS_CATEGORIES.map((category) => category.nameEn);
 const FILE_STORE_UNBOUNDED_LIMIT = Number.MAX_SAFE_INTEGER;
+
+type CreateIntent = 'draft' | 'submit' | 'publish';
+
+type VideoLike = {
+  _id?: string;
+  id?: string;
+  isPublished?: boolean;
+  publishedAt?: string | Date;
+  updatedAt?: string | Date;
+  workflow?: unknown;
+  title?: string;
+  description?: string;
+  thumbnail?: string;
+  videoUrl?: string;
+  duration?: number;
+  category?: string;
+  isShort?: boolean;
+  shortsRank?: number;
+  views?: number;
+};
 
 function parsePositiveInt(value: string | null, fallback: number, max = 100) {
   const parsed = Number.parseInt(value || '', 10);
@@ -62,6 +96,14 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : '';
 }
 
+function normalizeCreateIntent(value: unknown, legacyPublished: boolean): CreateIntent {
+  if (value === 'draft' || value === 'submit' || value === 'publish') {
+    return value;
+  }
+
+  return legacyPublished ? 'publish' : 'draft';
+}
+
 function normalizeVideoInput(body: unknown) {
   const source = typeof body === 'object' && body ? (body as Record<string, unknown>) : {};
 
@@ -97,6 +139,27 @@ function normalizeVideoInput(body: unknown) {
   };
 }
 
+function validateVideoInput(input: ReturnType<typeof normalizeVideoInput>) {
+  if (!input.title || !input.description || !input.videoUrl || !input.category) {
+    return 'Missing required fields';
+  }
+
+  if (!isValidCategory(input.category)) {
+    return 'Invalid category';
+  }
+
+  if (!Number.isFinite(input.duration) || input.duration < 1) {
+    return 'Invalid duration';
+  }
+
+  const youtubeId = getYouTubeId(input.videoUrl);
+  if (!youtubeId) {
+    return 'Video URL must be a valid YouTube URL';
+  }
+
+  return null;
+}
+
 async function shouldUseFileStore() {
   if (!process.env.MONGODB_URI) return true;
 
@@ -107,6 +170,124 @@ async function shouldUseFileStore() {
     console.error('MongoDB unavailable for videos route, using file store.', error);
     return true;
   }
+}
+
+function buildInitialWorkflow(
+  intent: CreateIntent,
+  user: NonNullable<Awaited<ReturnType<typeof getAdminSession>>>
+) {
+  const actor = toWorkflowActorRef(user);
+  const now = new Date();
+
+  if (intent === 'draft') {
+    return {
+      status: 'draft' as const,
+      priority: 'normal' as const,
+      createdBy: actor,
+    };
+  }
+
+  if (intent === 'submit') {
+    return {
+      status: 'submitted' as const,
+      priority: 'normal' as const,
+      createdBy: actor,
+      submittedAt: now,
+    };
+  }
+
+  return {
+    status: 'published' as const,
+    priority: 'normal' as const,
+    createdBy: actor,
+    publishedAt: now,
+  };
+}
+
+function resolveVideoRecord(video: VideoLike, createdBy?: ReturnType<typeof toWorkflowActorRef>) {
+  const workflow = resolveVideoWorkflow({
+    workflow: video.workflow,
+    isPublished: video.isPublished,
+    publishedAt: video.publishedAt,
+    updatedAt: video.updatedAt,
+    createdBy,
+  });
+
+  return {
+    ...video,
+    isPublished: workflow.status === 'published',
+    workflow,
+  };
+}
+
+function buildVideoPermissionRecord(video: ReturnType<typeof resolveVideoRecord>) {
+  return {
+    workflow: video.workflow,
+  };
+}
+
+function matchesFilters(
+  video: ReturnType<typeof resolveVideoRecord>,
+  user: NonNullable<Awaited<ReturnType<typeof getAdminSession>>>,
+  filters: {
+    category: string | null;
+    type: string | null;
+    search: string;
+    published?: boolean;
+    workflowStatus: string;
+  }
+) {
+  if (!canReadContent(user, buildVideoPermissionRecord(video), { allowViewerRead: true })) {
+    return false;
+  }
+
+  if (filters.category && filters.category !== 'all' && video.category !== filters.category) {
+    return false;
+  }
+
+  if (filters.type === 'shorts' && !video.isShort) return false;
+  if (filters.type === 'standard' && video.isShort) return false;
+
+  if (typeof filters.published === 'boolean' && video.isPublished !== filters.published) {
+    return false;
+  }
+
+  if (filters.workflowStatus && video.workflow.status !== filters.workflowStatus) {
+    return false;
+  }
+
+  if (!filters.search) return true;
+  const needle = filters.search.toLowerCase();
+  return (
+    String(video.title || '').toLowerCase().includes(needle) ||
+    String(video.description || '').toLowerCase().includes(needle) ||
+    String(video.category || '').toLowerCase().includes(needle)
+  );
+}
+
+function sortVideos(videos: ReturnType<typeof resolveVideoRecord>[], sort: string | null, type: string | null) {
+  return [...videos].sort((left, right) => {
+    if (sort === 'trending') {
+      return (
+        Number(right.views || 0) - Number(left.views || 0) ||
+        new Date(String(right.updatedAt || right.publishedAt || 0)).getTime() -
+          new Date(String(left.updatedAt || left.publishedAt || 0)).getTime()
+      );
+    }
+
+    if (sort === 'shorts' || type === 'shorts') {
+      return (
+        Number(right.shortsRank || 0) - Number(left.shortsRank || 0) ||
+        new Date(String(right.updatedAt || right.publishedAt || 0)).getTime() -
+          new Date(String(left.updatedAt || left.publishedAt || 0)).getTime()
+      );
+    }
+
+    return (
+      new Date(String(right.updatedAt || right.publishedAt || 0)).getTime() -
+      new Date(String(left.updatedAt || left.publishedAt || 0)).getTime()
+    );
+  });
 }
 
 export async function GET(req: NextRequest) {
@@ -121,41 +302,41 @@ export async function GET(req: NextRequest) {
     }
 
     const category = searchParams.get('category');
-    const type = searchParams.get('type'); // all | shorts | standard
+    const type = searchParams.get('type');
     const search = (searchParams.get('search') || '').trim();
-    const sort = searchParams.get('sort'); // latest | trending | shorts
+    const sort = searchParams.get('sort');
     const publishedParam = parseBooleanParam(searchParams.get('published'));
-    const effectivePublished =
-      typeof publishedParam === 'boolean' ? publishedParam : undefined;
+    const workflowStatus = String(searchParams.get('workflowStatus') || '').trim().toLowerCase();
+    const effectiveWorkflowStatus = isWorkflowStatus(workflowStatus) ? workflowStatus : '';
     const limit = parseListLimit(searchParams.get('limit'), 20, 200);
     const page = parsePositiveInt(searchParams.get('page'), 1, 100000);
     const isUnbounded = limit === null;
     const effectivePage = isUnbounded ? 1 : page;
     const effectiveLimit = isUnbounded ? FILE_STORE_UNBOUNDED_LIMIT : limit;
-    const fileResult = await listStoredVideos({
-      category,
-      type,
-      published: effectivePublished,
-      search,
-      sort,
-      limit: effectiveLimit,
-      page: effectivePage,
-    });
-
-    const createFileResponse = () =>
-      NextResponse.json({
-        success: true,
-        data: fileResult.data,
-        pagination: {
-          total: fileResult.total,
-          page: effectivePage,
-          limit: isUnbounded ? fileResult.total : effectiveLimit,
-          pages: isUnbounded ? 1 : Math.ceil(fileResult.total / effectiveLimit),
-        },
-      });
 
     if (await shouldUseFileStore()) {
-      return createFileResponse();
+      const { data, total } = await listStoredVideos({
+        category,
+        type,
+        published: publishedParam,
+        search,
+        sort,
+        workflowStatus: effectiveWorkflowStatus,
+        limit: effectiveLimit,
+        page: effectivePage,
+      });
+
+      const videos = data.map((video) => resolveVideoRecord(video));
+      return NextResponse.json({
+        success: true,
+        data: videos,
+        pagination: {
+          total,
+          page: effectivePage,
+          limit: isUnbounded ? total : effectiveLimit,
+          pages: isUnbounded ? 1 : Math.ceil(total / effectiveLimit),
+        },
+      });
     }
 
     const query: Record<string, unknown> = {};
@@ -169,10 +350,6 @@ export async function GET(req: NextRequest) {
       query.isShort = false;
     }
 
-    if (typeof effectivePublished === 'boolean') {
-      query.isPublished = effectivePublished;
-    }
-
     if (search) {
       const safeSearch = escapeRegex(search);
       query.$or = [
@@ -181,25 +358,33 @@ export async function GET(req: NextRequest) {
       ];
     }
 
-    const total = await Video.countDocuments(query);
-    if (total === 0 && fileResult.total > 0) {
-      return createFileResponse();
-    }
+    const allVideos = (await Video.find(query)
+      .sort({ updatedAt: -1, publishedAt: -1, _id: -1 })
+      .lean()) as VideoLike[];
 
-    let sortQuery: Record<string, 1 | -1> = { publishedAt: -1 };
-    if (sort === 'trending') {
-      sortQuery = { views: -1, publishedAt: -1 };
-    } else if (sort === 'shorts' || type === 'shorts') {
-      sortQuery = { shortsRank: -1, publishedAt: -1 };
-    }
+    const filteredVideos = sortVideos(
+      allVideos
+        .map((video) => resolveVideoRecord(video))
+        .filter((video) =>
+          matchesFilters(video, user, {
+            category,
+            type,
+            search,
+            published: publishedParam,
+            workflowStatus: effectiveWorkflowStatus,
+          })
+        ),
+      sort,
+      type
+    );
 
-    const skip = (effectivePage - 1) * effectiveLimit;
-    let videosQuery = Video.find(query).sort(sortQuery).skip(skip);
-    if (!isUnbounded) {
-      videosQuery = videosQuery.limit(effectiveLimit);
-    }
-
-    const videos = await videosQuery.lean();
+    const total = filteredVideos.length;
+    const videos = isUnbounded
+      ? filteredVideos
+      : filteredVideos.slice(
+          (effectivePage - 1) * effectiveLimit,
+          (effectivePage - 1) * effectiveLimit + effectiveLimit
+        );
 
     return NextResponse.json({
       success: true,
@@ -229,40 +414,40 @@ export async function POST(req: NextRequest) {
         { status: 401 }
       );
     }
+    if (!canCreateContent(user.role, 'video')) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
+      );
+    }
 
     const body = await req.json();
     const input = normalizeVideoInput(body);
+    const validationError = validateVideoInput(input);
+    const intent = normalizeCreateIntent((body as Record<string, unknown>)?.intent, input.isPublished);
+    const workflow = buildInitialWorkflow(intent, user);
 
-    if (!input.title || !input.description || !input.videoUrl || !input.category) {
+    if (
+      intent === 'publish' &&
+      user.role !== 'admin' &&
+      user.role !== 'super_admin'
+    ) {
       return NextResponse.json(
-        { success: false, error: 'Missing required fields' },
-        { status: 400 }
+        { success: false, error: 'You do not have permission to publish videos directly.' },
+        { status: 403 }
       );
     }
 
-    if (!isValidCategory(input.category)) {
+    if (validationError) {
       return NextResponse.json(
-        { success: false, error: 'Invalid category' },
-        { status: 400 }
-      );
-    }
-
-    if (!Number.isFinite(input.duration) || input.duration < 1) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid duration' },
+        { success: false, error: validationError },
         { status: 400 }
       );
     }
 
     const youtubeId = getYouTubeId(input.videoUrl);
-    if (!youtubeId) {
-      return NextResponse.json(
-        { success: false, error: 'Video URL must be a valid YouTube URL' },
-        { status: 400 }
-      );
-    }
-
-    const resolvedThumbnail = input.thumbnail || `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`;
+    const resolvedThumbnail =
+      input.thumbnail || `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`;
 
     if (await shouldUseFileStore()) {
       const stored = await createStoredVideo({
@@ -273,17 +458,39 @@ export async function POST(req: NextRequest) {
         duration: input.duration,
         category: input.category,
         isShort: input.isShort,
-        isPublished: input.isPublished,
-        shortsRank: input.shortsRank,
+        isPublished: workflow.status === 'published',
+        shortsRank: input.isShort ? input.shortsRank : 0,
         views: 0,
         publishedAt: input.publishedAt.toISOString(),
+        workflow: {
+          ...workflow,
+          submittedAt: workflow.submittedAt?.toISOString() || null,
+          publishedAt: workflow.publishedAt?.toISOString() || null,
+        },
+      });
+
+      await recordVideoActivity({
+        videoId: stored._id,
+        actor: user,
+        action: 'created',
+        toStatus: stored.workflow.status,
+        message: buildVideoActivityMessage({
+          action: 'created',
+          toStatus: stored.workflow.status,
+        }),
+        metadata: {
+          intent,
+          priority: stored.workflow.priority,
+          createdById: stored.workflow.createdBy?.id || '',
+          isShort: stored.isShort,
+        },
       });
 
       return NextResponse.json(
         {
           success: true,
+          data: resolveVideoRecord(stored),
           message: 'Video uploaded successfully',
-          data: stored,
         },
         { status: 201 }
       );
@@ -297,20 +504,38 @@ export async function POST(req: NextRequest) {
       duration: input.duration,
       category: input.category,
       isShort: input.isShort,
-      isPublished: input.isPublished,
-      shortsRank: input.shortsRank,
+      isPublished: workflow.status === 'published',
+      shortsRank: input.isShort ? input.shortsRank : 0,
       views: 0,
       publishedAt: input.publishedAt,
       updatedAt: new Date(),
+      workflow,
     });
 
     const savedVideo = await video.save();
 
+    await recordVideoActivity({
+      videoId: String(savedVideo._id),
+      actor: user,
+      action: 'created',
+      toStatus: workflow.status,
+      message: buildVideoActivityMessage({
+        action: 'created',
+        toStatus: workflow.status,
+      }),
+      metadata: {
+        intent,
+        priority: workflow.priority,
+        createdById: workflow.createdBy?.id || '',
+        isShort: input.isShort,
+      },
+    });
+
     return NextResponse.json(
       {
         success: true,
+        data: resolveVideoRecord(savedVideo.toObject()),
         message: 'Video uploaded successfully',
-        data: savedVideo,
       },
       { status: 201 }
     );
@@ -326,4 +551,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { auth, isAdminGoogleAuthConfigured } from '@/lib/auth';
 import { isAdminCredentialsAuthConfigured } from '@/lib/auth/adminCredentials';
+import { isStaffCredentialsAuthEnabled } from '@/lib/auth/staffCredentials';
 import { normalizeRedirectPath } from '@/lib/auth/redirect';
 import { isAdminRole } from '@/lib/auth/roles';
 import SignInPageClient from './SignInPageClient';
@@ -64,7 +65,8 @@ export default async function SignInPage({
     readSearchParam(params[ADMIN_BANNER_QUERY_PARAM]) === '1';
   const errorKey = readSearchParam(params.error);
   const session = await auth();
-  const adminCredentialsEnabled = isAdminCredentialsAuthConfigured();
+  const adminCredentialsEnabled =
+    isAdminCredentialsAuthConfigured() || isStaffCredentialsAuthEnabled();
   const adminGoogleEnabled = isAdminGoogleAuthConfigured;
   const isAuthenticated = Boolean(session?.user?.email);
   const isAdminSession =

@@ -2,17 +2,22 @@ import type { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getAdminSessionMock = vi.fn();
-const listStoredArticlesMock = vi.fn();
+const listAllStoredArticlesMock = vi.fn();
+const createStoredArticleMock = vi.fn();
+const updateStoredArticleMock = vi.fn();
 const connectDBMock = vi.fn();
+const ensureBreakingTtsForArticleMock = vi.fn();
+const recordArticleActivityMock = vi.fn();
 
 vi.mock('@/lib/auth/admin', () => ({
   getAdminSession: getAdminSessionMock,
 }));
 
 vi.mock('@/lib/storage/articlesFile', () => ({
-  createStoredArticle: vi.fn(),
-  listStoredArticles: listStoredArticlesMock,
-  updateStoredArticle: vi.fn(),
+  createStoredArticle: createStoredArticleMock,
+  getStoredArticleById: vi.fn(),
+  listAllStoredArticles: listAllStoredArticlesMock,
+  updateStoredArticle: updateStoredArticleMock,
 }));
 
 vi.mock('@/lib/db/mongoose', () => ({
@@ -21,16 +26,20 @@ vi.mock('@/lib/db/mongoose', () => ({
 
 vi.mock('@/lib/models/Article', () => ({
   default: {
-    countDocuments: vi.fn(),
     find: vi.fn(),
   },
 }));
 
 vi.mock('@/lib/server/breakingTts', () => ({
-  ensureBreakingTtsForArticle: vi.fn(),
+  ensureBreakingTtsForArticle: ensureBreakingTtsForArticleMock,
 }));
 
-describe('/api/admin/articles GET', () => {
+vi.mock('@/lib/server/articleActivity', () => ({
+  buildArticleActivityMessage: vi.fn(() => 'Article activity recorded.'),
+  recordArticleActivity: recordArticleActivityMock,
+}));
+
+describe('/api/admin/articles route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.MONGODB_URI;
@@ -50,15 +59,30 @@ describe('/api/admin/articles GET', () => {
       success: false,
       error: 'Unauthorized',
     });
-    expect(listStoredArticlesMock).not.toHaveBeenCalled();
+    expect(listAllStoredArticlesMock).not.toHaveBeenCalled();
   });
 
   it('returns file-store data for authorized admins when MongoDB is not configured', async () => {
-    getAdminSessionMock.mockResolvedValue({ id: 'admin-1', role: 'admin' });
-    listStoredArticlesMock.mockResolvedValue({
-      data: [{ _id: 'article-1', title: 'First article' }],
-      total: 1,
+    getAdminSessionMock.mockResolvedValue({
+      id: 'admin-1',
+      email: 'desk@example.com',
+      name: 'Desk',
+      role: 'admin',
     });
+    listAllStoredArticlesMock.mockResolvedValue([
+      {
+        _id: 'article-1',
+        title: 'First article',
+        category: 'General',
+        author: 'Desk',
+        updatedAt: '2026-04-13T09:00:00.000Z',
+        publishedAt: '2026-04-13T09:00:00.000Z',
+        workflow: {
+          status: 'published',
+          createdBy: { id: 'admin-1', name: 'Desk', email: 'desk@example.com', role: 'admin' },
+        },
+      },
+    ]);
 
     const { GET } = await import('@/app/api/admin/articles/route');
     const response = await GET(
@@ -67,15 +91,16 @@ describe('/api/admin/articles GET', () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(listStoredArticlesMock).toHaveBeenCalledWith({
-      category: null,
-      limit: Number.MAX_SAFE_INTEGER,
-      page: 1,
-    });
+    expect(listAllStoredArticlesMock).toHaveBeenCalledTimes(1);
     expect(connectDBMock).not.toHaveBeenCalled();
     expect(payload).toEqual({
       success: true,
-      data: [{ _id: 'article-1', title: 'First article' }],
+      data: [
+        expect.objectContaining({
+          _id: 'article-1',
+          title: 'First article',
+        }),
+      ],
       pagination: {
         total: 1,
         page: 1,
@@ -83,5 +108,33 @@ describe('/api/admin/articles GET', () => {
         pages: 1,
       },
     });
+  });
+
+  it('prevents reporters from publishing articles directly through the API', async () => {
+    getAdminSessionMock.mockResolvedValue({
+      id: 'reporter-1',
+      email: 'reporter@example.com',
+      name: 'Reporter',
+      role: 'reporter',
+    });
+
+    const { POST } = await import('@/app/api/admin/articles/route');
+    const response = await POST(
+      new Request('http://localhost/api/admin/articles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ intent: 'publish' }),
+      }) as unknown as NextRequest
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload).toEqual({
+      success: false,
+      error: 'You do not have permission to publish articles directly.',
+    });
+    expect(createStoredArticleMock).not.toHaveBeenCalled();
+    expect(recordArticleActivityMock).not.toHaveBeenCalled();
+    expect(ensureBreakingTtsForArticleMock).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSession } from '@/lib/auth/admin';
+import { canManageSettings } from '@/lib/auth/permissions';
 import {
   GEMINI_TTS_LANGUAGE_OPTIONS,
   GEMINI_TTS_MAX_TOTAL_CHARS,
@@ -79,6 +80,15 @@ async function requireAdmin() {
       response: NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
+      ),
+    };
+  }
+  if (!canManageSettings(admin.role)) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
       ),
     };
   }

@@ -4,15 +4,19 @@ import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import {
-  ArrowLeft,
-  Upload,
   AlertCircle,
+  ArrowLeft,
   CheckCircle,
-  Image as ImageIcon,
   FileText,
+  Image as ImageIcon,
+  Loader2,
+  Send,
+  Upload,
 } from 'lucide-react';
 import { getAuthHeader } from '@/lib/auth/clientToken';
+import { isAdminRole } from '@/lib/auth/roles';
 import { NEWS_CATEGORIES } from '@/lib/constants/newsCategories';
 
 const categories = NEWS_CATEGORIES.map((category) => category.nameEn);
@@ -27,9 +31,10 @@ interface VideoFormData {
   duration: string;
   category: string;
   isShort: boolean;
-  isPublished: boolean;
   shortsRank: string;
 }
+
+type VideoCreateIntent = 'draft' | 'submit' | 'publish';
 
 const initialFormData: VideoFormData = {
   title: '',
@@ -39,7 +44,6 @@ const initialFormData: VideoFormData = {
   duration: '',
   category: 'National',
   isShort: false,
-  isPublished: true,
   shortsRank: '0',
 };
 
@@ -89,20 +93,31 @@ function getYouTubeThumbnail(value: string) {
   return id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : '';
 }
 
-export default function UploadVideo() {
+export default function CreateVideoPage() {
   const router = useRouter();
+  const { data: session } = useSession();
   const [formData, setFormData] = useState<VideoFormData>(initialFormData);
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
   const [thumbnailPreview, setThumbnailPreview] = useState('');
   const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [runningIntent, setRunningIntent] = useState<VideoCreateIntent | ''>('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   const hasPdfThumbnail = useMemo(() => {
-    if (thumbnailFile) return thumbnailFile.type === 'application/pdf' || thumbnailFile.name.toLowerCase().endsWith('.pdf');
+    if (thumbnailFile) {
+      return (
+        thumbnailFile.type === 'application/pdf' ||
+        thumbnailFile.name.toLowerCase().endsWith('.pdf')
+      );
+    }
     return isPdfUrl(formData.thumbnail);
   }, [thumbnailFile, formData.thumbnail]);
+
+  const role = session?.user?.role;
+  const canPublishNow = role === 'admin' || role === 'super_admin';
+  const canUseDesk = isAdminRole(role);
 
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -152,16 +167,16 @@ export default function UploadVideo() {
 
     setIsUploadingThumbnail(true);
     try {
-      const formDataToSend = new FormData();
-      formDataToSend.append('file', thumbnailFile);
-      formDataToSend.append('purpose', 'video-thumbnail');
+      const body = new FormData();
+      body.append('file', thumbnailFile);
+      body.append('purpose', 'video-thumbnail');
 
       const response = await fetch('/api/admin/upload', {
         method: 'POST',
         headers: {
           ...getAuthHeader(),
         },
-        body: formDataToSend,
+        body,
       });
 
       const data = await response.json();
@@ -175,11 +190,11 @@ export default function UploadVideo() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (intent: VideoCreateIntent) => {
     setError('');
     setSuccess('');
     setIsLoading(true);
+    setRunningIntent(intent);
 
     try {
       if (
@@ -190,7 +205,6 @@ export default function UploadVideo() {
         !formData.category
       ) {
         setError('Please fill in all required fields');
-        setIsLoading(false);
         return;
       }
 
@@ -199,20 +213,17 @@ export default function UploadVideo() {
 
       if (!Number.isFinite(duration) || duration < 1) {
         setError('Duration must be a valid number greater than 0');
-        setIsLoading(false);
         return;
       }
 
       if (!Number.isFinite(shortsRank)) {
         setError('Shorts rank must be a valid number');
-        setIsLoading(false);
         return;
       }
 
       const youtubeId = getYouTubeId(formData.videoUrl);
       if (!youtubeId) {
         setError('Please enter a valid YouTube URL');
-        setIsLoading(false);
         return;
       }
 
@@ -223,7 +234,6 @@ export default function UploadVideo() {
 
       if (!thumbnail.trim()) {
         setError('Please provide a thumbnail (upload or URL)');
-        setIsLoading(false);
         return;
       }
 
@@ -241,20 +251,23 @@ export default function UploadVideo() {
           duration,
           category: formData.category,
           isShort: formData.isShort,
-          isPublished: formData.isPublished,
           shortsRank: formData.isShort ? shortsRank : 0,
+          intent,
         }),
       });
 
       const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || 'Failed to upload video');
-        setIsLoading(false);
-        return;
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to create video');
       }
 
-      setSuccess('Video uploaded successfully! Redirecting to videos list...');
+      setSuccess(
+        intent === 'draft'
+          ? 'Video draft saved successfully.'
+          : intent === 'submit'
+            ? 'Video submitted for review.'
+            : 'Video published successfully.'
+      );
       setFormData(initialFormData);
       setThumbnailFile(null);
       setThumbnailPreview('');
@@ -263,9 +276,10 @@ export default function UploadVideo() {
         router.push('/admin/videos');
       }, 900);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload video. Please try again.');
+      setError(err instanceof Error ? err.message : 'Failed to create video');
     } finally {
       setIsLoading(false);
+      setRunningIntent('');
     }
   };
 
@@ -285,32 +299,38 @@ export default function UploadVideo() {
         className="mx-auto max-w-3xl"
       >
         <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
-          <h1 className="mb-2 text-3xl font-bold text-gray-900">Upload Video</h1>
-          <p className="mb-6 text-gray-600">Use YouTube URL and thumbnail as JPG/JPEG/PNG/PDF</p>
+          <h1 className="mb-2 text-3xl font-bold text-gray-900">Create Video</h1>
+          <p className="mb-6 text-gray-600">
+            Save a draft, hand it into review, or publish when allowed
+          </p>
+
+          {!canUseDesk ? (
+            <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              Your session is still loading role permissions. Publishing actions may stay hidden until it resolves.
+            </div>
+          ) : null}
 
           {error ? (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-6 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800"
-            >
+            <div className="mb-6 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
               <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
               <p className="text-sm">{error}</p>
-            </motion.div>
+            </div>
           ) : null}
 
           {success ? (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-6 flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4 text-green-800"
-            >
+            <div className="mb-6 flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4 text-green-800">
               <CheckCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
               <p className="text-sm">{success}</p>
-            </motion.div>
+            </div>
           ) : null}
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleSubmit('submit');
+            }}
+            className="space-y-6"
+          >
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-900">
                 Video Title <span className="text-red-500">*</span>
@@ -410,8 +430,6 @@ export default function UploadVideo() {
                     </p>
                   </div>
                 ) : (
-                  // Admin preview supports blob/object URLs and dynamic remote URLs.
-                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={thumbnailPreview || formData.thumbnail}
                     alt="Thumbnail preview"
@@ -483,43 +501,76 @@ export default function UploadVideo() {
                   className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-600"
                 />
               </label>
+            </div>
 
-              <label className="flex cursor-pointer items-center justify-between gap-4">
-                <span className="text-sm font-medium text-gray-900">Publish now</span>
-                <input
-                  type="checkbox"
-                  name="isPublished"
-                  checked={formData.isPublished}
-                  onChange={handleInputChange}
-                  className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-600"
-                />
-              </label>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+              Draft keeps the video private, submit sends it into review, and publish is only shown for desk roles with release authority.
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
               <button
-                type="submit"
+                type="button"
                 disabled={isLoading || isUploadingThumbnail}
-                className="inline-flex min-w-[180px] items-center justify-center gap-2 rounded-lg bg-primary-600 px-5 py-3 font-medium text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void handleSubmit('draft')}
+                className="inline-flex min-w-[160px] items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-5 py-3 font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isLoading || isUploadingThumbnail ? (
+                {runningIntent === 'draft' ? (
                   <>
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                    {isUploadingThumbnail ? 'Uploading thumbnail...' : 'Uploading...'}
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Saving...
                   </>
                 ) : (
                   <>
                     <Upload className="h-5 w-5" />
-                    Upload Video
+                    Save Draft
                   </>
                 )}
               </button>
+
+              <button
+                type="submit"
+                disabled={isLoading || isUploadingThumbnail}
+                className="inline-flex min-w-[180px] items-center justify-center gap-2 rounded-lg bg-spanish-red px-5 py-3 font-medium text-white transition-colors hover:bg-guardsman-red disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {runningIntent === 'submit' ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-5 w-5" />
+                    Submit For Review
+                  </>
+                )}
+              </button>
+
+              {canPublishNow ? (
+                <button
+                  type="button"
+                  disabled={isLoading || isUploadingThumbnail}
+                  onClick={() => void handleSubmit('publish')}
+                  className="inline-flex min-w-[160px] items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 py-3 font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {runningIntent === 'publish' ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Publishing...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-5 w-5" />
+                      Publish Now
+                    </>
+                  )}
+                </button>
+              ) : null}
 
               <Link
                 href="/admin/videos"
                 className="rounded-lg border border-gray-300 px-5 py-3 font-medium text-gray-700 transition-colors hover:bg-gray-100"
               >
-                Go to Videos List
+                Cancel
               </Link>
             </div>
           </form>

@@ -1,4 +1,6 @@
 import mongoose from 'mongoose';
+import { WorkflowMetaSchema } from '@/lib/models/schemas/workflow';
+import type { WorkflowMeta } from '@/lib/workflow/types';
 
 export interface IEPaperArticleHotspot {
   x: number;
@@ -17,6 +19,7 @@ export interface IEPaperArticle {
   contentHtml?: string;
   coverImagePath?: string;
   hotspot: IEPaperArticleHotspot;
+  workflow: WorkflowMeta;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -41,12 +44,14 @@ const EPaperArticleSchema = new mongoose.Schema<IEPaperArticle>(
     contentHtml: { type: String, trim: true, default: '' },
     coverImagePath: { type: String, trim: true, maxlength: 500, default: '' },
     hotspot: { type: HotspotSchema, required: true },
+    workflow: { type: WorkflowMetaSchema, default: () => ({}) },
   },
   { timestamps: true }
 );
 
 EPaperArticleSchema.index({ epaperId: 1, slug: 1 }, { unique: true });
 EPaperArticleSchema.index({ epaperId: 1, pageNumber: 1 });
+EPaperArticleSchema.index({ 'workflow.status': 1, updatedAt: -1 });
 
 const EPaperArticle =
   (mongoose.models.EPaperArticle as mongoose.Model<IEPaperArticle> | undefined) ||

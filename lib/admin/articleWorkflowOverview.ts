@@ -1,0 +1,593 @@
+import connectDB from '@/lib/db/mongoose';
+import Article from '@/lib/models/Article';
+import EPaper from '@/lib/models/EPaper';
+import Story from '@/lib/models/Story';
+import Video from '@/lib/models/Video';
+import { listAllStoredArticles } from '@/lib/storage/articlesFile';
+import { listAllStoredEPapers } from '@/lib/storage/epapersFile';
+import { listAllStoredStories } from '@/lib/storage/storiesFile';
+import { listAllStoredVideos } from '@/lib/storage/videosFile';
+import {
+  normalizeCopyEditorMeta,
+  normalizeReporterMeta,
+  type CopyEditorMeta,
+  type ReporterMeta,
+} from '@/lib/content/newsroomMetadata';
+import {
+  isAssignedContent,
+  isOwnContent,
+  type PermissionUser,
+} from '@/lib/auth/permissions';
+import { resolveArticleWorkflow } from '@/lib/workflow/article';
+import { resolveEpaperProduction } from '@/lib/workflow/epaper';
+import { resolveStoryWorkflow } from '@/lib/workflow/story';
+import { resolveVideoWorkflow } from '@/lib/workflow/video';
+import {
+  isWorkflowStatus,
+  type EPaperProductionStatus,
+  type WorkflowStatus,
+} from '@/lib/workflow/types';
+
+type WorkflowContentKey = 'article' | 'story' | 'video' | 'epaper';
+type DeskStatus = WorkflowStatus | EPaperProductionStatus;
+
+type ArticleSource = {
+  _id?: unknown;
+  title?: string;
+  category?: string;
+  author?: string;
+  updatedAt?: Date | string;
+  publishedAt?: Date | string;
+  workflow?: unknown;
+  reporterMeta?: unknown;
+  copyEditorMeta?: unknown;
+};
+
+type StorySource = {
+  _id?: unknown;
+  title?: string;
+  category?: string;
+  author?: string;
+  updatedAt?: Date | string;
+  publishedAt?: Date | string;
+  workflow?: unknown;
+  isPublished?: boolean;
+  reporterMeta?: unknown;
+  copyEditorMeta?: unknown;
+};
+
+type VideoSource = {
+  _id?: unknown;
+  title?: string;
+  category?: string;
+  updatedAt?: Date | string;
+  publishedAt?: Date | string;
+  workflow?: unknown;
+  isPublished?: boolean;
+};
+
+type EPaperSource = {
+  _id?: unknown;
+  title?: string;
+  cityName?: string;
+  city?: string;
+  publishDate?: Date | string;
+  updatedAt?: Date | string;
+  createdAt?: Date | string;
+  status?: 'draft' | 'published';
+  productionStatus?: unknown;
+  productionAssignee?: unknown;
+  productionNotes?: unknown;
+  qaCompletedAt?: Date | string | null;
+  sourceLabel?: string;
+};
+
+type DeskItem = {
+  contentType: WorkflowContentKey;
+  id: string;
+  title: string;
+  category: string;
+  author: string;
+  updatedAt: string;
+  status: DeskStatus;
+  assignedToName: string;
+  createdByName: string;
+  editHref: string;
+  deskHref: string;
+  reporterSummary: ReporterMeta | null;
+  copyEditorSummary: CopyEditorMeta | null;
+};
+
+export type WorkflowArticleCard = DeskItem;
+export type WorkflowStatusCounts = Partial<Record<WorkflowStatus, number>>;
+export type EPaperProductionCounts = Partial<Record<EPaperProductionStatus, number>>;
+
+export type MyWorkOverview = {
+  counts: Partial<Record<WorkflowStatus, number>>;
+  productionCounts: EPaperProductionCounts;
+  contentCounts: Partial<Record<WorkflowContentKey, number>>;
+  items: WorkflowArticleCard[];
+};
+
+export type ReviewQueueOverview = {
+  counts: Partial<Record<WorkflowStatus, number>>;
+  productionCounts: EPaperProductionCounts;
+  items: WorkflowArticleCard[];
+  contentCounts: Partial<Record<WorkflowContentKey, number>>;
+};
+
+type OverviewOptions = {
+  maxItems?: number | null;
+};
+
+export type ArticleWorkflowSummary = {
+  counts: WorkflowStatusCounts;
+  needsReview: number;
+  readyToPublish: number;
+  published: number;
+  drafts: number;
+  rejected: number;
+};
+
+const REVIEW_QUEUE_STATUSES: WorkflowStatus[] = [
+  'submitted',
+  'assigned',
+  'in_review',
+  'copy_edit',
+  'changes_requested',
+  'ready_for_approval',
+  'approved',
+  'scheduled',
+];
+
+const REVIEW_QUEUE_EPAPER_STATUSES: EPaperProductionStatus[] = [
+  'pages_ready',
+  'ocr_review',
+  'hotspot_mapping',
+  'qa_review',
+  'ready_to_publish',
+];
+
+function shouldUseFileStore() {
+  return !process.env.MONGODB_URI?.trim();
+}
+
+function toIsoDate(value: unknown) {
+  const parsed =
+    value instanceof Date ? value : value ? new Date(String(value)) : new Date();
+  return Number.isNaN(parsed.getTime()) ? new Date(0).toISOString() : parsed.toISOString();
+}
+
+function bumpStatusCount(
+  counts: Partial<Record<WorkflowStatus, number>>,
+  status: WorkflowStatus
+) {
+  counts[status] = Number(counts[status] || 0) + 1;
+}
+
+function bumpContentCount(
+  counts: Partial<Record<WorkflowContentKey, number>>,
+  contentType: WorkflowContentKey
+) {
+  counts[contentType] = Number(counts[contentType] || 0) + 1;
+}
+
+function bumpProductionCount(
+  counts: Partial<Record<EPaperProductionStatus, number>>,
+  status: EPaperProductionStatus
+) {
+  counts[status] = Number(counts[status] || 0) + 1;
+}
+
+function toWorkflowSummary(counts: WorkflowStatusCounts): ArticleWorkflowSummary {
+  return {
+    counts,
+    needsReview:
+      Number(counts.submitted || 0) +
+      Number(counts.assigned || 0) +
+      Number(counts.in_review || 0) +
+      Number(counts.copy_edit || 0) +
+      Number(counts.changes_requested || 0),
+    readyToPublish:
+      Number(counts.ready_for_approval || 0) +
+      Number(counts.approved || 0) +
+      Number(counts.scheduled || 0),
+    published: Number(counts.published || 0),
+    drafts: Number(counts.draft || 0),
+    rejected: Number(counts.rejected || 0),
+  };
+}
+
+function buildArticleItem(source: ArticleSource): DeskItem | null {
+  const id = String(source._id || '').trim();
+  const title = String(source.title || '').trim();
+  if (!id || !title) return null;
+
+  const workflow = resolveArticleWorkflow({
+    workflow: source.workflow,
+    publishedAt: source.publishedAt,
+    updatedAt: source.updatedAt,
+  });
+
+  return {
+    contentType: 'article',
+    id,
+    title,
+    category: String(source.category || 'General').trim() || 'General',
+    author: String(source.author || 'Desk').trim() || 'Desk',
+    updatedAt: toIsoDate(source.updatedAt || source.publishedAt),
+    status: workflow.status,
+    assignedToName: workflow.assignedTo?.name || '',
+    createdByName: workflow.createdBy?.name || '',
+    editHref: `/admin/articles/${encodeURIComponent(id)}/edit`,
+    deskHref: '/admin/articles',
+    reporterSummary: normalizeReporterMeta(source.reporterMeta),
+    copyEditorSummary: normalizeCopyEditorMeta(source.copyEditorMeta),
+  };
+}
+
+function buildStoryItem(source: StorySource): DeskItem | null {
+  const id = String(source._id || '').trim();
+  const title = String(source.title || '').trim();
+  if (!id || !title) return null;
+
+  const workflow = resolveStoryWorkflow({
+    workflow: source.workflow,
+    isPublished: source.isPublished,
+    publishedAt: source.publishedAt,
+    updatedAt: source.updatedAt,
+  });
+
+  return {
+    contentType: 'story',
+    id,
+    title,
+    category: String(source.category || 'General').trim() || 'General',
+    author: workflow.createdBy?.name || String(source.author || 'Desk').trim() || 'Desk',
+    updatedAt: toIsoDate(source.updatedAt || source.publishedAt),
+    status: workflow.status,
+    assignedToName: workflow.assignedTo?.name || '',
+    createdByName: workflow.createdBy?.name || '',
+    editHref: `/admin/stories/${encodeURIComponent(id)}/edit`,
+    deskHref: '/admin/stories',
+    reporterSummary: normalizeReporterMeta(source.reporterMeta),
+    copyEditorSummary: normalizeCopyEditorMeta(source.copyEditorMeta),
+  };
+}
+
+function buildVideoItem(source: VideoSource): DeskItem | null {
+  const id = String(source._id || '').trim();
+  const title = String(source.title || '').trim();
+  if (!id || !title) return null;
+
+  const workflow = resolveVideoWorkflow({
+    workflow: source.workflow,
+    isPublished: source.isPublished,
+    publishedAt: source.publishedAt,
+    updatedAt: source.updatedAt,
+  });
+
+  return {
+    contentType: 'video',
+    id,
+    title,
+    category: String(source.category || 'General').trim() || 'General',
+    author: workflow.createdBy?.name || 'Desk',
+    updatedAt: toIsoDate(source.updatedAt || source.publishedAt),
+    status: workflow.status,
+    assignedToName: workflow.assignedTo?.name || '',
+    createdByName: workflow.createdBy?.name || '',
+    editHref: `/admin/videos/${encodeURIComponent(id)}/edit`,
+    deskHref: '/admin/videos',
+    reporterSummary: null,
+    copyEditorSummary: null,
+  };
+}
+
+function buildEpaperItem(source: EPaperSource): DeskItem | null {
+  const id = String(source._id || '').trim();
+  const title = String(source.title || '').trim();
+  if (!id || !title) return null;
+
+  const production = resolveEpaperProduction({
+    productionStatus: source.productionStatus,
+    productionAssignee: source.productionAssignee,
+    productionNotes: source.productionNotes,
+    qaCompletedAt: source.qaCompletedAt,
+    status: source.status,
+  });
+
+  const cityName = String(source.cityName || source.city || 'Edition').trim() || 'Edition';
+  const sourceLabel = String(source.sourceLabel || 'E-Paper Desk').trim() || 'E-Paper Desk';
+
+  return {
+    contentType: 'epaper',
+    id,
+    title,
+    category: cityName,
+    author: sourceLabel,
+    updatedAt: toIsoDate(source.updatedAt || source.publishDate || source.createdAt),
+    status: production.productionStatus,
+    assignedToName: production.productionAssignee?.name || '',
+    createdByName: '',
+    editHref: `/admin/epapers/${encodeURIComponent(id)}`,
+    deskHref: '/admin/epapers',
+    reporterSummary: null,
+    copyEditorSummary: null,
+  };
+}
+
+function buildPermissionRecordFromSource(item: {
+  contentType: WorkflowContentKey;
+  source: ArticleSource | StorySource | VideoSource | EPaperSource;
+}) {
+  if (item.contentType === 'article') {
+    const source = item.source as ArticleSource;
+    return {
+      legacyAuthorName: String(source.author || ''),
+      workflow: resolveArticleWorkflow({
+        workflow: source.workflow,
+        publishedAt: source.publishedAt,
+        updatedAt: source.updatedAt,
+      }),
+    };
+  }
+
+  if (item.contentType === 'story') {
+    const source = item.source as StorySource;
+    return {
+      legacyAuthorName: String(source.author || ''),
+      workflow: resolveStoryWorkflow({
+        workflow: source.workflow,
+        isPublished: source.isPublished,
+        publishedAt: source.publishedAt,
+        updatedAt: source.updatedAt,
+      }),
+    };
+  }
+
+  if (item.contentType === 'epaper') {
+    const source = item.source as EPaperSource;
+    const production = resolveEpaperProduction({
+      productionStatus: source.productionStatus,
+      productionAssignee: source.productionAssignee,
+      productionNotes: source.productionNotes,
+      qaCompletedAt: source.qaCompletedAt,
+      status: source.status,
+    });
+
+    return {
+      assignedToId: production.productionAssignee?.id || '',
+    };
+  }
+
+  const source = item.source as VideoSource;
+  return {
+    workflow: resolveVideoWorkflow({
+      workflow: source.workflow,
+      isPublished: source.isPublished,
+      publishedAt: source.publishedAt,
+      updatedAt: source.updatedAt,
+    }),
+  };
+}
+
+async function loadArticles(): Promise<ArticleSource[]> {
+  if (shouldUseFileStore()) {
+    return listAllStoredArticles();
+  }
+
+  try {
+    await connectDB();
+    return (await Article.find({})
+      .select('_id title category author updatedAt publishedAt workflow reporterMeta copyEditorMeta')
+      .sort({ updatedAt: -1, publishedAt: -1, _id: -1 })
+      .lean()) as ArticleSource[];
+  } catch (error) {
+    console.error('MongoDB unavailable for article workflow overview, using file store.', error);
+    return listAllStoredArticles();
+  }
+}
+
+async function loadStories(): Promise<StorySource[]> {
+  if (shouldUseFileStore()) {
+    return listAllStoredStories();
+  }
+
+  try {
+    await connectDB();
+    return (await Story.find({})
+      .select(
+        '_id title category author updatedAt publishedAt workflow isPublished reporterMeta copyEditorMeta'
+      )
+      .sort({ updatedAt: -1, publishedAt: -1, _id: -1 })
+      .lean()) as StorySource[];
+  } catch (error) {
+    console.error('MongoDB unavailable for story workflow overview, using file store.', error);
+    return listAllStoredStories();
+  }
+}
+
+async function loadVideos(): Promise<VideoSource[]> {
+  if (shouldUseFileStore()) {
+    return listAllStoredVideos();
+  }
+
+  try {
+    await connectDB();
+    return (await Video.find({})
+      .select('_id title category updatedAt publishedAt workflow isPublished')
+      .sort({ updatedAt: -1, publishedAt: -1, _id: -1 })
+      .lean()) as VideoSource[];
+  } catch (error) {
+    console.error('MongoDB unavailable for video workflow overview, using file store.', error);
+    return listAllStoredVideos();
+  }
+}
+
+async function loadEPapers(): Promise<EPaperSource[]> {
+  if (shouldUseFileStore()) {
+    return (await listAllStoredEPapers()).map((source) => ({
+      _id: source._id,
+      title: source.title,
+      cityName: source.city,
+      publishDate: source.publishDate,
+      updatedAt: source.updatedAt,
+      createdAt: source.publishedAt,
+      status: 'published',
+      productionStatus: 'published',
+      sourceLabel: 'Legacy file store',
+    }));
+  }
+
+  try {
+    await connectDB();
+    return (await EPaper.find({})
+      .select(
+        '_id title cityName publishDate updatedAt createdAt status productionStatus productionAssignee productionNotes qaCompletedAt sourceLabel'
+      )
+      .sort({ updatedAt: -1, publishDate: -1, _id: -1 })
+      .lean()) as EPaperSource[];
+  } catch (error) {
+    console.error('MongoDB unavailable for e-paper workflow overview, using file store.', error);
+    return (await listAllStoredEPapers()).map((source) => ({
+      _id: source._id,
+      title: source.title,
+      cityName: source.city,
+      publishDate: source.publishDate,
+      updatedAt: source.updatedAt,
+      createdAt: source.publishedAt,
+      status: 'published',
+      productionStatus: 'published',
+      sourceLabel: 'Legacy file store',
+    }));
+  }
+}
+
+async function loadDeskItems() {
+  const [articles, stories, videos, epapers] = await Promise.all([
+    loadArticles(),
+    loadStories(),
+    loadVideos(),
+    loadEPapers(),
+  ]);
+
+  return [
+    ...articles.map((source) => ({ contentType: 'article' as const, source })),
+    ...stories.map((source) => ({ contentType: 'story' as const, source })),
+    ...videos.map((source) => ({ contentType: 'video' as const, source })),
+    ...epapers.map((source) => ({ contentType: 'epaper' as const, source })),
+  ];
+}
+
+function toDeskItem(entry: {
+  contentType: WorkflowContentKey;
+  source: ArticleSource | StorySource | VideoSource | EPaperSource;
+}) {
+  switch (entry.contentType) {
+    case 'article':
+      return buildArticleItem(entry.source as ArticleSource);
+    case 'story':
+      return buildStoryItem(entry.source as StorySource);
+    case 'video':
+      return buildVideoItem(entry.source as VideoSource);
+    case 'epaper':
+      return buildEpaperItem(entry.source as EPaperSource);
+    default:
+      return null;
+  }
+}
+
+export async function getMyWorkOverview(
+  user: PermissionUser,
+  options: OverviewOptions = {}
+): Promise<MyWorkOverview> {
+  const all = await loadDeskItems();
+  const counts: Partial<Record<WorkflowStatus, number>> = {};
+  const productionCounts: EPaperProductionCounts = {};
+  const contentCounts: Partial<Record<WorkflowContentKey, number>> = {};
+  const maxItems = options.maxItems ?? 8;
+
+  const items = all
+    .filter((entry) => {
+      const permissionRecord = buildPermissionRecordFromSource(entry);
+      const matches = isOwnContent(user, permissionRecord) || isAssignedContent(user, permissionRecord);
+      if (matches) {
+        const item = toDeskItem(entry);
+        if (!item) return false;
+
+        if (isWorkflowStatus(item.status)) {
+          bumpStatusCount(counts, item.status);
+        } else {
+          bumpProductionCount(productionCounts, item.status);
+        }
+        bumpContentCount(contentCounts, entry.contentType);
+      }
+      return matches;
+    })
+    .map((entry) => toDeskItem(entry))
+    .filter((item): item is DeskItem => Boolean(item))
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
+
+  return {
+    counts,
+    productionCounts,
+    contentCounts,
+    items: maxItems === null ? items : items.slice(0, maxItems),
+  };
+}
+
+export async function getReviewQueueOverview(
+  options: OverviewOptions = {}
+): Promise<ReviewQueueOverview> {
+  const all = await loadDeskItems();
+  const counts: Partial<Record<WorkflowStatus, number>> = {};
+  const productionCounts: EPaperProductionCounts = {};
+  const contentCounts: Partial<Record<WorkflowContentKey, number>> = {};
+  const maxItems = options.maxItems ?? 12;
+
+  const items = all
+    .filter((entry) => {
+      const item = toDeskItem(entry);
+      if (!item) return false;
+
+      const included = isWorkflowStatus(item.status)
+        ? REVIEW_QUEUE_STATUSES.includes(item.status)
+        : REVIEW_QUEUE_EPAPER_STATUSES.includes(item.status);
+      if (included) {
+        if (isWorkflowStatus(item.status)) {
+          bumpStatusCount(counts, item.status);
+        } else {
+          bumpProductionCount(productionCounts, item.status);
+        }
+        bumpContentCount(contentCounts, entry.contentType);
+      }
+      return included;
+    })
+    .map((entry) => toDeskItem(entry))
+    .filter((item): item is DeskItem => Boolean(item))
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
+
+  return {
+    counts,
+    productionCounts,
+    items: maxItems === null ? items : items.slice(0, maxItems),
+    contentCounts,
+  };
+}
+
+export async function getArticleWorkflowSummary(): Promise<ArticleWorkflowSummary> {
+  const all = await loadArticles();
+  const counts: WorkflowStatusCounts = {};
+
+  for (const article of all) {
+    const workflow = resolveArticleWorkflow({
+      workflow: article.workflow,
+      publishedAt: article.publishedAt,
+      updatedAt: article.updatedAt,
+    });
+    bumpStatusCount(counts, workflow.status);
+  }
+
+  return toWorkflowSummary(counts);
+}

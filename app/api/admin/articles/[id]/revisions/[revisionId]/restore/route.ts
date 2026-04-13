@@ -3,7 +3,20 @@ import { Types } from 'mongoose';
 import connectDB from '@/lib/db/mongoose';
 import Article from '@/lib/models/Article';
 import { getAdminSession } from '@/lib/auth/admin';
-import { restoreStoredArticleRevision } from '@/lib/storage/articlesFile';
+import { canEditContent } from '@/lib/auth/permissions';
+import {
+  normalizeCopyEditorMeta,
+  normalizeReporterMeta,
+} from '@/lib/content/newsroomMetadata';
+import {
+  buildArticleActivityMessage,
+  recordArticleActivity,
+} from '@/lib/server/articleActivity';
+import {
+  getStoredArticleById,
+  restoreStoredArticleRevision,
+} from '@/lib/storage/articlesFile';
+import { resolveArticleWorkflow } from '@/lib/workflow/article';
 
 async function shouldUseFileStore() {
   if (!process.env.MONGODB_URI) return true;
@@ -41,6 +54,8 @@ function buildRevisionSnapshot(article: Record<string, unknown>) {
     isBreaking: Boolean(article.isBreaking),
     isTrending: Boolean(article.isTrending),
     seo: normalizeSeo(article.seo),
+    reporterMeta: normalizeReporterMeta(article.reporterMeta),
+    copyEditorMeta: normalizeCopyEditorMeta(article.copyEditorMeta),
     savedAt: new Date(),
   };
 }
@@ -62,6 +77,25 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const { id, revisionId } = await context.params;
 
     if (await shouldUseFileStore()) {
+      const currentArticle = await getStoredArticleById(id);
+      if (!currentArticle) {
+        return NextResponse.json(
+          { success: false, error: 'Article or revision not found' },
+          { status: 404 }
+        );
+      }
+      if (
+        !canEditContent(user, {
+          legacyAuthorName: currentArticle.author,
+          workflow: resolveArticleWorkflow(currentArticle),
+        })
+      ) {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden' },
+          { status: 403 }
+        );
+      }
+
       const restored = await restoreStoredArticleRevision(id, revisionId);
       if (!restored) {
         return NextResponse.json(
@@ -69,6 +103,18 @@ export async function POST(req: NextRequest, context: RouteContext) {
           { status: 404 }
         );
       }
+
+      await recordArticleActivity({
+        articleId: id,
+        actor: user,
+        action: 'restore_revision',
+        toStatus: resolveArticleWorkflow(restored).status,
+        message: buildArticleActivityMessage({ action: 'restore_revision' }),
+        metadata: {
+          revisionId,
+        },
+      });
+
       return NextResponse.json({
         success: true,
         data: restored,
@@ -85,6 +131,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const article = (await Article.findById(id).lean()) as
       | (Record<string, unknown> & {
+          workflow?: unknown;
+          updatedAt?: Date | string;
+          publishedAt?: Date | string;
           revisions?: Array<Record<string, unknown> & { _id?: unknown }>;
         })
       | null;
@@ -92,6 +141,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { success: false, error: 'Article not found' },
         { status: 404 }
+      );
+    }
+    if (
+      !canEditContent(user, {
+        legacyAuthorName: typeof article.author === 'string' ? article.author : '',
+        workflow: resolveArticleWorkflow(article),
+      })
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
       );
     }
 
@@ -123,6 +183,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
           isBreaking: Boolean(targetRevision.isBreaking),
           isTrending: Boolean(targetRevision.isTrending),
           seo: normalizeSeo(targetRevision.seo),
+          reporterMeta: normalizeReporterMeta(targetRevision.reporterMeta),
+          copyEditorMeta: normalizeCopyEditorMeta(targetRevision.copyEditorMeta),
           updatedAt: new Date(),
         },
         $push: { revisions: { $each: [snapshot], $slice: -30 } },
@@ -136,6 +198,19 @@ export async function POST(req: NextRequest, context: RouteContext) {
         { status: 404 }
       );
     }
+
+    await recordArticleActivity({
+      articleId: id,
+      actor: user,
+      action: 'restore_revision',
+      toStatus: resolveArticleWorkflow(restoredArticle.toObject()).status,
+      message: buildArticleActivityMessage({ action: 'restore_revision' }),
+      metadata: {
+        revisionId,
+        revisionTitle:
+          typeof targetRevision.title === 'string' ? targetRevision.title : '',
+      },
+    });
 
     return NextResponse.json({
       success: true,

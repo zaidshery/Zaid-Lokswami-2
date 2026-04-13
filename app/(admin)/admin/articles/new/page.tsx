@@ -4,10 +4,12 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
 import { ArrowLeft, Upload, AlertCircle, CheckCircle, Image as ImageIcon } from 'lucide-react';
 import RichTextEditor from '@/components/forms/RichTextEditor';
 import { useRouter } from 'next/navigation';
 import { getAuthHeader } from '@/lib/auth/clientToken';
+import { isReporterDeskRole } from '@/lib/auth/roles';
 import { NEWS_CATEGORIES } from '@/lib/constants/newsCategories';
 import { formatUiDateTime } from '@/lib/utils/dateFormat';
 import { renderArticleRichContent } from '@/lib/utils/articleRichContent';
@@ -28,6 +30,10 @@ type ArticleFormState = {
   content: string;
   category: string;
   author: string;
+  locationTag: string;
+  sourceInfo: string;
+  sourceConfidential: boolean;
+  reporterNotes: string;
   isBreaking: boolean;
   isTrending: boolean;
   seoTitle: string;
@@ -42,6 +48,10 @@ const EMPTY_FORM: ArticleFormState = {
   content: '',
   category: 'National',
   author: '',
+  locationTag: '',
+  sourceInfo: '',
+  sourceConfidential: false,
+  reporterNotes: '',
   isBreaking: false,
   isTrending: false,
   seoTitle: '',
@@ -65,6 +75,7 @@ function isValidAbsoluteHttpUrl(value: string) {
 
 export default function UploadArticle() {
   const router = useRouter();
+  const { data: session } = useSession();
   const [formData, setFormData] = useState<ArticleFormState>(EMPTY_FORM);
 
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -93,13 +104,25 @@ export default function UploadArticle() {
     return renderArticleRichContent(source);
   }, [formData.content, formData.summary]);
 
+  const isReporterFlow = isReporterDeskRole(session?.user?.role);
+  const canCreateCategories =
+    session?.user?.role === 'admin' || session?.user?.role === 'super_admin';
+  const submitLabel = isReporterFlow ? 'Submit Article' : 'Publish Article';
+  const submitVerb = isReporterFlow ? 'Submitting' : 'Publishing';
+  const successMessage = isReporterFlow
+    ? 'Article submitted for review! Redirecting...'
+    : 'Article published successfully! Redirecting...';
+
   const persistDraft = useCallback(() => {
     if (typeof window === 'undefined') return;
     const hasAnyContent = Boolean(
       formData.title.trim() ||
-        formData.summary.trim() ||
+      formData.summary.trim() ||
         formData.content.trim() ||
         formData.author.trim() ||
+        formData.locationTag.trim() ||
+        formData.sourceInfo.trim() ||
+        formData.reporterNotes.trim() ||
         formData.seoTitle.trim() ||
         formData.seoDescription.trim() ||
         formData.ogImage.trim() ||
@@ -259,6 +282,16 @@ export default function UploadArticle() {
     load();
   }, []);
 
+  useEffect(() => {
+    const sessionName = session?.user?.name?.trim() || '';
+    if (!sessionName) return;
+    setFormData((current) =>
+      current.author.trim()
+        ? current
+        : { ...current, author: sessionName }
+    );
+  }, [session?.user?.name]);
+
   const uploadImage = async () => {
     if (!imageFile) return imagePreview;
 
@@ -336,11 +369,18 @@ export default function UploadArticle() {
           ...getAuthHeader(),
         },
         body: JSON.stringify({
+          intent: isReporterFlow ? 'submit' : 'publish',
           title: formData.title,
           summary: formData.summary,
           content: formData.content,
           category: formData.category,
           author: formData.author,
+          reporterMeta: {
+            locationTag: formData.locationTag,
+            sourceInfo: formData.sourceInfo,
+            sourceConfidential: formData.sourceConfidential,
+            reporterNotes: formData.reporterNotes,
+          },
           isBreaking: formData.isBreaking,
           isTrending: formData.isTrending,
           image: imageUrl,
@@ -361,7 +401,7 @@ export default function UploadArticle() {
         return;
       }
 
-      setSuccess('Article published successfully! Redirecting...');
+      setSuccess(successMessage);
       const fallbackCategory = categories.includes(EMPTY_FORM.category)
         ? EMPTY_FORM.category
         : categories[0] || EMPTY_FORM.category;
@@ -677,88 +717,90 @@ export default function UploadArticle() {
               </select>
 
               {/* Inline create category */}
-              <div className="mt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateCategory((s) => !s)}
-                  className="text-sm text-spanish-red font-medium hover:underline"
-                >
-                  {showCreateCategory ? 'Cancel' : '+ Create new category'}
-                </button>
+              {canCreateCategories ? (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateCategory((s) => !s)}
+                    className="text-sm text-spanish-red font-medium hover:underline"
+                  >
+                    {showCreateCategory ? 'Cancel' : '+ Create new category'}
+                  </button>
 
-                {showCreateCategory && (
-                  <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
-                    {createCategoryError && <div className="text-sm text-red-600">{createCategoryError}</div>}
-                    <input
-                      value={newCategoryName}
-                      onChange={(e) => setNewCategoryName(e.target.value)}
-                      placeholder="Category name"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    />
-                    <input
-                      value={newCategorySlug}
-                      onChange={(e) => setNewCategorySlug(e.target.value)}
-                      placeholder="Optional slug (auto-generated if blank)"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={isCreatingCategory}
-                        onClick={async () => {
-                          setCreateCategoryError('');
-                          if (!newCategoryName.trim()) {
-                            setCreateCategoryError('Please provide a category name');
-                            return;
-                          }
-                          setIsCreatingCategory(true);
-                          try {
-                            const res = await fetch('/api/admin/categories', {
-                              method: 'POST',
-                              headers: {
-                                'Content-Type': 'application/json',
-                                ...getAuthHeader(),
-                              },
-                              body: JSON.stringify({ name: newCategoryName.trim(), slug: newCategorySlug.trim() || undefined }),
-                            });
-                            const data = await res.json();
-                            if (!res.ok) throw new Error(data.error || 'Failed to create category');
-                            const created = data.data;
-                            setCategories((c) => [created.name, ...c.filter((x) => x !== created.name)]);
-                            setFormData((f) => ({ ...f, category: created.name }));
+                  {showCreateCategory && (
+                    <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
+                      {createCategoryError && <div className="text-sm text-red-600">{createCategoryError}</div>}
+                      <input
+                        value={newCategoryName}
+                        onChange={(e) => setNewCategoryName(e.target.value)}
+                        placeholder="Category name"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                      <input
+                        value={newCategorySlug}
+                        onChange={(e) => setNewCategorySlug(e.target.value)}
+                        placeholder="Optional slug (auto-generated if blank)"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={isCreatingCategory}
+                          onClick={async () => {
+                            setCreateCategoryError('');
+                            if (!newCategoryName.trim()) {
+                              setCreateCategoryError('Please provide a category name');
+                              return;
+                            }
+                            setIsCreatingCategory(true);
+                            try {
+                              const res = await fetch('/api/admin/categories', {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  ...getAuthHeader(),
+                                },
+                                body: JSON.stringify({ name: newCategoryName.trim(), slug: newCategorySlug.trim() || undefined }),
+                              });
+                              const data = await res.json();
+                              if (!res.ok) throw new Error(data.error || 'Failed to create category');
+                              const created = data.data;
+                              setCategories((c) => [created.name, ...c.filter((x) => x !== created.name)]);
+                              setFormData((f) => ({ ...f, category: created.name }));
+                              setNewCategoryName('');
+                              setNewCategorySlug('');
+                              setShowCreateCategory(false);
+                            } catch (err: unknown) {
+                              const message =
+                                err instanceof Error
+                                  ? err.message
+                                  : 'Failed to create category';
+                              setCreateCategoryError(message);
+                            } finally {
+                              setIsCreatingCategory(false);
+                            }
+                          }}
+                          className="px-4 py-2 bg-spanish-red text-white rounded-md disabled:opacity-50"
+                        >
+                          {isCreatingCategory ? 'Creating...' : 'Create'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCreateCategory(false);
                             setNewCategoryName('');
                             setNewCategorySlug('');
-                            setShowCreateCategory(false);
-                          } catch (err: unknown) {
-                            const message =
-                              err instanceof Error
-                                ? err.message
-                                : 'Failed to create category';
-                            setCreateCategoryError(message);
-                          } finally {
-                            setIsCreatingCategory(false);
-                          }
-                        }}
-                        className="px-4 py-2 bg-spanish-red text-white rounded-md disabled:opacity-50"
-                      >
-                        {isCreatingCategory ? 'Creating...' : 'Create'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowCreateCategory(false);
-                          setNewCategoryName('');
-                          setNewCategorySlug('');
-                          setCreateCategoryError('');
-                        }}
-                        className="px-4 py-2 border border-gray-300 rounded-md"
-                      >
-                        Cancel
-                      </button>
+                            setCreateCategoryError('');
+                          }}
+                          className="px-4 py-2 border border-gray-300 rounded-md"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              ) : null}
             </div>
 
             {/* Author */}
@@ -775,6 +817,66 @@ export default function UploadArticle() {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
                 required
               />
+            </div>
+
+            <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Reporter Submission</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Add location context, source notes, and reporter handoff details for the desk.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-2">
+                  Location Tag
+                </label>
+                <input
+                  type="text"
+                  name="locationTag"
+                  value={formData.locationTag}
+                  onChange={handleInputChange}
+                  placeholder="Indore, Madhya Pradesh"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-2">
+                  Source Info
+                </label>
+                <textarea
+                  name="sourceInfo"
+                  value={formData.sourceInfo}
+                  onChange={handleInputChange}
+                  placeholder="Who provided the information, documents, or quotes?"
+                  rows={3}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+                />
+              </div>
+              <label className="flex items-center gap-3 cursor-pointer rounded-lg border border-gray-200 bg-white px-4 py-3">
+                <input
+                  type="checkbox"
+                  name="sourceConfidential"
+                  checked={formData.sourceConfidential}
+                  onChange={handleInputChange}
+                  className="w-4 h-4 rounded border-gray-300 text-spanish-red focus:ring-spanish-red"
+                />
+                <span className="text-sm text-gray-700">
+                  Source is confidential and should stay internal to the desk
+                </span>
+              </label>
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-2">
+                  Reporter Notes
+                </label>
+                <textarea
+                  name="reporterNotes"
+                  value={formData.reporterNotes}
+                  onChange={handleInputChange}
+                  placeholder="Extra context for copy edit, verification, or publishing."
+                  rows={3}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-spanish-red transition-colors"
+                />
+              </div>
             </div>
 
             {/* Flags */}
@@ -817,12 +919,12 @@ export default function UploadArticle() {
                 {isLoading || isLoadingImage ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Publishing...
+                    {submitVerb}...
                   </>
                 ) : (
                   <>
                     <Upload className="w-5 h-5" />
-                    Publish Article
+                    {submitLabel}
                   </>
                 )}
               </button>

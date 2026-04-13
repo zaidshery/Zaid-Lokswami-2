@@ -1,0 +1,489 @@
+'use client';
+
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import {
+  ArrowUpRight,
+  CalendarClock,
+  CheckCheck,
+  ClipboardList,
+  CornerUpLeft,
+  Loader2,
+  Send,
+  UserRoundCheck,
+  XCircle,
+} from 'lucide-react';
+import type { AdminRole } from '@/lib/auth/roles';
+import type { WorkflowPriority, WorkflowStatus } from '@/lib/workflow/types';
+
+type SupportedDeskContentType = 'article' | 'story' | 'video' | 'epaper';
+
+type AssignableTeamMember = {
+  id: string;
+  name: string;
+  email: string;
+  role: AdminRole;
+  isActive: boolean;
+};
+
+type DeskWorkflowActionsProps = {
+  role: AdminRole;
+  contentType: SupportedDeskContentType;
+  contentId: string;
+  status: WorkflowStatus | string;
+  editHref: string;
+  assignedToName?: string;
+};
+
+type WorkflowAction =
+  | 'assign'
+  | 'start_review'
+  | 'move_to_copy_edit'
+  | 'request_changes'
+  | 'mark_ready_for_approval'
+  | 'approve'
+  | 'reject'
+  | 'schedule'
+  | 'publish';
+
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(' ');
+}
+
+function getWorkflowEndpoint(contentType: SupportedDeskContentType, contentId: string) {
+  switch (contentType) {
+    case 'article':
+      return `/api/admin/articles/${encodeURIComponent(contentId)}`;
+    case 'story':
+      return `/api/admin/stories/${encodeURIComponent(contentId)}`;
+    case 'video':
+      return `/api/admin/videos/${encodeURIComponent(contentId)}`;
+    default:
+      return null;
+  }
+}
+
+function formatRoleLabel(role: AdminRole) {
+  return role.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatStatusLabel(status: string) {
+  return status.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+const ACTION_BUTTON_CLASS =
+  'inline-flex items-center justify-center gap-2 rounded-2xl border px-3.5 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors';
+
+const SECONDARY_ACTION_CLASS =
+  'border-zinc-200/80 bg-white text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50 dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-100 dark:hover:border-white/20 dark:hover:bg-white/[0.08]';
+
+const PRIMARY_ACTION_CLASS =
+  'border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800 dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200';
+
+export default function DeskWorkflowActions({
+  role,
+  contentType,
+  contentId,
+  status,
+  editHref,
+  assignedToName,
+}: DeskWorkflowActionsProps) {
+  const router = useRouter();
+  const [assignPanelOpen, setAssignPanelOpen] = useState(false);
+  const [teamOptions, setTeamOptions] = useState<AssignableTeamMember[]>([]);
+  const [teamOptionsLoaded, setTeamOptionsLoaded] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [assignTarget, setAssignTarget] = useState('');
+  const [dueAt, setDueAt] = useState('');
+  const [priority, setPriority] = useState<WorkflowPriority>('normal');
+  const [scheduledFor, setScheduledFor] = useState('');
+  const [reason, setReason] = useState('');
+  const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(
+    null
+  );
+
+  const endpoint = getWorkflowEndpoint(contentType, contentId);
+  const isWorkflowContent = Boolean(endpoint);
+  const isAdminDesk = role === 'admin' || role === 'super_admin';
+  const isCopyEditorDesk = role === 'copy_editor';
+
+  const canAssign =
+    isAdminDesk &&
+    ['submitted', 'assigned', 'in_review', 'copy_edit', 'ready_for_approval'].includes(status);
+  const canStartReview = isCopyEditorDesk && status === 'assigned';
+  const canMoveToCopyEdit = isCopyEditorDesk && status === 'in_review';
+  const canRequestChanges =
+    (isAdminDesk || isCopyEditorDesk) &&
+    ['assigned', 'in_review', 'copy_edit', 'ready_for_approval'].includes(status);
+  const canReadyForApproval =
+    isCopyEditorDesk && ['in_review', 'copy_edit'].includes(status);
+  const canApprove = isAdminDesk && status === 'ready_for_approval';
+  const canReject =
+    isAdminDesk &&
+    ['submitted', 'assigned', 'in_review', 'copy_edit', 'ready_for_approval'].includes(status);
+  const canSchedule = isAdminDesk && status === 'approved';
+  const canPublish = isAdminDesk && (status === 'approved' || status === 'scheduled');
+
+  async function loadAssignableMembers() {
+    if (!isAdminDesk || teamOptionsLoaded) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/admin/team/options', { cache: 'no-store' });
+      const payload = (await response.json()) as {
+        success?: boolean;
+        error?: string;
+        data?: AssignableTeamMember[];
+      };
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || 'Failed to load assignable team members.');
+      }
+
+      setTeamOptions(payload.data || []);
+      setTeamOptionsLoaded(true);
+      if (!assignTarget && payload.data?.[0]?.id) {
+        setAssignTarget(payload.data[0].id);
+      }
+    } catch (error) {
+      setFeedback({
+        kind: 'error',
+        text: error instanceof Error ? error.message : 'Failed to load assignable team members.',
+      });
+    }
+  }
+
+  async function runAction(action: WorkflowAction, extra: Record<string, unknown> = {}) {
+    if (!endpoint) {
+      setFeedback({
+        kind: 'error',
+        text: 'This workflow item still needs to be managed from its detail page.',
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFeedback(null);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action,
+          ...extra,
+        }),
+      });
+
+      const payload = (await response.json()) as {
+        success?: boolean;
+        error?: string;
+        message?: string;
+      };
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || `Failed to ${action.replace(/_/g, ' ')}.`);
+      }
+
+      if (action === 'assign') {
+        setAssignPanelOpen(false);
+      }
+      if (action === 'request_changes' || action === 'reject') {
+        setReason('');
+      }
+      if (action === 'schedule') {
+        setScheduledFor('');
+      }
+
+      setFeedback({
+        kind: 'success',
+        text: payload.message || 'Workflow updated successfully.',
+      });
+      router.refresh();
+    } catch (error) {
+      setFeedback({
+        kind: 'error',
+        text: error instanceof Error ? error.message : 'Failed to update workflow.',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function openAssignPanel() {
+    setAssignPanelOpen((current) => !current);
+    setFeedback(null);
+    if (!assignPanelOpen) {
+      await loadAssignableMembers();
+    }
+  }
+
+  function handleAssign() {
+    if (!assignTarget) {
+      setFeedback({ kind: 'error', text: 'Select a newsroom user before assigning.' });
+      return;
+    }
+
+    void runAction('assign', {
+      assignedToId: assignTarget,
+      dueAt: dueAt || undefined,
+      priority,
+    });
+  }
+
+  function handleReasonAction(action: 'request_changes' | 'reject') {
+    if (!reason.trim()) {
+      setFeedback({
+        kind: 'error',
+        text:
+          action === 'reject'
+            ? 'Add a rejection reason before rejecting this item.'
+            : 'Add a clear change reason before routing this item back.',
+      });
+      return;
+    }
+
+    void runAction(action, { rejectionReason: reason.trim() });
+  }
+
+  function handleSchedule() {
+    if (!scheduledFor) {
+      setFeedback({
+        kind: 'error',
+        text: 'Choose a schedule date and time before scheduling this item.',
+      });
+      return;
+    }
+
+    void runAction('schedule', { scheduledFor });
+  }
+
+  return (
+    <div className="space-y-3 border-t border-zinc-200/80 pt-4 dark:border-white/10">
+      <div className="flex flex-wrap items-center gap-2">
+        <Link href={editHref} className={cx(ACTION_BUTTON_CLASS, SECONDARY_ACTION_CLASS)}>
+          <ArrowUpRight className="h-4 w-4" />
+          Open Detail
+        </Link>
+
+        {!isWorkflowContent ? (
+          <span className="rounded-full border border-zinc-200/80 bg-white/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
+            Detail-only workflow
+          </span>
+        ) : null}
+
+        {canAssign ? (
+          <button
+            type="button"
+            onClick={() => void openAssignPanel()}
+            disabled={isSubmitting}
+            className={cx(ACTION_BUTTON_CLASS, SECONDARY_ACTION_CLASS)}
+          >
+            <UserRoundCheck className="h-4 w-4" />
+            {assignedToName ? 'Reassign' : 'Assign'}
+          </button>
+        ) : null}
+
+        {canStartReview ? (
+          <button
+            type="button"
+            onClick={() => void runAction('start_review')}
+            disabled={isSubmitting}
+            className={cx(ACTION_BUTTON_CLASS, PRIMARY_ACTION_CLASS)}
+          >
+            <ClipboardList className="h-4 w-4" />
+            Start Review
+          </button>
+        ) : null}
+
+        {canMoveToCopyEdit ? (
+          <button
+            type="button"
+            onClick={() => void runAction('move_to_copy_edit')}
+            disabled={isSubmitting}
+            className={cx(ACTION_BUTTON_CLASS, SECONDARY_ACTION_CLASS)}
+          >
+            <CheckCheck className="h-4 w-4" />
+            Move To Copy Edit
+          </button>
+        ) : null}
+
+        {canReadyForApproval ? (
+          <button
+            type="button"
+            onClick={() => void runAction('mark_ready_for_approval')}
+            disabled={isSubmitting}
+            className={cx(ACTION_BUTTON_CLASS, PRIMARY_ACTION_CLASS)}
+          >
+            <Send className="h-4 w-4" />
+            Ready For Approval
+          </button>
+        ) : null}
+
+        {canApprove ? (
+          <button
+            type="button"
+            onClick={() => void runAction('approve')}
+            disabled={isSubmitting}
+            className={cx(ACTION_BUTTON_CLASS, PRIMARY_ACTION_CLASS)}
+          >
+            <CheckCheck className="h-4 w-4" />
+            Approve
+          </button>
+        ) : null}
+
+        {canPublish ? (
+          <button
+            type="button"
+            onClick={() => void runAction('publish')}
+            disabled={isSubmitting}
+            className={cx(ACTION_BUTTON_CLASS, PRIMARY_ACTION_CLASS)}
+          >
+            <Send className="h-4 w-4" />
+            Publish Now
+          </button>
+        ) : null}
+      </div>
+
+      {assignPanelOpen && canAssign ? (
+        <div className="rounded-[22px] border border-zinc-200/80 bg-zinc-50/78 p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.03]">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.3fr),minmax(0,0.8fr),minmax(0,0.9fr),auto]">
+            <label className="space-y-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+              Assign To
+              <select
+                value={assignTarget}
+                onChange={(event) => setAssignTarget(event.target.value)}
+                className="h-11 w-full rounded-2xl border border-zinc-200/80 bg-white px-4 text-sm font-medium text-zinc-900 outline-none transition-colors focus:border-zinc-300 dark:border-white/10 dark:bg-zinc-950/70 dark:text-zinc-100"
+              >
+                <option value="">Select newsroom user</option>
+                {teamOptions.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name} ({formatRoleLabel(member.role)})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+              Due At
+              <input
+                type="datetime-local"
+                value={dueAt}
+                onChange={(event) => setDueAt(event.target.value)}
+                className="h-11 w-full rounded-2xl border border-zinc-200/80 bg-white px-4 text-sm font-medium text-zinc-900 outline-none transition-colors focus:border-zinc-300 dark:border-white/10 dark:bg-zinc-950/70 dark:text-zinc-100"
+              />
+            </label>
+            <label className="space-y-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+              Priority
+              <select
+                value={priority}
+                onChange={(event) => setPriority(event.target.value as WorkflowPriority)}
+                className="h-11 w-full rounded-2xl border border-zinc-200/80 bg-white px-4 text-sm font-medium text-zinc-900 outline-none transition-colors focus:border-zinc-300 dark:border-white/10 dark:bg-zinc-950/70 dark:text-zinc-100"
+              >
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={handleAssign}
+              disabled={isSubmitting}
+              className={cx(ACTION_BUTTON_CLASS, PRIMARY_ACTION_CLASS, 'h-11 px-4 self-end')}
+            >
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserRoundCheck className="h-4 w-4" />}
+              Save Assignment
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {(canRequestChanges || canReject) && isWorkflowContent ? (
+        <div className="rounded-[22px] border border-zinc-200/80 bg-zinc-50/78 p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.03]">
+          <label className="space-y-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+            Desk Reason
+            <textarea
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="Write the reason for changes or rejection."
+              className="min-h-[96px] w-full rounded-2xl border border-zinc-200/80 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition-colors focus:border-zinc-300 dark:border-white/10 dark:bg-zinc-950/70 dark:text-zinc-100"
+            />
+          </label>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {canRequestChanges ? (
+              <button
+                type="button"
+                onClick={() => handleReasonAction('request_changes')}
+                disabled={isSubmitting}
+                className={cx(ACTION_BUTTON_CLASS, SECONDARY_ACTION_CLASS)}
+              >
+                <CornerUpLeft className="h-4 w-4" />
+                Request Changes
+              </button>
+            ) : null}
+            {canReject ? (
+              <button
+                type="button"
+                onClick={() => handleReasonAction('reject')}
+                disabled={isSubmitting}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-3.5 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-red-700 transition-colors hover:bg-red-100 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/15"
+              >
+                <XCircle className="h-4 w-4" />
+                Reject
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {canSchedule ? (
+        <div className="rounded-[22px] border border-zinc-200/80 bg-zinc-50/78 p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.03]">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr),auto]">
+            <label className="space-y-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+              Schedule For
+              <input
+                type="datetime-local"
+                value={scheduledFor}
+                onChange={(event) => setScheduledFor(event.target.value)}
+                className="h-11 w-full rounded-2xl border border-zinc-200/80 bg-white px-4 text-sm font-medium text-zinc-900 outline-none transition-colors focus:border-zinc-300 dark:border-white/10 dark:bg-zinc-950/70 dark:text-zinc-100"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={handleSchedule}
+              disabled={isSubmitting}
+              className={cx(ACTION_BUTTON_CLASS, PRIMARY_ACTION_CLASS, 'h-11 px-4 self-end')}
+            >
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
+              Schedule
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {feedback ? (
+        <div
+          className={cx(
+            'rounded-2xl border px-4 py-3 text-sm',
+            feedback.kind === 'success'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300'
+              : 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300'
+          )}
+        >
+          {feedback.text}
+        </div>
+      ) : null}
+
+      {isSubmitting ? (
+        <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Updating {formatStatusLabel(status)}
+        </div>
+      ) : null}
+    </div>
+  );
+}

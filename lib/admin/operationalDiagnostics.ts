@@ -1,0 +1,372 @@
+import 'server-only';
+
+import { getEpaperInsights, type EpaperInsights } from '@/lib/admin/epaperInsights';
+import {
+  buildLeadershipReportEscalations,
+  buildLeadershipReportHealthAlerts,
+  getLeadershipReportRuntimeSnapshot,
+  type LeadershipReportEscalation,
+  type LeadershipReportHealthAlert,
+} from '@/lib/admin/leadershipReportHealth';
+import {
+  getSystemHealthSummary,
+  type SystemHealthService,
+  type SystemHealthSignal,
+  type SystemHealthFailure,
+  type SystemHealthStatus,
+} from '@/lib/admin/systemHealth';
+import { listLeadershipReportRunHistory } from '@/lib/storage/leadershipReportRunHistoryFile';
+import { listLeadershipReportSchedules } from '@/lib/storage/leadershipReportSchedulesFile';
+
+export type OperationalDiagnosticsLane = {
+  id: string;
+  label: string;
+  status: SystemHealthStatus;
+  summary: string;
+  detail: string;
+  href?: string;
+};
+
+export type OperationalDiagnosticsAlert = {
+  id: string;
+  tone: 'neutral' | 'good' | 'warning' | 'critical';
+  title: string;
+  detail: string;
+  href?: string;
+  actionLabel?: string;
+};
+
+export type OperationalDiagnosticsSnapshot = {
+  dataSource: 'mongodb' | 'file' | 'hybrid';
+  summary: {
+    servicesAtRisk: number;
+    uploadAlerts: number;
+    reportingRisks: number;
+    blockedEditions: number;
+  };
+  lanes: OperationalDiagnosticsLane[];
+  runtimeSignals: SystemHealthSignal[];
+  alerts: OperationalDiagnosticsAlert[];
+  reportEscalations: LeadershipReportEscalation[];
+  blockedEditions: EpaperInsights['blockedEditions'];
+  lowQualityPages: EpaperInsights['lowQualityPages'];
+  recentFailures: SystemHealthFailure[];
+};
+
+export type UploadRuntimeSummary = {
+  status: SystemHealthStatus;
+  summary: string;
+  detail: string;
+  signals: SystemHealthSignal[];
+};
+
+export type OcrRuntimeSummary = {
+  status: SystemHealthStatus;
+  summary: string;
+  detail: string;
+  signals: SystemHealthSignal[];
+};
+
+function readBooleanEnv(value: string | undefined) {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+}
+
+function deriveDataSource(source: EpaperInsights['source']): OperationalDiagnosticsSnapshot['dataSource'] {
+  if (!process.env.MONGODB_URI?.trim()) {
+    return 'file';
+  }
+
+  return source === 'mongodb' ? 'mongodb' : 'hybrid';
+}
+
+function buildSignal(
+  label: string,
+  value: string,
+  tone: SystemHealthSignal['tone']
+): SystemHealthSignal {
+  return { label, value, tone };
+}
+
+export function buildUploadRuntimeSummary(): UploadRuntimeSummary {
+  const cloudName = String(process.env.CLOUDINARY_CLOUD_NAME || '').trim();
+  const apiKey = String(process.env.CLOUDINARY_API_KEY || '').trim();
+  const apiSecret = String(process.env.CLOUDINARY_API_SECRET || '').trim();
+  const configuredCount = [cloudName, apiKey, apiSecret].filter(Boolean).length;
+
+  const status: SystemHealthStatus =
+    configuredCount === 3 ? 'healthy' : configuredCount > 0 ? 'watch' : 'critical';
+
+  return {
+    status,
+    summary:
+      status === 'healthy'
+        ? 'Cloudinary upload delivery is configured for newsroom assets.'
+        : status === 'watch'
+          ? 'Cloudinary upload configuration is only partially set.'
+          : 'Cloudinary upload configuration is missing.',
+    detail:
+      status === 'healthy'
+        ? 'Admin uploads can use the shared Cloudinary pipeline for images, thumbnails, and e-paper assets.'
+        : status === 'watch'
+          ? 'Some Cloudinary environment values are present, but uploads may still fail until the full set is configured.'
+          : 'Uploads depend on Cloudinary. Set cloud name, API key, and API secret before relying on admin upload flows.',
+    signals: [
+      buildSignal('Upload Provider', configuredCount === 3 ? 'Cloudinary ready' : 'Cloudinary not ready', configuredCount === 3 ? 'good' : configuredCount > 0 ? 'warning' : 'critical'),
+      buildSignal('Image Limit', '5 MB', 'neutral'),
+      buildSignal('Thumb Limit', '10 MB', 'neutral'),
+      buildSignal('E-Paper PDF Limit', '25 MB', 'neutral'),
+    ],
+  };
+}
+
+export function buildOcrRuntimeSummary(): OcrRuntimeSummary {
+  const localOnly = readBooleanEnv(process.env.NEXT_PUBLIC_EPAPER_LOCAL_OCR_ONLY);
+  const remoteFallback = readBooleanEnv(process.env.NEXT_PUBLIC_EPAPER_REMOTE_OCR_FALLBACK);
+  const customApiUrl = String(process.env.OCR_CUSTOM_API_URL || '').trim();
+  const customApiKey = String(process.env.OCR_CUSTOM_API_KEY || '').trim();
+  const ocrSpaceKey = String(process.env.OCR_SPACE_API_KEY || '').trim();
+  const preferredLanguage = String(process.env.OCR_SPACE_LANGUAGE || 'hin').trim() || 'hin';
+  const remoteReady = Boolean(customApiUrl || ocrSpaceKey);
+
+  let status: SystemHealthStatus = 'watch';
+  if (localOnly) {
+    status = 'healthy';
+  } else if (remoteFallback && remoteReady) {
+    status = 'healthy';
+  } else if (remoteFallback && !remoteReady) {
+    status = 'critical';
+  } else if (!remoteFallback && remoteReady) {
+    status = 'watch';
+  }
+
+  return {
+    status,
+    summary:
+      status === 'healthy'
+        ? 'OCR assist has at least one reliable operating mode configured.'
+        : status === 'critical'
+          ? 'Server OCR fallback is enabled, but no remote OCR provider is configured.'
+          : 'OCR can still run locally, but fallback coverage is limited.',
+    detail:
+      localOnly
+        ? 'The desk is locked to local OCR only. That is stable when browser OCR works, but it removes server-side rescue paths.'
+        : remoteFallback
+          ? remoteReady
+            ? 'The desk can fall back to server OCR if local OCR fails, using either a custom OCR API or OCR.Space.'
+            : 'Remote fallback is enabled, but no OCR provider credentials are ready yet.'
+          : remoteReady
+            ? 'A remote OCR provider is configured, but the browser client is not currently allowed to use fallback automatically.'
+            : 'Only local OCR is effectively available right now, so difficult pages may still fail detection.',
+    signals: [
+      buildSignal('OCR Mode', localOnly ? 'Local only' : remoteFallback ? 'Local + remote fallback' : 'Local preferred', status === 'healthy' ? 'good' : status === 'critical' ? 'critical' : 'warning'),
+      buildSignal('Remote OCR', remoteReady ? 'Configured' : 'Not configured', remoteReady ? 'good' : remoteFallback ? 'critical' : 'warning'),
+      buildSignal('Custom OCR', customApiUrl ? customApiKey ? 'Configured' : 'URL without key' : 'Off', customApiUrl ? customApiKey ? 'good' : 'warning' : 'neutral'),
+      buildSignal('OCR.Space', ocrSpaceKey ? preferredLanguage : 'Off', ocrSpaceKey ? 'good' : 'neutral'),
+    ],
+  };
+}
+
+function mapHealthAlert(alert: LeadershipReportHealthAlert): OperationalDiagnosticsAlert {
+  return {
+    id: `report-${alert.id}`,
+    tone:
+      alert.severity === 'critical'
+        ? 'critical'
+        : alert.severity === 'warning'
+          ? 'warning'
+          : 'neutral',
+    title: alert.title,
+    detail: alert.detail,
+    href: alert.actionHref,
+    actionLabel: alert.actionLabel,
+  };
+}
+
+export async function getOperationalDiagnosticsSnapshot(): Promise<OperationalDiagnosticsSnapshot> {
+  const [epaperInsights, schedules, runHistory] = await Promise.all([
+    getEpaperInsights({ maxLowQualityPages: 10, maxBlockedEditions: 8 }),
+    listLeadershipReportSchedules(),
+    listLeadershipReportRunHistory(120),
+  ]);
+
+  const dataSource = deriveDataSource(epaperInsights.source);
+  const runtime = await getLeadershipReportRuntimeSnapshot(schedules);
+  const reportAlerts = buildLeadershipReportHealthAlerts({
+    schedules,
+    history: runHistory,
+    runtime,
+  });
+  const reportEscalations = buildLeadershipReportEscalations({
+    schedules,
+    history: runHistory,
+    runtime,
+  });
+  const uploadRuntime = buildUploadRuntimeSummary();
+  const ocrRuntime = buildOcrRuntimeSummary();
+  const systemHealth = await getSystemHealthSummary({
+    dataSource,
+    blockedEditions: epaperInsights.blockedEditions.length,
+    qualityAlerts: epaperInsights.lowQualityPages.length,
+    queuePressure: epaperInsights.editionCounts.inProduction,
+    inboxEscalations: 0,
+    teamAlerts: 0,
+  });
+
+  const serviceMap = new Map<string, SystemHealthService>(
+    systemHealth.services.map((service) => [service.id, service])
+  );
+
+  const lanes: OperationalDiagnosticsLane[] = [
+    serviceMap.get('database'),
+    {
+      id: 'upload-pipeline',
+      label: 'Upload Pipeline',
+      status: uploadRuntime.status,
+      summary: uploadRuntime.summary,
+      detail: uploadRuntime.detail,
+      href: '/admin/settings',
+    },
+    {
+      id: 'ocr-assist',
+      label: 'OCR Assist',
+      status: ocrRuntime.status,
+      summary: ocrRuntime.summary,
+      detail: ocrRuntime.detail,
+      href: '/admin/epapers',
+    },
+    serviceMap.get('shared-tts'),
+    {
+      id: 'reporting-jobs',
+      label: 'Reporting Jobs',
+      status:
+        reportEscalations.some((entry) => entry.severity === 'critical') ||
+        reportAlerts.some((entry) => entry.severity === 'critical' && entry.id !== 'healthy')
+          ? 'critical'
+          : reportEscalations.length || reportAlerts.some((entry) => entry.severity === 'warning')
+            ? 'watch'
+            : 'healthy',
+      summary:
+        reportEscalations.length || reportAlerts.some((entry) => entry.severity !== 'info')
+          ? 'Leadership reporting still has active runtime or delivery risks.'
+          : 'Leadership reporting schedules look stable right now.',
+      detail: `${reportAlerts.filter((entry) => entry.severity !== 'info').length} health alert(s), ${reportEscalations.length} escalated schedule(s), and ${runtime.dueNowCount} due schedule(s) are visible in the reporting lane.`,
+      href: '/admin/analytics',
+    },
+    {
+      id: 'epaper-desk',
+      label: 'E-Paper Desk',
+      status:
+        epaperInsights.blockedEditions.length > 0
+          ? 'critical'
+          : epaperInsights.lowQualityPages.length > 0
+            ? 'watch'
+            : 'healthy',
+      summary:
+        epaperInsights.blockedEditions.length > 0
+          ? 'Some editions are still blocked from publish readiness.'
+          : epaperInsights.lowQualityPages.length > 0
+            ? 'The desk has quality alerts, but no hard publish blockers.'
+            : 'No major edition blockers are visible right now.',
+      detail: `${epaperInsights.blockedEditions.length} blocked edition(s), ${epaperInsights.lowQualityPages.length} low-quality page(s), and ${epaperInsights.editionCounts.inProduction} edition(s) currently in production.`,
+      href: '/admin/epapers',
+    },
+  ].filter((lane): lane is OperationalDiagnosticsLane => Boolean(lane));
+
+  const alerts: OperationalDiagnosticsAlert[] = [
+    ...(uploadRuntime.status !== 'healthy'
+      ? [
+          {
+            id: 'upload-runtime',
+            tone: uploadRuntime.status === 'critical' ? 'critical' : 'warning',
+            title: 'Upload pipeline needs attention',
+            detail: uploadRuntime.detail,
+            href: '/admin/settings',
+            actionLabel: 'Review upload config',
+          } satisfies OperationalDiagnosticsAlert,
+        ]
+      : []),
+    ...(ocrRuntime.status !== 'healthy'
+      ? [
+          {
+            id: 'ocr-runtime',
+            tone: ocrRuntime.status === 'critical' ? 'critical' : 'warning',
+            title: 'OCR assist coverage is limited',
+            detail: ocrRuntime.detail,
+            href: '/admin/epapers',
+            actionLabel: 'Open e-paper desk',
+          } satisfies OperationalDiagnosticsAlert,
+        ]
+      : []),
+    ...reportAlerts
+      .filter((alert) => alert.id !== 'healthy')
+      .slice(0, 4)
+      .map(mapHealthAlert),
+    ...(epaperInsights.blockedEditions.length > 0
+      ? [
+          {
+            id: 'blocked-editions',
+            tone: 'critical',
+            title: 'Blocked editions are still active',
+            detail: `${epaperInsights.blockedEditions.length} e-paper edition(s) still have publish blockers.`,
+            href: '/admin/epapers',
+            actionLabel: 'Open blocked editions',
+          } satisfies OperationalDiagnosticsAlert,
+        ]
+      : []),
+    ...(epaperInsights.lowQualityPages.length > 0
+      ? [
+          {
+            id: 'quality-pages',
+            tone: 'warning',
+            title: 'Low-quality pages still need desk cleanup',
+            detail: `${epaperInsights.lowQualityPages.length} page(s) still show OCR, hotspot, or QA issues.`,
+            href: '/admin/review-queue',
+            actionLabel: 'Open review queue',
+          } satisfies OperationalDiagnosticsAlert,
+        ]
+      : []),
+  ];
+
+  const runtimeSignals = [
+    ...uploadRuntime.signals,
+    ...ocrRuntime.signals,
+    ...systemHealth.runtimeSignals,
+    buildSignal(
+      'Report Cron',
+      runtime.cronSecretConfigured ? 'Configured' : 'Missing',
+      runtime.cronSecretConfigured ? 'good' : 'warning'
+    ),
+    buildSignal(
+      'Report Email',
+      runtime.emailDeliveryConfigured ? 'Ready' : 'Not configured',
+      runtime.emailDeliveryConfigured ? 'good' : 'warning'
+    ),
+    buildSignal(
+      'Due Right Now',
+      String(runtime.dueNowCount),
+      runtime.dueNowCount > 0 ? 'warning' : 'good'
+    ),
+  ];
+
+  return {
+    dataSource,
+    summary: {
+      servicesAtRisk: lanes.filter((lane) => lane.status !== 'healthy').length,
+      uploadAlerts: alerts.filter((alert) => alert.id === 'upload-runtime' || alert.id === 'ocr-runtime').length,
+      reportingRisks:
+        reportEscalations.length +
+        reportAlerts.filter((alert) => alert.severity === 'critical' || alert.severity === 'warning').length,
+      blockedEditions: epaperInsights.blockedEditions.length,
+    },
+    lanes,
+    runtimeSignals,
+    alerts,
+    reportEscalations,
+    blockedEditions: epaperInsights.blockedEditions,
+    lowQualityPages: epaperInsights.lowQualityPages,
+    recentFailures: systemHealth.recentFailures,
+  };
+}

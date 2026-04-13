@@ -71,6 +71,31 @@ function cleanMetadata(input: unknown): Record<string, unknown> {
   return safe;
 }
 
+function getCountryCode(req: NextRequest) {
+  const candidates = [
+    req.headers.get('x-vercel-ip-country'),
+    req.headers.get('cf-ipcountry'),
+    req.headers.get('x-country-code'),
+    req.headers.get('x-country'),
+  ];
+
+  for (const value of candidates) {
+    const normalized = clean(value, 8).toUpperCase();
+    if (/^[A-Z]{2,3}$/.test(normalized)) {
+      return normalized;
+    }
+  }
+
+  return '';
+}
+
+function getAcceptLanguage(req: NextRequest) {
+  const header = clean(req.headers.get('accept-language'), 120);
+  if (!header) return '';
+
+  return clean(header.split(',')[0], 32);
+}
+
 export async function POST(req: NextRequest) {
   try {
     let body: Record<string, unknown>;
@@ -108,6 +133,17 @@ export async function POST(req: NextRequest) {
       ? sessionInput
       : generateSessionId();
 
+    const cleanedMetadata = cleanMetadata(body.metadata);
+    if (!cleanedMetadata.browserLanguage) {
+      cleanedMetadata.browserLanguage = getAcceptLanguage(req);
+    }
+    if (!cleanedMetadata.countryCode) {
+      const countryCode = getCountryCode(req);
+      if (countryCode) {
+        cleanedMetadata.countryCode = countryCode;
+      }
+    }
+
     const savePayload = {
       event: eventInput,
       page: pageInput,
@@ -115,7 +151,7 @@ export async function POST(req: NextRequest) {
       sessionId,
       ipAddress: getClientIp(req),
       userAgent: clean(req.headers.get('user-agent'), 500),
-      metadata: cleanMetadata(body.metadata),
+      metadata: cleanedMetadata,
     };
 
     if (process.env.MONGODB_URI) {

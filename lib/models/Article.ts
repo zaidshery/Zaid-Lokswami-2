@@ -1,4 +1,11 @@
 import mongoose from 'mongoose';
+import { WorkflowMetaSchema } from '@/lib/models/schemas/workflow';
+import {
+  CopyEditorMetaSchema,
+  ReporterMetaSchema,
+} from '@/lib/models/schemas/newsroom';
+import type { CopyEditorMeta, ReporterMeta } from '@/lib/content/newsroomMetadata';
+import type { WorkflowMeta } from '@/lib/workflow/types';
 
 export interface IArticleSeo {
   metaTitle: string;
@@ -18,6 +25,8 @@ export interface IArticleRevision {
   isBreaking: boolean;
   isTrending: boolean;
   seo: IArticleSeo;
+  reporterMeta: ReporterMeta;
+  copyEditorMeta: CopyEditorMeta;
   savedAt: Date;
 }
 
@@ -47,6 +56,9 @@ export interface IArticle {
   seo: IArticleSeo;
   revisions: IArticleRevision[];
   breakingTts: IArticleBreakingTts | null;
+  workflow: WorkflowMeta;
+  reporterMeta: ReporterMeta;
+  copyEditorMeta: CopyEditorMeta;
   embedding: number[];
   embeddingGeneratedAt: Date | null;
   aiSummary: string;
@@ -73,6 +85,8 @@ const RevisionSchema = new mongoose.Schema<IArticleRevision>(
     isBreaking: { type: Boolean, default: false },
     isTrending: { type: Boolean, default: false },
     seo: { type: SeoSchema, default: () => ({}) },
+    reporterMeta: { type: ReporterMetaSchema, default: () => ({}) },
+    copyEditorMeta: { type: CopyEditorMetaSchema, default: () => ({}) },
     savedAt: { type: Date, default: Date.now },
   },
   { _id: true }
@@ -107,12 +121,18 @@ const ArticleSchema = new mongoose.Schema<IArticle>({
   seo: { type: SeoSchema, default: () => ({}) },
   revisions: { type: [RevisionSchema], default: [] },
   breakingTts: { type: BreakingTtsSchema, default: null },
+  workflow: { type: WorkflowMetaSchema, default: () => ({}) },
+  reporterMeta: { type: ReporterMetaSchema, default: () => ({}) },
+  copyEditorMeta: { type: CopyEditorMetaSchema, default: () => ({}) },
   embedding: { type: [Number], default: [], select: false },
   embeddingGeneratedAt: { type: Date, default: null },
   aiSummary: { type: String, default: '' },
 });
 
 ArticleSchema.index({ publishedAt: -1, _id: -1 });
+ArticleSchema.index({ 'workflow.status': 1, publishedAt: -1, _id: -1 });
+ArticleSchema.index({ 'workflow.createdBy.id': 1, 'workflow.status': 1, updatedAt: -1 });
+ArticleSchema.index({ 'workflow.assignedTo.id': 1, 'workflow.status': 1, updatedAt: -1 });
 
 export default mongoose.models.Article || mongoose.model('Article', ArticleSchema);
 

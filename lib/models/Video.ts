@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 import { NEWS_CATEGORIES } from '@/lib/constants/newsCategories';
+import { WorkflowMetaSchema } from '@/lib/models/schemas/workflow';
+import type { WorkflowMeta } from '@/lib/workflow/types';
 
 const VIDEO_CATEGORY_ENUM = NEWS_CATEGORIES.map((category) => category.nameEn);
 
@@ -18,6 +20,7 @@ export interface IVideo {
   createdAt: Date;
   publishedAt: Date;
   updatedAt: Date;
+  workflow: WorkflowMeta;
   embedding: number[];
   embeddingGeneratedAt: Date | null;
   aiSummary: string;
@@ -37,6 +40,7 @@ const VideoSchema = new mongoose.Schema<IVideo>({
   createdAt: { type: Date, default: Date.now },
   publishedAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
+  workflow: { type: WorkflowMetaSchema, default: () => ({}) },
   embedding: { type: [Number], default: [], select: false },
   embeddingGeneratedAt: { type: Date, default: null },
   aiSummary: { type: String, default: '' },
@@ -44,5 +48,8 @@ const VideoSchema = new mongoose.Schema<IVideo>({
 
 VideoSchema.index({ publishedAt: -1, _id: -1 });
 VideoSchema.index({ createdAt: -1, _id: -1 });
+VideoSchema.index({ 'workflow.status': 1, publishedAt: -1, _id: -1 });
+VideoSchema.index({ 'workflow.createdBy.id': 1, 'workflow.status': 1, updatedAt: -1 });
+VideoSchema.index({ 'workflow.assignedTo.id': 1, 'workflow.status': 1, updatedAt: -1 });
 
 export default mongoose.models.Video || mongoose.model('Video', VideoSchema);

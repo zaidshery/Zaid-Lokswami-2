@@ -38,6 +38,10 @@ async function readAllEvents(): Promise<StoredAnalyticsEvent[]> {
   }
 }
 
+export async function listStoredAnalyticsEvents() {
+  return readAllEvents();
+}
+
 async function writeAllEvents(events: StoredAnalyticsEvent[]) {
   await fs.mkdir(dataDir, { recursive: true });
   await fs.writeFile(dataPath, JSON.stringify(events, null, 2), 'utf-8');

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Types } from 'mongoose';
 import connectDB from '@/lib/db/mongoose';
+import { isPubliclyPublishedArticle } from '@/lib/content/articlePublication';
 import Article from '@/lib/models/Article';
 import { listAllStoredArticles } from '@/lib/storage/articlesFile';
 
@@ -165,36 +165,27 @@ async function shouldUseFileStore() {
 }
 
 async function listFromMongo(limit: number, cursor: Cursor | null) {
-  const query: Record<string, unknown> = {};
-
-  if (cursor && Types.ObjectId.isValid(cursor.id)) {
-    query.$or = [
-      { publishedAt: { $lt: cursor.date } },
-      {
-        publishedAt: cursor.date,
-        _id: { $lt: new Types.ObjectId(cursor.id) },
-      },
-    ];
-  }
-
-  const docs = await Article.find(query)
+  const docs = await Article.find({})
     .select(
-      '_id title summary content image category author publishedAt views isBreaking isTrending'
+      '_id title summary content image category author publishedAt updatedAt views isBreaking isTrending workflow'
     )
     .sort({ publishedAt: -1, _id: -1 })
-    .limit(limit + 1)
     .lean();
 
   const normalized = docs
+    .filter((doc) => isPubliclyPublishedArticle(doc))
     .map((doc) => normalizeFeedArticle(doc))
-    .filter((item): item is FeedArticle => Boolean(item));
+    .filter((item): item is FeedArticle => Boolean(item))
+    .sort(compareFeedArticles);
 
-  return buildPagedResponse(normalized, limit);
+  const filtered = applyCursorFilter(normalized, cursor);
+  return buildPagedResponse(filtered.slice(0, limit + 1), limit);
 }
 
 async function listFromFileStore(limit: number, cursor: Cursor | null) {
   const stored = await listAllStoredArticles();
   const normalized = stored
+    .filter((item) => isPubliclyPublishedArticle(item))
     .map((item) => normalizeFeedArticle(item))
     .filter((item): item is FeedArticle => Boolean(item))
     .sort(compareFeedArticles);

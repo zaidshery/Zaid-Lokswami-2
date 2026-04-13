@@ -2,14 +2,59 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/db/mongoose';
 import Article from '@/lib/models/Article';
 import { getAdminSession } from '@/lib/auth/admin';
+import {
+  normalizeCopyEditorMeta,
+  normalizeReporterMeta,
+  validateCopyEditorMeta,
+  validateReporterMeta,
+} from '@/lib/content/newsroomMetadata';
+import {
+  canCreateContent,
+  canReadContent,
+  canTransitionContent,
+  isAssignedContent,
+  isOwnContent,
+} from '@/lib/auth/permissions';
+import { isReporterDeskRole } from '@/lib/auth/roles';
 import { ensureBreakingTtsForArticle } from '@/lib/server/breakingTts';
 import {
   createStoredArticle,
-  listStoredArticles,
+  listAllStoredArticles,
   updateStoredArticle,
 } from '@/lib/storage/articlesFile';
+import {
+  buildArticleActivityMessage,
+  recordArticleActivity,
+} from '@/lib/server/articleActivity';
 import { resolveArticleOgImageUrl } from '@/lib/utils/articleMedia';
+import {
+  resolveArticleWorkflow,
+  toWorkflowActorRef,
+} from '@/lib/workflow/article';
+import { isWorkflowStatus } from '@/lib/workflow/types';
 const FILE_STORE_UNBOUNDED_LIMIT = Number.MAX_SAFE_INTEGER;
+
+type CreateIntent = 'draft' | 'submit' | 'publish';
+
+type ArticleLike = {
+  _id?: string;
+  id?: string;
+  author?: string;
+  publishedAt?: string | Date;
+  updatedAt?: string | Date;
+  workflow?: unknown;
+};
+
+const REVIEW_QUEUE_STATUSES = new Set([
+  'submitted',
+  'assigned',
+  'in_review',
+  'copy_edit',
+  'changes_requested',
+  'ready_for_approval',
+  'approved',
+  'scheduled',
+]);
 
 type NormalizedSeo = {
   metaTitle: string;
@@ -35,6 +80,129 @@ function parseListLimit(value: string | null, fallback: number) {
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : '';
+}
+
+function normalizeCreateIntent(value: unknown): CreateIntent {
+  return value === 'draft' || value === 'submit' ? value : 'publish';
+}
+
+function normalizeScope(value: string | null) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === 'mine' || normalized === 'assigned' || normalized === 'review'
+    ? normalized
+    : 'all';
+}
+
+function matchesActorValue(candidate: string | null | undefined, expected: string | null) {
+  if (!candidate || !expected) return false;
+  return candidate.trim().toLowerCase() === expected.trim().toLowerCase();
+}
+
+function resolveArticleRecord(article: ArticleLike, createdBy?: ReturnType<typeof toWorkflowActorRef>) {
+  const workflow = resolveArticleWorkflow({
+    workflow: article.workflow,
+    publishedAt: article.publishedAt,
+    updatedAt: article.updatedAt,
+    createdBy,
+  });
+
+  return {
+    ...article,
+    workflow,
+  };
+}
+
+function buildArticlePermissionRecord(article: ReturnType<typeof resolveArticleRecord>) {
+  return {
+    workflow: article.workflow,
+    legacyAuthorName: typeof article.author === 'string' ? article.author : '',
+  };
+}
+
+function matchesListFilters(
+  article: ReturnType<typeof resolveArticleRecord>,
+  user: NonNullable<Awaited<ReturnType<typeof getAdminSession>>>,
+  filters: {
+    scope: 'all' | 'mine' | 'assigned' | 'review';
+    workflowStatus: string;
+    assignedTo: string | null;
+    createdBy: string | null;
+  }
+) {
+  const permissionRecord = buildArticlePermissionRecord(article);
+
+  if (!canReadContent(user, permissionRecord, { allowViewerRead: true })) {
+    return false;
+  }
+
+  if (filters.scope === 'mine' && !isOwnContent(user, permissionRecord)) {
+    return false;
+  }
+
+  if (filters.scope === 'assigned' && !isAssignedContent(user, permissionRecord)) {
+    return false;
+  }
+
+  if (
+    filters.scope === 'review' &&
+    !REVIEW_QUEUE_STATUSES.has(article.workflow.status)
+  ) {
+    return false;
+  }
+
+  if (filters.workflowStatus && article.workflow.status !== filters.workflowStatus) {
+    return false;
+  }
+
+  if (
+    filters.assignedTo &&
+    !matchesActorValue(article.workflow.assignedTo?.id, filters.assignedTo) &&
+    !matchesActorValue(article.workflow.assignedTo?.email, filters.assignedTo)
+  ) {
+    return false;
+  }
+
+  if (
+    filters.createdBy &&
+    !matchesActorValue(article.workflow.createdBy?.id, filters.createdBy) &&
+    !matchesActorValue(article.workflow.createdBy?.email, filters.createdBy)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function buildInitialWorkflow(
+  intent: CreateIntent,
+  user: NonNullable<Awaited<ReturnType<typeof getAdminSession>>>
+) {
+  const actor = toWorkflowActorRef(user);
+  const now = new Date();
+
+  if (intent === 'draft') {
+    return {
+      status: 'draft' as const,
+      priority: 'normal' as const,
+      createdBy: actor,
+    };
+  }
+
+  if (intent === 'submit') {
+    return {
+      status: 'submitted' as const,
+      priority: 'normal' as const,
+      createdBy: actor,
+      submittedAt: now,
+    };
+  }
+
+  return {
+    status: 'published' as const,
+    priority: 'normal' as const,
+    createdBy: actor,
+    publishedAt: now,
+  };
 }
 
 function normalizeSeo(input: unknown): NormalizedSeo {
@@ -89,6 +257,8 @@ function normalizeArticleInput(body: unknown) {
     isBreaking: Boolean(source.isBreaking),
     isTrending: Boolean(source.isTrending),
     seo,
+    reporterMeta: normalizeReporterMeta(source.reporterMeta),
+    copyEditorMeta: normalizeCopyEditorMeta(source.copyEditorMeta),
   };
 }
 
@@ -128,6 +298,16 @@ function validateArticleInput(input: ReturnType<typeof normalizeArticleInput>) {
     return 'OG image must be an absolute URL or local path';
   }
 
+  const reporterMetaError = validateReporterMeta(input.reporterMeta);
+  if (reporterMetaError) {
+    return reporterMetaError;
+  }
+
+  const copyEditorMetaError = validateCopyEditorMeta(input.copyEditorMeta);
+  if (copyEditorMetaError) {
+    return copyEditorMetaError;
+  }
+
   return null;
 }
 
@@ -143,26 +323,52 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const category = searchParams.get('category');
+    const requestedScope = normalizeScope(searchParams.get('scope'));
+    const effectiveScope =
+      isReporterDeskRole(user.role) && requestedScope === 'all' ? 'mine' : requestedScope;
+    const workflowStatus = String(searchParams.get('workflowStatus') || '').trim().toLowerCase();
+    const assignedTo = String(searchParams.get('assignedTo') || '').trim() || null;
+    const createdBy = String(searchParams.get('createdBy') || '').trim() || null;
     const limit = parseListLimit(searchParams.get('limit'), 10);
     const page = parsePositiveInt(searchParams.get('page'), 1);
     const isUnbounded = limit === null;
     const effectivePage = isUnbounded ? 1 : page;
     const effectiveLimit = isUnbounded ? FILE_STORE_UNBOUNDED_LIMIT : limit;
-    const fileResult = await listStoredArticles({
-      category,
-      limit: effectiveLimit,
-      page: effectivePage,
-    });
+
+    const allStoredArticles = await listAllStoredArticles();
+    const filteredStoredArticles = allStoredArticles
+      .filter((article) => (category && category !== 'all' ? article.category === category : true))
+      .map((article) => resolveArticleRecord(article))
+      .filter((article) =>
+        matchesListFilters(article, user, {
+          scope: effectiveScope,
+          workflowStatus: isWorkflowStatus(workflowStatus) ? workflowStatus : '',
+          assignedTo,
+          createdBy,
+        })
+      )
+      .sort(
+        (left, right) =>
+          new Date(String(right.updatedAt || right.publishedAt || 0)).getTime() -
+          new Date(String(left.updatedAt || left.publishedAt || 0)).getTime()
+      );
+
+    const paginatedStoredArticles = isUnbounded
+      ? filteredStoredArticles
+      : filteredStoredArticles.slice(
+          (effectivePage - 1) * effectiveLimit,
+          (effectivePage - 1) * effectiveLimit + effectiveLimit
+        );
 
     const createFileResponse = () =>
       NextResponse.json({
         success: true,
-        data: fileResult.data,
+        data: paginatedStoredArticles,
         pagination: {
-          total: fileResult.total,
+          total: filteredStoredArticles.length,
           page: effectivePage,
-          limit: isUnbounded ? fileResult.total : effectiveLimit,
-          pages: isUnbounded ? 1 : Math.ceil(fileResult.total / effectiveLimit),
+          limit: isUnbounded ? filteredStoredArticles.length : effectiveLimit,
+          pages: isUnbounded ? 1 : Math.ceil(filteredStoredArticles.length / effectiveLimit),
         },
       });
 
@@ -175,17 +381,32 @@ export async function GET(req: NextRequest) {
       query.category = category;
     }
 
-    const total = await Article.countDocuments(query);
-    if (total === 0 && fileResult.total > 0) {
+    const mongoArticles = (await Article.find(query)
+      .sort({ updatedAt: -1, publishedAt: -1, _id: -1 })
+      .lean()) as ArticleLike[];
+
+    const filteredMongoArticles = mongoArticles
+      .map((article) => resolveArticleRecord(article))
+      .filter((article) =>
+        matchesListFilters(article, user, {
+          scope: effectiveScope,
+          workflowStatus: isWorkflowStatus(workflowStatus) ? workflowStatus : '',
+          assignedTo,
+          createdBy,
+        })
+      );
+
+    const total = filteredMongoArticles.length;
+    if (total === 0 && filteredStoredArticles.length > 0) {
       return createFileResponse();
     }
 
-    const skip = (effectivePage - 1) * effectiveLimit;
-    let articlesQuery = Article.find(query).sort({ publishedAt: -1 }).skip(skip);
-    if (!isUnbounded) {
-      articlesQuery = articlesQuery.limit(effectiveLimit);
-    }
-    const articles = await articlesQuery.lean();
+    const articles = isUnbounded
+      ? filteredMongoArticles
+      : filteredMongoArticles.slice(
+          (effectivePage - 1) * effectiveLimit,
+          (effectivePage - 1) * effectiveLimit + effectiveLimit
+        );
 
     return NextResponse.json({
       success: true,
@@ -215,10 +436,39 @@ export async function POST(req: NextRequest) {
         { status: 401 }
       );
     }
+    if (!canCreateContent(user.role, 'article')) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
+      );
+    }
 
     const body = await req.json();
+    const intent = normalizeCreateIntent((body as Record<string, unknown>)?.intent);
     const input = normalizeArticleInput(body);
     const validationError = validateArticleInput(input);
+    const workflow = buildInitialWorkflow(intent, user);
+
+    if (
+      intent === 'publish' &&
+      !canTransitionContent(
+        user,
+        {
+          workflow: {
+            status: 'approved',
+          },
+        },
+        'publish'
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'You do not have permission to publish articles directly.',
+        },
+        { status: 403 }
+      );
+    }
 
     if (validationError) {
       return NextResponse.json(
@@ -230,9 +480,19 @@ export async function POST(req: NextRequest) {
     const useFileStore = await shouldUseFileStore();
 
     if (useFileStore) {
-      const stored = await createStoredArticle(input);
+      const stored = await createStoredArticle({
+        ...input,
+        workflow: {
+          ...workflow,
+          submittedAt: workflow.submittedAt?.toISOString() || null,
+          publishedAt: workflow.publishedAt?.toISOString() || null,
+        },
+      });
       try {
-        const breakingTts = await ensureBreakingTtsForArticle(stored);
+        const breakingTts =
+          stored.workflow.status === 'published'
+            ? await ensureBreakingTtsForArticle(stored)
+            : null;
         if (breakingTts) {
           const updated = await updateStoredArticle(
             stored._id,
@@ -248,6 +508,23 @@ export async function POST(req: NextRequest) {
       } catch (ttsError) {
         console.error('Failed to cache breaking TTS after article create:', ttsError);
       }
+
+      await recordArticleActivity({
+        articleId: stored._id,
+        actor: user,
+        action: 'created',
+        toStatus: stored.workflow.status,
+        message: buildArticleActivityMessage({
+          action: 'created',
+          toStatus: stored.workflow.status,
+        }),
+        metadata: {
+          intent,
+          priority: stored.workflow.priority,
+          createdById: stored.workflow.createdBy?.id || '',
+        },
+      });
+
       return NextResponse.json({ success: true, data: stored }, { status: 201 });
     }
 
@@ -256,11 +533,15 @@ export async function POST(req: NextRequest) {
       views: 0,
       publishedAt: new Date(),
       updatedAt: new Date(),
+      workflow,
     });
 
     await article.save();
     try {
-      const breakingTts = await ensureBreakingTtsForArticle(article.toObject());
+      const breakingTts =
+        workflow.status === 'published'
+          ? await ensureBreakingTtsForArticle(article.toObject())
+          : null;
       if (breakingTts) {
         article.breakingTts = {
           ...breakingTts,
@@ -271,6 +552,22 @@ export async function POST(req: NextRequest) {
     } catch (ttsError) {
       console.error('Failed to cache breaking TTS after article create:', ttsError);
     }
+
+    await recordArticleActivity({
+      articleId: String(article._id),
+      actor: user,
+      action: 'created',
+      toStatus: workflow.status,
+      message: buildArticleActivityMessage({
+        action: 'created',
+        toStatus: workflow.status,
+      }),
+      metadata: {
+        intent,
+        priority: workflow.priority,
+        createdById: workflow.createdBy?.id || '',
+      },
+    });
 
     return NextResponse.json({ success: true, data: article }, { status: 201 });
   } catch (error: unknown) {

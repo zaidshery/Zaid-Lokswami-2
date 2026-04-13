@@ -2,6 +2,24 @@ import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
 import { type BreakingTtsMetadata, normalizeBreakingTtsMetadata } from '@/lib/types/breaking';
+import {
+  createEmptyCopyEditorMeta,
+  createEmptyReporterMeta,
+  normalizeCopyEditorMeta,
+  normalizeReporterMeta,
+  type CopyEditorMeta,
+  type ReporterMeta,
+} from '@/lib/content/newsroomMetadata';
+import {
+  createWorkflowMeta,
+  isWorkflowCommentKind,
+  isWorkflowPriority,
+  isWorkflowStatus,
+  type WorkflowActorRef,
+  type WorkflowCommentKind,
+  type WorkflowPriority,
+  type WorkflowStatus,
+} from '@/lib/workflow/types';
 import { resolveArticleOgImageUrl } from '@/lib/utils/articleMedia';
 
 export interface ArticleSeo {
@@ -22,7 +40,33 @@ export interface StoredArticleRevision {
   isBreaking: boolean;
   isTrending: boolean;
   seo: ArticleSeo;
+  reporterMeta: ReporterMeta;
+  copyEditorMeta: CopyEditorMeta;
   savedAt: string;
+}
+
+export interface StoredWorkflowComment {
+  id: string;
+  body: string;
+  kind: WorkflowCommentKind;
+  author: WorkflowActorRef;
+  createdAt: string;
+}
+
+export interface StoredWorkflowMeta {
+  status: WorkflowStatus;
+  priority: WorkflowPriority;
+  createdBy: WorkflowActorRef | null;
+  assignedTo: WorkflowActorRef | null;
+  reviewedBy: WorkflowActorRef | null;
+  submittedAt: string | null;
+  approvedAt: string | null;
+  rejectedAt: string | null;
+  publishedAt: string | null;
+  scheduledFor: string | null;
+  dueAt: string | null;
+  rejectionReason: string;
+  comments: StoredWorkflowComment[];
 }
 
 export interface StoredArticle {
@@ -41,6 +85,9 @@ export interface StoredArticle {
   seo: ArticleSeo;
   revisions: StoredArticleRevision[];
   breakingTts?: BreakingTtsMetadata | null;
+  workflow: StoredWorkflowMeta;
+  reporterMeta: ReporterMeta;
+  copyEditorMeta: CopyEditorMeta;
 }
 
 export interface CreateArticleInput {
@@ -53,6 +100,9 @@ export interface CreateArticleInput {
   isBreaking?: boolean;
   isTrending?: boolean;
   seo?: Partial<ArticleSeo>;
+  workflow?: Partial<StoredWorkflowMeta>;
+  reporterMeta?: Partial<ReporterMeta>;
+  copyEditorMeta?: Partial<CopyEditorMeta>;
 }
 
 type UpdateArticleInput = Partial<CreateArticleInput> & {
@@ -60,6 +110,9 @@ type UpdateArticleInput = Partial<CreateArticleInput> & {
   publishedAt?: string;
   seo?: Partial<ArticleSeo>;
   breakingTts?: BreakingTtsMetadata | null;
+  workflow?: Partial<StoredWorkflowMeta>;
+  reporterMeta?: Partial<ReporterMeta>;
+  copyEditorMeta?: Partial<CopyEditorMeta>;
 };
 
 const dataDir = path.resolve(process.cwd(), 'data');
@@ -104,6 +157,84 @@ function normalizeSeo(input: unknown): ArticleSeo {
   };
 }
 
+function normalizeOptionalDateString(value: unknown) {
+  if (!value) return null;
+  const parsed = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function normalizeWorkflowComment(input: unknown): StoredWorkflowComment | null {
+  const source = typeof input === 'object' && input ? (input as Record<string, unknown>) : null;
+  if (!source) return null;
+
+  const authorSource =
+    typeof source.author === 'object' && source.author
+      ? (source.author as Record<string, unknown>)
+      : null;
+  const body = typeof source.body === 'string' ? source.body.trim() : '';
+  const authorId = typeof authorSource?.id === 'string' ? authorSource.id.trim() : '';
+  const authorName = typeof authorSource?.name === 'string' ? authorSource.name.trim() : '';
+  const authorEmail = typeof authorSource?.email === 'string' ? authorSource.email.trim() : '';
+  const authorRole = authorSource?.role;
+
+  if (!body || !authorId || !authorName || !authorEmail || typeof authorRole !== 'string') {
+    return null;
+  }
+
+  return {
+    id: typeof source.id === 'string' && source.id.trim() ? source.id : createId(),
+    body,
+    kind: isWorkflowCommentKind(source.kind) ? source.kind : 'comment',
+    author: {
+      id: authorId,
+      name: authorName,
+      email: authorEmail,
+      role: authorRole as WorkflowActorRef['role'],
+    },
+    createdAt: normalizeOptionalDateString(source.createdAt) || new Date().toISOString(),
+  };
+}
+
+function normalizeWorkflowMeta(input: unknown): StoredWorkflowMeta {
+  const source = typeof input === 'object' && input ? (input as Record<string, unknown>) : {};
+  const workflow = createWorkflowMeta({
+    status: isWorkflowStatus(source.status) ? source.status : 'published',
+    priority: isWorkflowPriority(source.priority) ? source.priority : 'normal',
+  });
+
+  const comments = Array.isArray(source.comments)
+    ? source.comments
+        .map((comment) => normalizeWorkflowComment(comment))
+        .filter((comment): comment is StoredWorkflowComment => Boolean(comment))
+    : [];
+
+  return {
+    status: workflow.status,
+    priority: workflow.priority,
+    createdBy:
+      typeof source.createdBy === 'object' && source.createdBy
+        ? (source.createdBy as WorkflowActorRef)
+        : null,
+    assignedTo:
+      typeof source.assignedTo === 'object' && source.assignedTo
+        ? (source.assignedTo as WorkflowActorRef)
+        : null,
+    reviewedBy:
+      typeof source.reviewedBy === 'object' && source.reviewedBy
+        ? (source.reviewedBy as WorkflowActorRef)
+        : null,
+    submittedAt: normalizeOptionalDateString(source.submittedAt),
+    approvedAt: normalizeOptionalDateString(source.approvedAt),
+    rejectedAt: normalizeOptionalDateString(source.rejectedAt),
+    publishedAt: normalizeOptionalDateString(source.publishedAt),
+    scheduledFor: normalizeOptionalDateString(source.scheduledFor),
+    dueAt: normalizeOptionalDateString(source.dueAt),
+    rejectionReason:
+      typeof source.rejectionReason === 'string' ? source.rejectionReason.trim() : '',
+    comments,
+  };
+}
+
 function withSeoOgFallback(seo: ArticleSeo, image: string) {
   if (seo.ogImage || !image) return seo;
   return {
@@ -138,6 +269,8 @@ function normalizeRevision(input: unknown): StoredArticleRevision | null {
     isBreaking: Boolean(source.isBreaking),
     isTrending: Boolean(source.isTrending),
     seo: withSeoOgFallback(normalizeSeo(source.seo), image),
+    reporterMeta: normalizeReporterMeta(source.reporterMeta),
+    copyEditorMeta: normalizeCopyEditorMeta(source.copyEditorMeta),
     savedAt:
       typeof source.savedAt === 'string' && source.savedAt.trim()
         ? source.savedAt
@@ -192,6 +325,9 @@ function normalizeStoredArticle(input: unknown): StoredArticle | null {
     seo: withSeoOgFallback(normalizeSeo(source.seo), image),
     revisions,
     breakingTts: normalizeBreakingTtsMetadata(source.breakingTts),
+    workflow: normalizeWorkflowMeta(source.workflow),
+    reporterMeta: normalizeReporterMeta(source.reporterMeta),
+    copyEditorMeta: normalizeCopyEditorMeta(source.copyEditorMeta),
   };
 }
 
@@ -207,6 +343,8 @@ function createRevisionSnapshot(article: StoredArticle): StoredArticleRevision {
     isBreaking: article.isBreaking,
     isTrending: article.isTrending,
     seo: article.seo || emptySeo(),
+    reporterMeta: article.reporterMeta || createEmptyReporterMeta(),
+    copyEditorMeta: article.copyEditorMeta || createEmptyCopyEditorMeta(),
     savedAt: new Date().toISOString(),
   };
 }
@@ -293,6 +431,9 @@ export async function createStoredArticle(input: CreateArticleInput) {
     seo: withSeoOgFallback(normalizeSeo(input.seo), normalizeMediaUrl(input.image)),
     revisions: [],
     breakingTts: null,
+    workflow: normalizeWorkflowMeta(input.workflow),
+    reporterMeta: normalizeReporterMeta(input.reporterMeta),
+    copyEditorMeta: normalizeCopyEditorMeta(input.copyEditorMeta),
   };
 
   all.push(article);
@@ -332,6 +473,21 @@ export async function updateStoredArticle(
     isTrending:
       updates.isTrending !== undefined ? updates.isTrending : current.isTrending,
     updatedAt: new Date().toISOString(),
+    workflow:
+      updates.workflow !== undefined
+        ? normalizeWorkflowMeta({ ...current.workflow, ...updates.workflow })
+        : current.workflow,
+    reporterMeta:
+      updates.reporterMeta !== undefined
+        ? normalizeReporterMeta({ ...current.reporterMeta, ...updates.reporterMeta })
+        : current.reporterMeta,
+    copyEditorMeta:
+      updates.copyEditorMeta !== undefined
+        ? normalizeCopyEditorMeta({
+            ...current.copyEditorMeta,
+            ...updates.copyEditorMeta,
+          })
+        : current.copyEditorMeta,
   };
 
   const hasContentChange =
@@ -346,7 +502,18 @@ export async function updateStoredArticle(
     current.seo.metaTitle !== next.seo.metaTitle ||
     current.seo.metaDescription !== next.seo.metaDescription ||
     current.seo.ogImage !== next.seo.ogImage ||
-    current.seo.canonicalUrl !== next.seo.canonicalUrl;
+    current.seo.canonicalUrl !== next.seo.canonicalUrl ||
+    current.reporterMeta.locationTag !== next.reporterMeta.locationTag ||
+    current.reporterMeta.sourceInfo !== next.reporterMeta.sourceInfo ||
+    current.reporterMeta.sourceConfidential !== next.reporterMeta.sourceConfidential ||
+    current.reporterMeta.reporterNotes !== next.reporterMeta.reporterNotes ||
+    current.copyEditorMeta.proofreadComplete !== next.copyEditorMeta.proofreadComplete ||
+    current.copyEditorMeta.factCheckStatus !== next.copyEditorMeta.factCheckStatus ||
+    current.copyEditorMeta.headlineStatus !== next.copyEditorMeta.headlineStatus ||
+    current.copyEditorMeta.imageOptimizationStatus !== next.copyEditorMeta.imageOptimizationStatus ||
+    current.copyEditorMeta.copyEditorNotes !== next.copyEditorMeta.copyEditorNotes ||
+    current.copyEditorMeta.returnForChangesReason !==
+      next.copyEditorMeta.returnForChangesReason;
 
   if (hasContentChange && !options?.skipRevision) {
     const snapshot = createRevisionSnapshot(current);
@@ -384,6 +551,8 @@ export async function restoreStoredArticleRevision(
     isBreaking: revision.isBreaking,
     isTrending: revision.isTrending,
     seo: normalizeSeo(revision.seo),
+    reporterMeta: normalizeReporterMeta(revision.reporterMeta),
+    copyEditorMeta: normalizeCopyEditorMeta(revision.copyEditorMeta),
     updatedAt: new Date().toISOString(),
     revisions: [...current.revisions, snapshot].slice(-MAX_STORED_REVISIONS),
   };

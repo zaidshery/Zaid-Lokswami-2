@@ -43,6 +43,16 @@ Complete these in a real browser session after logging in with the expected admi
 6. Perform one safe content action, such as saving a draft article edit, regenerating one TTS asset, or uploading a small image.
 7. If Google login is enabled, sign out and sign back in with Google once.
 
+## Super Admin Governance Follow-Up
+
+If the release includes Phase 5 governance surfaces, also check:
+
+1. Open `/admin/audit-log` as `super_admin`.
+2. Open `/admin/permission-review` as `super_admin`.
+3. Open `/admin/operations-diagnostics` as `super_admin`.
+4. Open `/admin/settings` and confirm `Deployment Safeguards` loads above the report and TTS panels.
+5. Confirm none of those pages show hydration errors, broken cards, or empty crash states.
+
 ## Recommended Network Spot Checks
 
 While the signed-in pages are open, confirm the browser network tab shows successful responses for:

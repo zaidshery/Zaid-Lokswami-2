@@ -1,0 +1,401 @@
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { FileText, Image as ImageIcon, Newspaper, Video } from 'lucide-react';
+import { getAdminSession } from '@/lib/auth/admin';
+import { getMyWorkOverview } from '@/lib/admin/articleWorkflowOverview';
+import { canViewPage } from '@/lib/auth/permissions';
+import { formatUserRoleLabel, isReporterDeskRole } from '@/lib/auth/roles';
+import { formatUiDate } from '@/lib/utils/dateFormat';
+import formatNumber from '@/lib/utils/formatNumber';
+import {
+  buildWorkflowFeedbackSummary,
+  type WorkflowFeedbackTone,
+} from '@/lib/workflow/feedback';
+import { isWorkflowStatus } from '@/lib/workflow/types';
+
+type LinkCard = {
+  title: string;
+  description: string;
+  href: string;
+  icon: typeof FileText;
+  tone: string;
+};
+
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(' ');
+}
+
+const PANEL_CLASS = 'admin-shell-surface-strong rounded-[30px] p-6';
+
+const SOFT_CARD_CLASS =
+  'admin-shell-surface-muted rounded-[24px] p-4 shadow-[0_18px_48px_-40px_rgba(15,23,42,0.14)] dark:shadow-[0_18px_48px_-40px_rgba(0,0,0,0.35)]';
+
+const EMPTY_STATE_CLASS =
+  'rounded-[24px] border border-dashed border-[color:var(--admin-shell-border-strong)] bg-[color:var(--admin-shell-surface-muted)] p-4 text-sm leading-6 text-[color:var(--admin-shell-text-muted)]';
+
+const META_CHIP_CLASS =
+  'admin-shell-surface inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--admin-shell-text-muted)]';
+
+function getWorkflowFeedbackToneClass(tone: WorkflowFeedbackTone) {
+  switch (tone) {
+    case 'danger':
+      return 'border-red-200/80 bg-red-50/80 text-red-900 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-100';
+    case 'warning':
+      return 'border-amber-200/80 bg-amber-50/80 text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100';
+    case 'info':
+      return 'border-blue-200/80 bg-blue-50/80 text-blue-900 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-100';
+    case 'success':
+      return 'border-emerald-200/80 bg-emerald-50/80 text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-100';
+    case 'neutral':
+    default:
+      return 'border-[color:var(--admin-shell-border)] bg-[color:var(--admin-shell-surface)] text-[color:var(--admin-shell-text)]';
+  }
+}
+
+function getIntro(role: string) {
+  switch (role) {
+    case 'reporter':
+      return 'Reporter desk for your drafts, submissions, assignments, and media work across articles and stories.';
+    case 'copy_editor':
+      return 'Copy desk view for the work you are actively shaping across articles, stories, videos, and e-paper editions.';
+    case 'admin':
+    case 'super_admin':
+      return 'Operations view for the items you own directly, including edition production work alongside the content desk.';
+    default:
+      return 'A dedicated workspace entry point for role-based newsroom tasks.';
+  }
+}
+
+function getLinkCards(role: string): LinkCard[] {
+  const isReporter = isReporterDeskRole(role);
+  const cards: LinkCard[] = [
+    {
+      title: isReporter ? 'My Articles' : 'Article Desk',
+      description:
+        isReporter
+          ? 'Open the article list already scoped to your byline.'
+          : 'Jump into article editing and current desk content.',
+      href: isReporter ? '/admin/articles?scope=mine' : '/admin/articles',
+      icon: FileText,
+      tone: 'bg-blue-500/10 text-blue-600',
+    },
+    {
+      title: 'Media Library',
+      description: 'Upload or manage the images and media tied to your current work.',
+      href: '/admin/media',
+      icon: ImageIcon,
+      tone: 'bg-emerald-500/10 text-emerald-600',
+    },
+  ];
+
+  if (isReporter) {
+    cards.unshift({
+      title: 'Create Article',
+      description: 'Start a new article draft and keep momentum moving.',
+      href: '/admin/articles/new',
+      icon: FileText,
+      tone: 'bg-rose-500/10 text-rose-600',
+    });
+    cards.splice(2, 0, {
+      title: 'My Stories',
+      description: 'Open the story desk for the cards you created or that are assigned to you.',
+      href: '/admin/stories',
+      icon: Video,
+      tone: 'bg-fuchsia-500/10 text-fuchsia-600',
+    });
+  } else {
+    cards.unshift({
+      title: 'Review Queue',
+      description: 'Move into the shared editorial queue for articles, videos, stories, and e-papers.',
+      href: '/admin/review-queue',
+      icon: FileText,
+      tone: 'bg-violet-500/10 text-violet-600',
+    });
+    cards.push({
+      title: 'E-Paper Desk',
+      description: 'Open edition production, hotspot QA, and publish-readiness work.',
+      href: '/admin/epapers',
+      icon: Newspaper,
+      tone: 'bg-orange-500/10 text-orange-600',
+    });
+  }
+
+  return cards;
+}
+
+function formatStatusLabel(status: string) {
+  return status.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatContentTypeLabel(contentType: string) {
+  return contentType === 'epaper' ? 'E-Paper' : formatStatusLabel(contentType);
+}
+
+export default async function AdminMyWorkPage() {
+  const admin = await getAdminSession();
+  if (!admin) {
+    redirect('/signin?redirect=/admin/my-work');
+  }
+  if (!canViewPage(admin.role, 'my_work')) {
+    redirect('/admin');
+  }
+
+  const myWork = await getMyWorkOverview(admin);
+  const cards = getLinkCards(admin.role);
+  const isReporter = isReporterDeskRole(admin.role);
+  const emptyStateMessage = isReporter
+    ? 'No drafts, submissions, or assignments yet. Your article and story work will appear here as soon as it starts moving through the desk.'
+    : 'No owned or assigned workflow items yet. Content and edition desk work will appear here as it lands.';
+  const contextStats = isReporter
+    ? [
+        {
+          label: 'My Drafts',
+          value: myWork.counts.draft || 0,
+          note: 'Draft articles and story cards still being prepared',
+          tone: 'bg-blue-500/10 text-blue-600',
+          icon: FileText,
+        },
+        {
+          label: 'Waiting On Desk',
+          value:
+            Number(myWork.counts.submitted || 0) +
+            Number(myWork.counts.assigned || 0) +
+            Number(myWork.counts.in_review || 0) +
+            Number(myWork.counts.copy_edit || 0) +
+            Number(myWork.counts.ready_for_approval || 0) +
+            Number(myWork.counts.approved || 0) +
+            Number(myWork.counts.scheduled || 0),
+          note: 'Submitted items currently moving through desk review and approval',
+          tone: 'bg-violet-500/10 text-violet-600',
+          icon: Video,
+        },
+        {
+          label: 'Needs Changes',
+          value: Number(myWork.counts.changes_requested || 0) + Number(myWork.counts.rejected || 0),
+          note: 'Desk-returned items that can be revised and resubmitted',
+          tone: 'bg-red-500/10 text-red-600',
+          icon: FileText,
+        },
+        {
+          label: 'Assigned To Me',
+          value:
+            Number(myWork.counts.assigned || 0) +
+            Number(myWork.productionCounts.pages_ready || 0) +
+            Number(myWork.productionCounts.ocr_review || 0) +
+            Number(myWork.productionCounts.hotspot_mapping || 0) +
+            Number(myWork.productionCounts.qa_review || 0) +
+            Number(myWork.productionCounts.ready_to_publish || 0),
+          note: 'Owned content, assignments, and edition items currently on your plate',
+          tone: 'bg-orange-500/10 text-orange-600',
+          icon: Newspaper,
+        },
+      ]
+    : [
+        {
+          label: 'My Drafts',
+          value: myWork.counts.draft || 0,
+          note: 'Draft articles and story cards still being prepared',
+          tone: 'bg-blue-500/10 text-blue-600',
+          icon: FileText,
+        },
+        {
+          label: 'Submitted',
+          value: myWork.counts.submitted || 0,
+          note: 'Waiting for desk review or the next workflow action',
+          tone: 'bg-violet-500/10 text-violet-600',
+          icon: Video,
+        },
+        {
+          label: 'Assigned To Me',
+          value:
+            Number(myWork.counts.assigned || 0) +
+            Number(myWork.productionCounts.pages_ready || 0) +
+            Number(myWork.productionCounts.ocr_review || 0) +
+            Number(myWork.productionCounts.hotspot_mapping || 0) +
+            Number(myWork.productionCounts.qa_review || 0) +
+            Number(myWork.productionCounts.ready_to_publish || 0),
+          note: 'Owned content, assignments, and edition items currently on your plate',
+          tone: 'bg-orange-500/10 text-orange-600',
+          icon: Newspaper,
+        },
+      ];
+
+  return (
+    <div className="space-y-6">
+      <section className="relative overflow-hidden rounded-[36px] border border-[color:var(--admin-shell-border)] bg-[radial-gradient(circle_at_top_left,rgba(185,28,28,0.10),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.08),transparent_28%),var(--admin-bg-depth)] p-8 text-[color:var(--admin-shell-text)] shadow-[var(--admin-shell-shadow-strong)] lg:p-10">
+        <div className="pointer-events-none absolute -right-10 top-0 h-48 w-48 rounded-full bg-emerald-500/10 blur-3xl dark:bg-emerald-500/14" />
+        <div className="pointer-events-none absolute bottom-0 left-0 h-40 w-40 rounded-full bg-blue-500/10 blur-3xl dark:bg-blue-500/14" />
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="relative">
+            <div className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.28em] text-red-600 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-300">
+              {formatUserRoleLabel(admin.role)}
+            </div>
+            <h1 className="mt-5 text-4xl font-black tracking-tight text-[color:var(--admin-shell-text)] sm:text-5xl">
+              My Work
+            </h1>
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-[color:var(--admin-shell-text-muted)] sm:text-[15px]">
+              {getIntro(admin.role)}
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              {contextStats.map((stat) => (
+                <div key={stat.label} className={META_CHIP_CLASS}>
+                  <span>{stat.label}</span>
+                  <strong className="text-[color:var(--admin-shell-text)]">
+                    {formatNumber(stat.value)}
+                  </strong>
+                </div>
+              ))}
+            </div>
+          </div>
+          <Link
+            href={isReporterDeskRole(admin.role) ? '/admin/articles/new' : '/admin/review-queue'}
+            className="admin-shell-toolbar-btn inline-flex items-center justify-center rounded-2xl px-4 py-2.5 text-sm font-semibold"
+          >
+            {isReporterDeskRole(admin.role) ? 'Create Article' : 'Open Review Queue'}
+          </Link>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {cards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <Link
+              key={card.href}
+              href={card.href}
+              className="admin-shell-surface-strong rounded-[28px] p-6 transition-all hover:-translate-y-0.5"
+            >
+              <div className={`inline-flex rounded-2xl p-3 ${card.tone}`}>
+                <Icon className="h-5 w-5" />
+              </div>
+              <h2 className="mt-4 text-lg font-bold text-[color:var(--admin-shell-text)]">
+                {card.title}
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-[color:var(--admin-shell-text-muted)]">
+                {card.description}
+              </p>
+            </Link>
+          );
+        })}
+      </section>
+
+      <section className={PANEL_CLASS}>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-[color:var(--admin-shell-text)]">
+              Workflow Items
+            </h2>
+            <p className="mt-1 text-sm text-[color:var(--admin-shell-text-muted)]">
+              Your current ownership and assignment view across content and edition production.
+            </p>
+          </div>
+          <Link href="/admin/my-work" className="admin-shell-toolbar-btn rounded-full px-3 py-2 text-sm font-semibold">
+            Refresh My Work
+          </Link>
+        </div>
+
+        <div className="mt-6 space-y-3">
+          {myWork.items.length ? (
+            myWork.items.map((item) => (
+              (() => {
+                const workflowFeedback =
+                  isReporter &&
+                  (item.contentType === 'article' || item.contentType === 'story') &&
+                  isWorkflowStatus(item.status)
+                    ? buildWorkflowFeedbackSummary({
+                        contentLabel: item.contentType === 'article' ? 'Article' : 'Story',
+                        status: item.status,
+                        assignedToName: item.assignedToName,
+                        returnForChangesReason: item.copyEditorSummary?.returnForChangesReason || '',
+                        copyEditorNotes: item.copyEditorSummary?.copyEditorNotes || '',
+                      })
+                    : null;
+
+                return (
+                  <Link
+                    key={`${item.contentType}-${item.id}`}
+                    href={item.editHref}
+                    className={cx(
+                      'flex flex-col gap-3 transition-colors hover:border-zinc-300/90 hover:bg-zinc-100/80 dark:hover:border-white/15 dark:hover:bg-white/[0.06]',
+                      SOFT_CARD_CLASS
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-[color:var(--admin-shell-text)]">
+                          {item.title}
+                        </p>
+                        <p className="mt-1 text-xs text-[color:var(--admin-shell-text-muted)]">
+                          {item.category} / {item.author} / {formatContentTypeLabel(item.contentType)}
+                        </p>
+                      </div>
+                      <span className={META_CHIP_CLASS}>
+                        {formatStatusLabel(item.status)}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-3 text-xs text-[color:var(--admin-shell-text-muted)]">
+                      <span>Updated {formatUiDate(item.updatedAt, item.updatedAt)}</span>
+                      {item.assignedToName ? <span>Assignee: {item.assignedToName}</span> : null}
+                      {item.createdByName ? <span>Created by: {item.createdByName}</span> : null}
+                    </div>
+                    {workflowFeedback ? (
+                      <div className={cx('rounded-[20px] border p-3', getWorkflowFeedbackToneClass(workflowFeedback.tone))}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">
+                            {workflowFeedback.badge}
+                          </span>
+                          {workflowFeedback.readyToResubmit ? (
+                            <span className="rounded-full border border-current/20 bg-white/70 px-2 py-1 text-[11px] font-semibold">
+                              Can resubmit
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-2 text-sm leading-6">{workflowFeedback.nextAction}</p>
+                        {workflowFeedback.highlightedNote ? (
+                          <p className="mt-2 line-clamp-2 text-xs leading-5 opacity-90">
+                            <span className="font-semibold">
+                              {workflowFeedback.highlightedNoteLabel || 'Desk feedback'}:
+                            </span>{' '}
+                            {workflowFeedback.highlightedNote}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </Link>
+                );
+              })()
+            ))
+          ) : (
+            <div className={EMPTY_STATE_CLASS}>
+              {emptyStateMessage}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className={cx('grid grid-cols-1 gap-4', isReporter ? 'lg:grid-cols-4' : 'lg:grid-cols-3')}>
+        {contextStats.map((stat) => (
+          <div
+            key={stat.label}
+            className="admin-shell-surface-strong rounded-[28px] p-6"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-[color:var(--admin-shell-text-muted)]">
+                  {stat.label}
+                </p>
+                <p className="mt-3 text-3xl font-black text-[color:var(--admin-shell-text)]">
+                  {formatNumber(stat.value)}
+                </p>
+              </div>
+              <div className={`rounded-2xl p-3 ${stat.tone}`}>
+                <stat.icon className="h-5 w-5" />
+              </div>
+            </div>
+            <p className="mt-4 text-sm text-[color:var(--admin-shell-text-muted)]">{stat.note}</p>
+          </div>
+        ))}
+      </section>
+    </div>
+  );
+}
