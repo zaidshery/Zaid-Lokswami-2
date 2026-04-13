@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertCircle, CheckCircle2, Loader2, LockKeyhole } from 'lucide-react';
 import Logo from '@/components/layout/Logo';
@@ -14,7 +14,7 @@ type SetupProfile = {
   setupExpiresAt: string | null;
 };
 
-export default function SetupAdminAccountPage() {
+function SetupAdminAccountContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const token = searchParams.get('token') || '';
@@ -251,5 +251,31 @@ export default function SetupAdminAccountPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+function SetupAdminAccountFallback() {
+  return (
+    <main className="relative min-h-screen overflow-hidden bg-[linear-gradient(180deg,#09090b_0%,#18181b_100%)]">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(230,57,70,0.2),transparent_32%)]" />
+      <div className="relative mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-4 py-10">
+        <div className="w-full max-w-xl rounded-[32px] border border-white/10 bg-white/95 p-8 shadow-[0_40px_120px_-60px_rgba(0,0,0,0.8)] dark:bg-zinc-950/92">
+          <div className="flex justify-center">
+            <Logo size="lg" href="/main" />
+          </div>
+          <div className="mt-8 flex items-center justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-red-500" />
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+export default function SetupAdminAccountPage() {
+  return (
+    <Suspense fallback={<SetupAdminAccountFallback />}>
+      <SetupAdminAccountContent />
+    </Suspense>
   );
 }
