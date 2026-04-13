@@ -98,7 +98,8 @@ Useful checks:
 ```bash
 npm run lint
 npm run typecheck
-npm run build
+npm run build:ci
+npm run build:hostinger
 ```
 
 ## Seeding
@@ -204,9 +205,19 @@ Hostinger Node deployment is the supported production path for this repo.
 - `npm run test:smoke -- https://your-domain.com` now checks live HTML asset integrity, not just status codes
 - See `HOSTINGER_DEPLOY.md` for the full server checklist
 
+Vercel is also supported for the `Zaid-Lokswami-2` GitHub repo with Git-based CI/CD.
+
+- GitHub Actions handles CI with lint, typecheck, tests, and a CI-safe production build
+- Vercel should use `npm run build:vercel` as the build command
+- Keep `main` as the production branch in Vercel
+- Configure production env vars before the first live deploy: `MONGODB_URI`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `NEXT_PUBLIC_SITE_URL`
+- Add Cloudinary env vars as well if uploads or e-paper assets are used in production
+- See `VERCEL_CICD_SETUP.md` for the full setup and branch-protection checklist
+
 ## Project Docs
 
 - `HOSTINGER_DEPLOY.md` for the production deployment flow
+- `VERCEL_CICD_SETUP.md` for GitHub Actions + Vercel CI/CD
 - `DEPLOY_SMOKE_CHECKLIST.md` for the post-deploy verification pass
 - `ADMIN_RUNTIME_CHECKLIST.md` for production admin and CMS verification
 - `NEXT_SPRINT.md` for the current priority order and sprint direction
@@ -215,6 +226,8 @@ Hostinger Node deployment is the supported production path for this repo.
 
 ```bash
 npm run dev
+npm run build:ci
+npm run build:vercel
 npm run build
 npm run start
 npm run lint

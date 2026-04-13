@@ -5,18 +5,25 @@ on:
   push:
     branches: [ main ]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -31,5 +38,5 @@ jobs:
       - name: Test
         run: npm run test:ci
 
-      - name: Build
-        run: npm run build
+      - name: Build (CI-safe)
+        run: npm run build:ci

@@ -9,6 +9,8 @@
     "predev": "npm run prepare:next:dev && npm run clean:next",
     "prebuild": "npm run prepare:next:prod && npm run clean:next",
     "dev": "next dev",
+    "build:ci": "npm run prebuild && npm run build:next",
+    "build:vercel": "npm run build:ci",
     "build": "npm run build:next && node scripts/prepare-hostinger.js",
     "build:hostinger": "npm run build",
     "build:next": "next build",
